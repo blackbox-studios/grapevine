@@ -1,16 +1,13 @@
 "use client"
 
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
-
 import Crest from "@/components/Crest"
 import TypeLogoLight from "@/assets/svg/type-logo-light.svg"
 import TypeLogoDark from "@/assets/svg/type-logo-dark.svg"
-import Ripple from "@/assets/svg/ripple.svg"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
 import Hyperlink from "@/components/Hyperlink"
+import { useForm } from "react-hook-form"
 import {
     Form,
     FormControl,
@@ -21,17 +18,16 @@ import {
 } from "@/components/ui/form"
 import { useLogin } from "@/lib/store/auth/hook"
 
-const schema = z.object({
-    email: z.email("Enter a valid email"),
-})
-
 const LoginPage = () => {
-    const { login, loading } = useLogin()
+    const { login, loading, clearError } = useLogin()
 
-    /* Identifier-first: collect the email, hand off to Auth0 as `login_hint`. */
+    /* Demo mode: no validation — any submission (including empty fields)
+     * signs the user in. */
     const form = useForm({
-        resolver: zodResolver(schema),
-        defaultValues: { email: "" },
+        defaultValues: {
+            email: "admin@scrolls.chat",
+            password: "admin@scrolls.chat",
+        },
     })
 
     const { handleSubmit } = form
@@ -53,20 +49,36 @@ const LoginPage = () => {
                         <Form {...form}>
                             <form
                                 className="flex flex-col gap-6"
-                                onSubmit={handleSubmit(async (data) => { await login(data.email) })}
+                                onSubmit={handleSubmit(async (data) => { clearError(); await login(data.email, data.password) })}
                             >
                                 <FormField
                                     control={form.control}
                                     name="email"
                                     render={({ field }) => (
-                                        <FormItem>
+                                        <FormItem >
                                             <FormLabel>Email</FormLabel>
                                             <FormControl>
                                                 <Input
                                                     type="email"
                                                     placeholder="joe.davis@example.com"
-                                                    autoComplete="email"
-                                                    autoFocus
+                                                    disabled={loading}
+                                                    {...field}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <FormField
+                                    control={form.control}
+                                    name="password"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Password</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="password"
                                                     disabled={loading}
                                                     {...field}
                                                 />
@@ -77,14 +89,18 @@ const LoginPage = () => {
                                 />
 
                                 <Button type="submit" size="lg" className="mt-4" disabled={loading}>
-                                    {loading ? (
-                                        <Ripple
-                                            aria-label="Continuing to sign in"
-                                            className="size-8 [&_circle]:stroke-current"
-                                        />
-                                    ) : (
-                                        "Continue"
-                                    )}
+                                    Sign in
+                                </Button>
+
+                                <div className="relative flex items-center justify-center">
+                                    <Separator className="absolute inset-0 top-1/2" />
+                                    <span className="relative bg-background px-3 text-xs text-muted-foreground">
+                                        OR
+                                    </span>
+                                </div>
+
+                                <Button type="submit" variant="outline" size="lg" className="w-full text-primary" disabled={loading}>
+                                    Sign in anyways
                                 </Button>
                             </form>
                         </Form>

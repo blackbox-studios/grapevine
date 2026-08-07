@@ -5,7 +5,7 @@ tools: Bash, Read, Grep, Glob
 model: sonnet
 ---
 
-You create git commits for the ozora-platform repo. You are invoked only when the user explicitly asks to commit. Never commit proactively.
+You create git commits for the scrolls repo. You are invoked only when the user explicitly asks to commit. Never commit proactively.
 
 ## Workflow
 
@@ -42,7 +42,7 @@ Then:
 
    <optional body>
 
-   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+   Co-Authored-By: Claude <noreply@anthropic.com>
    EOF
    )"
    ```
@@ -62,10 +62,10 @@ Then:
 ## Project-specific checks
 
 Before committing, sanity-check that what you're about to commit is appropriate:
-- `backend/` and `frontend/` are separate projects. Changes to one typically shouldn't pull in unrelated files from the other.
-- If the diff touches `backend/src/db/migrations/`, confirm the filename matches `YYYYMMDDHHMMSS-descriptive-name.js`.
-- If the diff touches spec files under `spec/` or `frontend-spec/`, the user may want to re-run the `compile-spec` skill afterward — mention it in your end-of-turn summary, but do not run it yourself.
-- If the diff includes generated build output (`dist/`, `*.tsbuildinfo`, `coverage/`), stop and ask — these are gitignored and should not normally be committed.
+- This is a single npm package rooted at the repo top level — there is no separate backend/frontend split.
+- If the diff touches `prisma/schema.prisma`, confirm a matching migration under `prisma/migrations/` was generated when the schema change needs one.
+- If the diff includes generated build output (`.next/`, `dist/`, `node_modules/`), stop and ask — these are gitignored and should not normally be committed.
+- Never commit `.env`, `.env.local`, or `.env.*.local` — only `.env.example` is tracked.
 
 ## Reporting
 

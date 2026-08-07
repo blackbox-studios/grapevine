@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit secrets scan for ozora-platform.
+# Pre-commit secrets scan for scrolls.
 # Invoked as a PreToolUse hook on `Bash(git commit*)` — exit 0 to allow,
 # emit PreToolUse JSON with permissionDecision=deny to block.
 #

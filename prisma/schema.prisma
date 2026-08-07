@@ -1,0 +1,27 @@
+// Prisma schema. Docs: https://pris.ly/d/prisma-schema
+//
+// Wired but idle: the app still runs entirely on the in-session mock data in
+// `src/lib/metadata.js`. Nothing imports the Prisma client (`src/lib/db.js`) yet,
+// so no database connection is opened until you start using it. When you are ready
+// to persist real data, model your domain here and run `npm run prisma:migrate`.
+//
+// Uses the `prisma-client-js` generator (ready-to-run JS in node_modules) so app
+// code can `import { prisma } from "@/lib/db"` with no build/transpile step.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Example model to bootstrap the schema and prove the wiring end to end.
+// Replace with the real domain as it is designed, then run `npm run prisma:migrate`.
+model ExampleNote {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

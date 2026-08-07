@@ -1,5 +1,5 @@
 import { appPath } from "@/lib/utils"
-import { ConnectMetrcDialog } from "@/components/Dialog"
+import { ConnectDialog } from "@/components/Dialog"
 
 const ConnectPage = () => (
     <div className="flex flex-col gap-10 pb-10">
@@ -29,12 +29,12 @@ const ConnectPage = () => (
                 </h1>
 
                 <p className="text-base leading-relaxed  [&_em]:font-serif  text-white/85 [&_em]:italic [&_em]:text-xl [&_em]:px-1">
-                    Link your <em>Metrc</em> account so Ozora can sync your
-                    compliance data and bring everything into one place.
+                    Link an external <em>service</em> so Scrolls can sync your
+                    data and bring everything into one place.
                 </p>
 
                 <div className="pt-8">
-                    <ConnectMetrcDialog />
+                    <ConnectDialog />
                 </div>
             </div>
         </section>

@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Create a git commit for the current staged and/or unstaged changes in the ozora-platform repo. Use when the user says "commit", "make a commit", "commit these changes", or "commit and push". Runs the standard status/diff/log inspection, drafts a message that matches this repo's gerund-first style, stages files by explicit path, refuses to commit secrets, and uses the Co-Authored-By trailer. Never invokes destructive operations or bypasses hooks.
+description: Create a git commit for the current staged and/or unstaged changes in the scrolls repo. Use when the user says "commit", "make a commit", "commit these changes", or "commit and push". Runs the standard status/diff/log inspection, drafts a message that matches this repo's gerund-first style, stages files by explicit path, refuses to commit secrets, and uses the Co-Authored-By trailer. Never invokes destructive operations or bypasses hooks.
 ---
 
 # Commit
@@ -43,7 +43,7 @@ Then:
 
    <optional body>
 
-   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+   Co-Authored-By: Claude <noreply@anthropic.com>
    EOF
    )"
    ```
@@ -52,9 +52,10 @@ Then:
 
 ## Project-specific checks
 
-- `backend/` and `frontend/` are separate projects. A single commit shouldn't pull in unrelated files from the other side unless it's genuinely cross-cutting.
-- If the diff touches `backend/src/db/migrations/`, confirm the filename matches `YYYYMMDDHHMMSS-descriptive-name.js` (see `migration-writer` agent).
-- If the diff includes `dist/`, `*.tsbuildinfo`, or `coverage/`, stop and ask — these are gitignored and shouldn't be committed.
+- This is a single npm package rooted at the repo top level — there is no separate backend/frontend split.
+- If the diff touches `prisma/schema.prisma`, confirm a matching migration under `prisma/migrations/` was generated (`npm run prisma:migrate`) when the schema change needs one.
+- If the diff includes `.next/`, `dist/`, or `node_modules/`, stop and ask — these are gitignored build output and shouldn't be committed.
+- Never commit `.env`, `.env.local`, or `.env.*.local` — only `.env.example` is tracked.
 
 ## Hard rules
 

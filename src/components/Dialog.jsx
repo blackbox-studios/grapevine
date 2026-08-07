@@ -25,11 +25,11 @@ import {
 } from "@/components/ui/collapsible"
 
 const STEPS = [
-    { src: "/video/metrc-api-click.mp4", label: "Open the API settings" },
+    { src: "/video/connect-api-click.mp4", label: "Open the API settings" },
     { src: "/video/generate-key.mp4", label: "Generate your key" },
 ]
 
-export const ConnectMetrcDialog = () => {
+export const ConnectDialog = () => {
     const [open, setOpen] = useState(false)
     const [apiKey, setApiKey] = useState("")
     const [show, setShow] = useState(false)
@@ -38,8 +38,8 @@ export const ConnectMetrcDialog = () => {
         e.preventDefault()
         if (!apiKey.trim()) return
 
-        // TODO: persist to store / backend once the Metrc API is wired in.
-        console.log("Saving Metrc API key", apiKey)
+        // TODO: persist to store / backend once a real integration is wired in.
+        console.log("Saving API key", apiKey)
 
         setApiKey("")
         setShow(false)
@@ -64,7 +64,7 @@ export const ConnectMetrcDialog = () => {
                         "group inline-flex items-center gap-2 w-fit rounded-full bg-white text-[#758090] px-12 py-6 hover:bg-white/80",
                     )}
                 >
-                    Connect Metrc
+                    Connect
                     <Arrow className="size-3 transition-transform duration-200 group-hover:translate-x-0.5" />
                 </Button>
             </DialogTrigger>
@@ -72,12 +72,12 @@ export const ConnectMetrcDialog = () => {
             <DialogContent>
                 <Collapsible>
                     <DialogHeader>
-                        <DialogTitle>Connect Metrc</DialogTitle>
+                        <DialogTitle>Connect a service</DialogTitle>
                         <DialogDescription asChild>
                             <div>
-                                Paste your Metrc API key so Ozora can sync your
-                                compliance data. You can revoke it any time from
-                                your Metrc account.&nbsp;&nbsp;
+                                Paste your API key so Scrolls can sync your
+                                data. You can revoke it any time from the
+                                connected service.&nbsp;&nbsp;
                                 <CollapsibleTrigger asChild>
                                     <Hyperlink className="cursor-pointer items-center gap-0.5 align-baseline">
                                         Learn how
@@ -127,13 +127,13 @@ export const ConnectMetrcDialog = () => {
 
                 <form onSubmit={handleSave} className="flex flex-col gap-6">
                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="metrc-api-key">API key</Label>
+                        <Label htmlFor="api-key">API key</Label>
                         <div className="relative w-full">
                             <Input
-                                id="metrc-api-key"
+                                id="api-key"
                                 type={show ? "text" : "password"}
                                 autoComplete="new-password"
-                                placeholder="Enter your Metrc API key"
+                                placeholder="Enter your API key"
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
                                 className="pr-12"

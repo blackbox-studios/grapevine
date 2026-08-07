@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Open a pull request from the current branch to main for the ozora-platform repo. Use when the user says "create a PR", "open a PR", "ship this branch", or asks to put up changes for review. Handles push + upstream tracking, derives title/body from the branch's commits, matches this repo's title style, and refuses to target main from main.
+description: Open a pull request from the current branch to main for the scrolls repo. Use when the user says "create a PR", "open a PR", "ship this branch", or asks to put up changes for review. Handles push + upstream tracking, derives title/body from the branch's commits, matches this repo's title style, and refuses to target main from main.
 ---
 
 # Create PR
@@ -56,7 +56,7 @@ Then:
    ```
 
    - **Summary bullets** describe what changed and why — derive from commit subjects + the diff. Not a diff dump; synthesize.
-   - **Test plan bullets** are concrete verification steps tailored to *this* change. For backend changes: relevant `make test` targets, endpoint probes with the Bruno collection, migration apply/rollback. For frontend: pages to load, permissions to toggle, forms to submit. For tooling/harness changes (like `.claude/` config): the `/hooks` refresh, the scenario that exercises the hook.
+   - **Test plan bullets** are concrete verification steps tailored to *this* change: `npm run lint` / `npm run build`, pages to load, forms to submit, the login/logout flow to exercise. For Prisma/schema changes: the migration to apply (`npm run prisma:migrate`) and the query path to check. For tooling/harness changes (like `.claude/` config): the `/hooks` refresh, the scenario that exercises the hook.
    - Do **not** include the "🤖 Generated with Claude Code" footer — this repo's recent PRs don't use it.
 
 8. **Create the PR** with a heredoc to preserve formatting:

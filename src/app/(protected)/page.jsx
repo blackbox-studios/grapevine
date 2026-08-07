@@ -13,13 +13,13 @@ const DASHBOARD_CARDS = [
         gradient: appPath("/gradient-1.jpg"),
         Icon: NodeIcon,
         color: "oklch(53% 11% 227deg)",
-        title: "Connect Metrc",
+        title: "Connect a service",
         description: (
             <>
-                Link your <em>metrc</em> account so Ozora can sync compliance data.
+                Link an external <em>service</em> so Scrolls can sync your data.
             </>
         ),
-        cta: "Connect Metrc",
+        cta: "Connect",
         to: ROUTES.CONNECT,
     },
     {
@@ -46,7 +46,7 @@ const HomePage = () => {
                     Dashboard
                 </h1>
                 <p className="leading-normal text-muted-foreground">
-                    Ozora demo mode. All data is dummy and disconnected. Feel free to click around.
+                    Scrolls demo mode. All data is dummy and disconnected. Feel free to click around.
                 </p>
             </header>
 

@@ -1,23 +1,15 @@
 import { NextResponse } from "next/server"
 
-import { auth0 } from "@/lib/auth0"
-
-/* Auth gate backed by Auth0. auth0.middleware() mounts the /auth/* endpoints; we
- * gate the rest on the session. Unauthenticated → /login; authed on /login → /. */
+/* Server-side auth gate — the idiomatic Next.js replacement for client route guards.
+ * Reads the `scrolls-auth` cookie the mock login sets (see lib/store/auth/store.js):
+ * unauthenticated requests are bounced to /login, and authenticated requests to
+ * /login are sent to the dashboard. */
+const AUTH_COOKIE = "scrolls-auth"
 const LOGIN_PATH = "/login"
 
-export async function middleware(request) {
-    const authRes = await auth0.middleware(request)
-
+export function middleware(request) {
+    const authed = request.cookies.has(AUTH_COOKIE)
     const { pathname } = request.nextUrl
-
-    /* SDK owns /auth/*. */
-    if (pathname.startsWith("/auth")) {
-        return authRes
-    }
-
-    const session = await auth0.getSession(request)
-    const authed = Boolean(session)
     const onLogin = pathname === LOGIN_PATH
 
     if (!authed && !onLogin) {
@@ -32,13 +24,11 @@ export async function middleware(request) {
         return NextResponse.redirect(url)
     }
 
-    /* Return the SDK response so a refreshed session cookie is preserved. */
-    return authRes
+    return NextResponse.next()
 }
 
-/* Skip Next internals, the API, the public asset folders, and top-level static
- * files. `[^/]*\.` excludes a dot only in the first segment, so nested paths
- * like /foo/bar.jpg still hit the gate; add a folder here to serve deeper assets. */
+/* Run on every route except Next internals, the API, and static files (anything with
+ * a dot, e.g. /favicon.svg, /grain.png). */
 export const config = {
-    matcher: ["/((?!api|_next/static|_next/image|ext/|theme/|img/|[^/]*\\.).*)"],
+    matcher: ["/((?!api|_next/static|_next/image|.*\\.).*)"],
 }

@@ -1,5 +1,5 @@
 {
-  "name": "ozora-platform",
+  "name": "scrolls",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -7,12 +7,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@auth0/nextjs-auth0": "^4.25.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@hookform/resolvers": "^5.4.0",
+    "@prisma/client": "^6.2.1",
     "@svgr/webpack": "^8.1.0",
     "@tailwindcss/postcss": "^4.3.3",
     "class-variance-authority": "^0.7.1",
@@ -42,10 +46,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "baseline-browser-mapping": "^2.10.40",
+    "dotenv": "^16.4.7",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "prisma": "^6.2.1",
     "shadcn": "^4.12.0"
   }
 }

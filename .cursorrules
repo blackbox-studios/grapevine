@@ -1,0 +1,5 @@
+# Project Rules
+
+The canonical project guidance for all AI agents (Cursor, Claude Code, etc.) lives in `CLAUDE.md` at the repo root. Read it first.
+
+For feature work, follow the skill at `.claude/skills/develop/SKILL.md` and its linked `frontend-architecture.md` guide.

@@ -55,6 +55,7 @@
     --nav-width: 92px;
     --topbar-height: 92px;
     --bumper: 16px;
+    --bottombar-height: 64px;
     --mobile-menu-width: 260px;
     --scrollbar-width: 6px;
 }
@@ -83,12 +84,12 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.24 0.0266 255.78);
+    --background: oklch(100% 0% 68deg);
+    --foreground: oklch(17% 3% 236deg);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
+    --popover: oklch(98% 0% 197deg / 80%);
+    --popover-foreground: oklch(17% 3% 236deg);
     --primary: oklch(56% 51% 274deg);
     --primary-foreground: oklch(1 0 none);
     --secondary: oklch(49% 26% 253deg);
@@ -121,11 +122,11 @@
 }
 
 .dark {
-    --background: oklch(13% 10% 265deg);
+    --background: oklch(17% 3% 236deg);
     --foreground: oklch(0.985 0 0);
     --card: oklch(21% 10% 259deg);
     --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(13% 10% 265deg);
+    --popover: oklch(27% 0% 68deg);
     --popover-foreground: oklch(0.985 0 0);
     --primary: oklch(0.922 0 0);
     --primary-foreground: oklch(0.205 0 0);
@@ -247,7 +248,7 @@
 }
 
 @utility panel {
-  @apply shadow-[0_0_10px_rgba(0,0,0,0.14)] dark:shadow-[0_0_12px_0px_rgb(255,255,255,0.14)] border-[#EAEAEA] dark:border-[#232635];
+  @apply shadow-[0_4px_12px_#00000025] dark:shadow-[0_8px_48px_#0000002e] backdrop-blur-md;
 }
 
 @utility bg-dotted {

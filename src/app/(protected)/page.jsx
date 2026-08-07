@@ -9,32 +9,32 @@ import { Button } from "@/components/ui/button"
 
 const DASHBOARD_CARDS = [
     {
-        id: "connect",
+        id: "inbox",
         gradient: appPath("/gradient-1.jpg"),
         Icon: NodeIcon,
         color: "oklch(53% 11% 227deg)",
-        title: "Connect a service",
+        title: "Open your inbox",
         description: (
             <>
-                Link an external <em>service</em> so Scrolls can sync your data.
+                Catch up on <em>messages</em> from the people and groups you follow.
             </>
         ),
-        cta: "Connect",
-        to: ROUTES.CONNECT,
+        cta: "Go to Inbox",
+        to: ROUTES.INBOX,
     },
     {
-        id: "credentials",
+        id: "groups",
         gradient: appPath("/gradient-2.jpg"),
         Icon: AppsIcon,
         color: "oklch(49% 3% 45deg)",
-        title: "View Credentials",
+        title: "Browse Groups",
         description: (
             <>
-                Manage the <em>database</em> credentials that power your integration.
+                Find and join <em>groups</em> that match what you're into.
             </>
         ),
-        cta: "View Credentials",
-        to: ROUTES.CREDENTIALS,
+        cta: "View Groups",
+        to: ROUTES.GROUPS,
     },
 ]
 

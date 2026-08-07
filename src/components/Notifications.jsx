@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Ellipsis } from "lucide-react";
-import BellIcon from "@/assets/svg/icons/bell.svg";
+import BellIcon from "@/assets/svg/icons/bell-outline.svg";
 import { cn } from "@/lib/utils";
 import {
     Popover,

@@ -1,7 +1,7 @@
 export const ROUTES = {
     DEFAULT: "/",
-    CONNECT: "/connect",
-    CREDENTIALS: "/credentials",
+    INBOX: "/inbox",
+    GROUPS: "/groups",
     SETTINGS: "/settings",
     SETTINGS_USERS: "/settings/users",
     PUBLIC: {

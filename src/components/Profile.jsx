@@ -36,7 +36,7 @@ export default function ProfilePopover() {
                 <button
                     type="button"
                     aria-label="Account menu"
-                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border border-current outline-hidden"
+                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-current outline-hidden"
                 >
                     <p className="font-semibold uppercase">
                         {user?.full_name ? user.full_name.trim()?.[0]?.toUpperCase() : "X"}

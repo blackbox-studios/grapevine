@@ -42,7 +42,7 @@ const HomePage = () => {
     return (
         <div className="flex flex-col gap-10 pb-10">
             <header className="border-b pb-12 flex flex-col gap-4">
-                <h1 className="text-4xl font-semibold tracking-tight">
+                <h1 className="text-4xl font-medium ">
                     Dashboard
                 </h1>
                 <p className="leading-normal text-muted-foreground">
@@ -70,10 +70,10 @@ const HomePage = () => {
                             <Icon className="w-4 h-4" />
                         </div>
                         <div className="mt-auto pl-2">
-                            <h2 className="text-lg font-bold text-white mb-1">
+                            <h2 className="text-lg font-medium text-white mb-1">
                                 {title}
                             </h2>
-                            <p className="text-sm text-white/85 leading-relaxed [&_em]:font-serif [&_em]:italic [&_em]:text-lg [&_em]:px-1">
+                            <p className=" text-white/85 leading-tight [&_em]:font-serif [&_em]:italic [&_em]:text-lg [&_em]:px-1">
                                 {description}
                             </p>
                         </div>

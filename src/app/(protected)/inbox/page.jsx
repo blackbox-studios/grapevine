@@ -4,7 +4,7 @@ const InboxPage = () => (
     <div className="flex flex-col gap-10 pb-10">
 
         <header className=" pb-12 flex flex-col gap-4">
-            <h1 className="text-4xl font-semibold tracking-tight">
+            <h1 className="text-4xl font-medium ">
                 Inbox
             </h1>
         </header>

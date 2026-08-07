@@ -9,8 +9,6 @@ import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import GroupIcon from "@/assets/svg/icons/group.svg"
 import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
-import Crest from "@/components/Crest"
-import Breadcrumb from "@/components/Breadcrumb";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
@@ -87,16 +85,9 @@ const ProtectedLayout = ({ children }) => {
                         </div>
                     </nav>
 
-                    <nav className="px-4 md:px-8 fixed left-0 md:left-(--nav-width) top-0 w-[calc(100vw-var(--scrollbar-width))] md:w-[calc(100vw-var(--nav-width))] h-(--topbar-height) flex bg-background/20 backdrop-blur-md pointer-events-auto z-10">
-                        <div className="flex flex-row gap-4 md:gap-8 items-center min-w-0">
-                            <Crest className="my-auto h-8 w-auto opacity-80 shrink-0" />
-                            <Breadcrumb className="pt-0.5" />
-                        </div>
-                    </nav>
-
                     <div ref={scrollRef} className="fixed left-0 md:left-(--nav-width) w-full md:w-[calc(100vw-var(--nav-width))] h-screen z-1 overflow-y-auto">
                         <div className="w-full h-fit px-4 md:px-8 lg:px-18 ">
-                            <main className="flex flex-col w-full h-fit mx-auto max-w-8xl pt-[calc(var(--topbar-height)+2rem)] md:pt-[calc(var(--topbar-height)+3rem)] pb-[calc(var(--bottombar-height)+1.5rem)] md:pb-0">
+                            <main className="flex flex-col w-full h-fit mx-auto max-w-8xl pt-8 md:pt-12 pb-[calc(var(--bottombar-height)+1.5rem)] md:pb-0">
                                 {/* Collapse every /settings* route to one key so switching sub-tabs
                                     doesn't fade here — the Settings layout runs its own nested
                                     transition for that. */}

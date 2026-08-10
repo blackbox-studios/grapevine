@@ -5,9 +5,9 @@ import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { appPath, cn } from "@/lib/utils"
 
 const THEME_OPTIONS = [
-    { value: "light", label: "Light", image: appPath("/theme/light.png") },
-    { value: "system", label: "Auto", image: appPath("/theme/light-dark.png") },
-    { value: "dark", label: "Dark", image: appPath("/theme/dark.png") },
+    { value: "light", label: "Light", image: appPath("/img/theme/light.png") },
+    { value: "system", label: "Auto", image: appPath("/img/theme/light-dark.png") },
+    { value: "dark", label: "Dark", image: appPath("/img/theme/dark.png") },
 ]
 
 const SettingsGeneralPage = () => {

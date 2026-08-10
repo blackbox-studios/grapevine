@@ -2,6 +2,7 @@ import { useMemo } from "react"
 
 import useAppStore from "@/lib/store/app/store"
 import useAuthStore from "@/lib/store/auth/store"
+import useFeedStore from "@/lib/store/feed/store"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* Aggregates errors from every store. Error values may be primitives
@@ -10,13 +11,15 @@ import useGlobalStore from "@/lib/store/global.store"
 export const useErrors = () => {
     const appError = useAppStore(state => state.error)
     const authError = useAuthStore(state => state.error)
+    const feedError = useFeedStore(state => state.error)
     const clearErrors = useGlobalStore(state => state.clearErrors)
 
     return useMemo(() => ({
         errors: {
             app: appError,
             auth: authError,
+            feed: feedError,
         },
         clearErrors,
-    }), [appError, authError, clearErrors])
+    }), [appError, authError, feedError, clearErrors])
 }

@@ -105,4 +105,33 @@ export function TableSkeleton({
     )
 }
 
+/* Skeleton for the Instagram-style home feed (see components/Feed.jsx): stacked
+ * post cards, each an avatar + name lines, a tall media block, an action row, and
+ * a couple of caption lines. */
+export function FeedSkeleton({ count = 3 }) {
+    return (
+        <div className="flex flex-col gap-8">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                        <Skeleton className="size-9 shrink-0 rounded-full" />
+                        <div className="flex flex-col gap-1.5">
+                            <Skeleton className="h-3.5 w-36" />
+                            <Skeleton className="h-3 w-24" />
+                        </div>
+                    </div>
+                    <Skeleton className="aspect-4/5 w-full rounded-lg" />
+                    <div className="flex items-center gap-4 pt-1">
+                        <Skeleton className="size-6 rounded-full" />
+                        <Skeleton className="size-6 rounded-full" />
+                    </div>
+                    <Skeleton className="h-3.5 w-24" />
+                    <Skeleton className="h-3.5 w-full" />
+                    <Skeleton className="h-3.5 w-2/3" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
 export default Skeleton

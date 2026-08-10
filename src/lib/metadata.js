@@ -132,3 +132,86 @@ export const EVENTS = [
         status: "complete",
     },
 ]
+
+/* Seed social feed — an Instagram-style home feed carrying a parish/church's
+ * posts. Images live under public/img/mock and are referenced root-absolute;
+ * render them through appPath() so they resolve under a subpath. The `feed`
+ * store paginates over this array (see lib/store/feed/store.js). */
+export const FEED = [
+    {
+        id: "post-001",
+        author: {
+            username: "holytrinitycathedral",
+            name: "Holy Trinity Cathedral",
+            verified: true,
+        },
+        location: "San Francisco, CA",
+        timeAgo: "2d",
+        image: "/img/mock/dummy-photo1.jpg",
+        caption:
+            "New parishioner — congratulations! 🎉 Cyrus John Novak, born 8/3 at 6:41am, 9lbs 5oz and 22.5in. Stephanie and Cyrus are both doing well. Glory to God — many years! 🙏",
+        likes: 182,
+        likedBy: "mat.carly",
+        comments: 5,
+        shares: 2,
+        liked: false,
+        saved: false,
+    },
+    {
+        id: "post-002",
+        author: {
+            username: "orthodrexler",
+            name: "Orthodrexler",
+            verified: false,
+        },
+        location: "Dodoma, Tanzania",
+        timeAgo: "1w",
+        image: "/img/mock/dummy-photo2.jpg",
+        caption:
+            "Holy Trinity Orthodox Church in Dodoma, Tanzania. Opened earlier this year, it is a parish of the Diocese of Arusha and the first Orthodox temple in the region. Axios! ☦️",
+        likes: 39,
+        likedBy: "katieoconnell13",
+        comments: 4,
+        shares: 1,
+        liked: false,
+        saved: false,
+    },
+    {
+        id: "post-003",
+        author: {
+            username: "stgeorge.youth",
+            name: "St. George Youth Group",
+            verified: false,
+        },
+        location: "Lakeside Fellowship Hall",
+        timeAgo: "3d",
+        image: "/img/mock/dummy-photo3.jpg",
+        caption:
+            "Coffee hour by the lake after Divine Liturgy this morning. Thank you to everyone who stayed to fellowship — and to the youth group for setting up. See you next Sunday! ⛪",
+        likes: 74,
+        likedBy: "fr.alexander",
+        comments: 8,
+        shares: 0,
+        liked: false,
+        saved: false,
+    },
+    {
+        id: "post-004",
+        author: {
+            username: "holytrinitycathedral",
+            name: "Holy Trinity Cathedral",
+            verified: true,
+        },
+        location: "San Francisco, CA",
+        timeAgo: "5d",
+        image: "/img/mock/dummy-photo1.jpg",
+        caption:
+            "Feast day Vespers tonight at 6:30pm followed by a potluck in the hall. Bring a dish to share — all are welcome. 🕯️",
+        likes: 121,
+        likedBy: "lori.n",
+        comments: 3,
+        shares: 4,
+        liked: false,
+        saved: false,
+    },
+]

@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
-import { LoadOverlay } from "@/components/Loading";
 import PageTransition from "@/components/PageTransition";
 import { useScroll } from "@/lib/providers/Scroll";
 import Grain from "@/components/Grain";
@@ -93,7 +92,6 @@ const ProtectedLayout = ({ children }) => {
 
     return (
         <>
-            <LoadOverlay />
                 <Grain />
             <div className="relative h-screen w-full bg-background overflow-x-hidden">
                 <div className="relative h-full w-full bg-background">
@@ -103,7 +101,7 @@ const ProtectedLayout = ({ children }) => {
                         onMouseEnter={() => setNavOpen(true)}
                         onMouseLeave={() => setNavOpen(false)}
                         className={cn(
-                            "group hidden md:flex fixed left-0 top-0 h-screen flex-col items-stretch overflow-hidden bg-background text-sidebar-foreground z-2 transition-[width,border-color] duration-200 ease-out",
+                            "group hidden md:flex fixed left-0 top-0 h-screen flex-col items-stretch overflow-hidden bg-background/70 supports-backdrop-filter:bg-background/50 backdrop-blur-md  text-sidebar-foreground z-2 transition-[width,border-color] duration-200 ease-out",
                             navOpen ? "w-60 border-border" : "w-(--nav-width) border-transparent",
                         )}
                     >

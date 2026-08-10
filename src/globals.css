@@ -6,6 +6,7 @@
 
 @theme inline {
     --font-heading: 'ES Rebond Grotesque', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Tangerine', ui-serif, Georgia, 'Times New Roman', serif;
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
     --color-sidebar-ring: var(--sidebar-ring);
@@ -147,8 +148,28 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-heading tracking-[-0.02em]
   }
+  h1 {
+    @apply font-display tracking-normal
+  }
   p{
     @apply tracking-[-0.015em]
+  }
+
+  @font-face {
+    font-family: 'Tangerine';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('./assets/fonts/Tangerine/TangerineRegular.woff2') format('woff2'),
+         url('./assets/fonts/Tangerine/TangerineRegular.woff') format('woff');
+  }
+  @font-face {
+    font-family: 'Tangerine';
+    font-style: italic;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('./assets/fonts/Tangerine/TangerineItalic.woff2') format('woff2'),
+         url('./assets/fonts/Tangerine/TangerineItalic.woff') format('woff');
   }
 
   @font-face {

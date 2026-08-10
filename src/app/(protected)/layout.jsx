@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import HomeIcon from "@/assets/svg/icons/home.svg"
@@ -9,6 +10,7 @@ import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import GroupIcon from "@/assets/svg/icons/group.svg"
 import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
@@ -43,28 +45,51 @@ const NAV = [
 const isActive = (pathname, href) =>
     href === ROUTES.DEFAULT ? pathname === ROUTES.DEFAULT : pathname.includes(href)
 
-/* Renders a routed icon link with an outline↔filled crossfade for the active page. */
-const NavItem = ({ item, pathname }) => {
+/* Renders a routed icon link with an outline↔filled crossfade for the active page.
+ * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
+ * the label fades in only while the rail (the `group`) is hovered. */
+const NavItem = ({ item, pathname, onNavigate }) => {
     const { title, href, Outline, Filled } = item
     const active = isActive(pathname, href)
 
     return (
         <Link
             href={href}
-            title={title}
             aria-label={title}
             data-current={active}
-            className="flex items-center justify-center cursor-pointer select-none"
+            onClick={onNavigate}
+            className="flex items-center justify-center md:justify-start select-none cursor-pointer md:h-12 md:rounded-md md:transition-colors md:hover:bg-accent"
         >
-            <NavIcon Outline={Outline} Filled={Filled} active={active} />
+            <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
+                <NavIcon Outline={Outline} Filled={Filled} active={active} />
+            </span>
+            <span
+                className={cn(
+                    "hidden md:block whitespace-nowrap pr-4 text-base leading-none opacity-0 transition-opacity duration-200 ease-out group-data-[open=true]:opacity-100",
+                    active ? "font-bold" : "font-normal",
+                )}
+            >
+                {title}
+            </span>
         </Link>
     )
 }
+
+/* Centers a bottom-rail menu trigger in the same fixed icon box as NavItem, so
+ * its glyph stays put when the rail expands. */
+const NavSlot = ({ children }) => (
+    <div className="flex items-center h-12">
+        <span className="w-[calc(var(--nav-width)-1rem)] shrink-0 flex items-center justify-center">
+            {children}
+        </span>
+    </div>
+)
 
 /* Auth redirects are handled by middleware.js (see it for the protected-route gate). */
 const ProtectedLayout = ({ children }) => {
     const pathname = usePathname()
     const { scrollRef, scrollToTop } = useScroll()
+    const [navOpen, setNavOpen] = useState(false)
 
     return (
         <>
@@ -73,15 +98,23 @@ const ProtectedLayout = ({ children }) => {
             <div className="relative h-screen w-full bg-background overflow-x-hidden">
                 <div className="relative h-full w-full bg-background">
 
-                    <nav className="hidden md:flex fixed left-0 w-(--nav-width) h-screen flex-col items-center text-sidebar-foreground z-2">
-                        <div className="flex flex-1 flex-col items-center justify-center gap-9">
+                    <nav
+                        data-open={navOpen}
+                        onMouseEnter={() => setNavOpen(true)}
+                        onMouseLeave={() => setNavOpen(false)}
+                        className={cn(
+                            "group hidden md:flex fixed left-0 top-0 h-screen flex-col items-stretch overflow-hidden bg-background text-sidebar-foreground z-2 transition-[width,border-color] duration-200 ease-out",
+                            navOpen ? "w-60 border-border" : "w-(--nav-width) border-transparent",
+                        )}
+                    >
+                        <div className="flex flex-1 flex-col justify-center gap-2 px-2">
                             {NAV.map((item, idx) => (
-                                <NavItem key={idx} item={item} pathname={pathname} />
+                                <NavItem key={idx} item={item} pathname={pathname} onNavigate={() => setNavOpen(false)} />
                             ))}
                         </div>
-                        <div className="pb-8 flex flex-col items-center gap-6 pt-6">
-                            <NotificationsMenu />
-                            <ProfileMenu />
+                        <div className="pb-8 pt-6 px-2 flex flex-col gap-2">
+                            <NavSlot><NotificationsMenu /></NavSlot>
+                            <NavSlot><ProfileMenu /></NavSlot>
                         </div>
                     </nav>
 

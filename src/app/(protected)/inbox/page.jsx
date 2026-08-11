@@ -10,7 +10,7 @@ const InboxPage = () => (
         </header>
         <section className="relative w-full min-h-[calc(100vh-420px)] rounded-5xl overflow-hidden flex flex-col items-center justify-center text-center px-6 py-20">
             <img
-                src={appPath("/img/clouds.jpg")}
+                src={appPath("/img/grid.jpg")}
                 alt="splatter"
                 aria-hidden="true"
                 fetchPriority="high"
@@ -22,7 +22,7 @@ const InboxPage = () => (
                 className="absolute inset-0 -z-1 "
             />
 
-            <div className=" flex flex-col items-center gap-3 pb-[7%]">
+            {/* <div className=" flex flex-col items-center gap-3 pb-[7%]">
                 <h1 className="text-2xl text-white  tracking-tight font-serif italic">
                     Your inbox is empty :)
                 </h1>
@@ -31,7 +31,7 @@ const InboxPage = () => (
                     New <em>messages</em> from people and groups you follow will
                     show up here.
                 </p>
-            </div>
+            </div> */}
         </section>
     </div>
 )

@@ -92,7 +92,7 @@ const ProtectedLayout = ({ children }) => {
 
     return (
         <>
-                <Grain />
+            <Grain />
             <div className="relative h-screen w-full bg-background overflow-x-hidden">
                 <div className="relative h-full w-full bg-background">
 

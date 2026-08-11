@@ -1,133 +1,104 @@
 "use client"
 
-import Crest from "@/components/Crest"
-import TypeLogoLight from "@/assets/svg/type-logo-light.svg"
-import TypeLogoDark from "@/assets/svg/type-logo-dark.svg"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { motion } from "motion/react"
+
+import Ripple from "@/assets/svg/ripple.svg"
+import TypeLogo from "@/assets/svg/type-logo.svg"
+import GlossyMark, { paletteFor, useMarkCycle } from "@/components/GlossyMark"
 import Hyperlink from "@/components/Hyperlink"
-import { useForm } from "react-hook-form"
-import {
-    Form,
-    FormControl,
-    FormField,
-    FormItem,
-    FormLabel,
-    FormMessage,
-} from "@/components/ui/form"
+import Transition from "@/components/Transition"
+import { Button } from "@/components/ui/button"
 import { useLogin } from "@/lib/store/auth/hook"
+
+/* Demo mode: credentials are ignored, so the single button signs straight in. */
+const DEMO_CREDENTIALS = { email: "admin@scrolls.chat", password: "admin@scrolls.chat" }
 
 const LoginPage = () => {
     const { login, loading, clearError } = useLogin()
+    const { from, to, advance } = useMarkCycle()
 
-    /* Demo mode: no validation — any submission (including empty fields)
-     * signs the user in. */
-    const form = useForm({
-        defaultValues: {
-            email: "admin@scrolls.chat",
-            password: "admin@scrolls.chat",
-        },
-    })
+    /* The button wears whatever colour the mark is currently wearing. It updates
+     * when the logo is tapped, via a custom property — Tailwind tokens can't
+     * express the runtime palette. Every accent clears contrast against white text,
+     * so the label stays white throughout. */
+    const palette = paletteFor(to)
 
-    const { handleSubmit } = form
+    const handleSignIn = async () => {
+        clearError()
+        await login(DEMO_CREDENTIALS.email, DEMO_CREDENTIALS.password)
+    }
 
     return (
-        <div className="w-full min-h-screen flex lg:items-center justify-center bg-sidebar lg:px-8">
-            <div className="lg:panel bg-background  relative max-w-350 w-full min-h-screen lg:min-h-0 lg:h-190 lg:rounded-5xl flex flex-col-reverse lg:grid lg:grid-cols-[1fr_1fr] lg:mb-[5dvh] overflow-hidden">
-                <div className="relative w-full flex-1 lg:h-full flex justify-center items-center px-8 py-10">
-                    <div className="flex flex-col w-full max-w-sm lg:mr-[12%] pb-4 ">
-                        <div className="flex flex-col gap-5 items-center pb-16">
-                            <div className="hidden lg:block">
-                                <Crest className="w-10 h-auto text-primary" />
-                            </div>
-                            <h1 className="font-serif text-3xl">
-                                Welcome Back
-                            </h1>
-                        </div>
+        <div
+            className="relative flex min-h-dvh w-full flex-col overflow-hidden bg-background"
+            style={{ "--mark-accent": palette.accent }}
+        >
+            {/* Wordmark, desktop only. Its paths ship as solid white, so recolour
+              * them with currentColor to track the theme. */}
+            <TypeLogo
+                aria-label="Synaxis"
+                className="absolute left-10 top-8 hidden h-12 w-auto text-(--mark-accent) [&_path]:fill-current lg:block"
+            />
 
-                        <Form {...form}>
-                            <form
-                                className="flex flex-col gap-6"
-                                onSubmit={handleSubmit(async (data) => { clearError(); await login(data.email, data.password) })}
+            {/* Mobile spreads the mark across the free space with the button pinned
+              * low; desktop (lg) collapses that and centres the whole stack, adding
+              * the welcome copy between the mark and the button. */}
+            <main className="flex flex-1 flex-col lg:items-center lg:justify-center lg:gap-8 lg:py-16">
+                <div className="flex flex-1 items-center justify-center px-8 lg:flex-none lg:px-0">
+                    <GlossyMark
+                        from={from}
+                        to={to}
+                        onClick={advance}
+                        className="w-[min(40vw,15rem)] lg:w-32"
+                    />
+                </div>
+
+                {/* Everything but the mark fades in together, ~0.75s after mount, via
+                  * the shared Transition. The button colour cross-fades in CSS and its
+                  * press scale is motion's, so neither has to share this duration. */}
+                <Transition
+                    delay={0.75}
+                    className="flex h-auto w-full flex-col items-center gap-6 px-6 pb-12 sm:pb-16 lg:gap-8 lg:px-0 lg:pb-0"
+                >
+                    <div className="hidden flex-col items-center gap-1.5 text-center lg:flex">
+                        <h1 className="font-heading text-2xl font-semibold text-foreground">
+                            Welcome to Synaxis
+                        </h1>
+                        <p className="font-medium leading-2 tracking-normal text-muted-foreground font-heading">
+                            By Holy Trinity Cathedral
+                        </p>
+                    </div>
+
+                    <div className="flex w-full max-w-88 flex-col items-center gap-5">
+                        <Button
+                            asChild
+                            size="lg"
+                            className="h-14 w-full bg-(--mark-accent) text-white transition-all duration-500 hover:bg-(--mark-accent) hover:opacity-90"
+                        >
+                            <motion.button
+                                type="button"
+                                disabled={loading}
+                                onClick={handleSignIn}
+                                whileTap={{ scale: 0.96 }}
+                                transition={{ type: "spring", stiffness: 700, damping: 32, mass: 0.6 }}
                             >
-                                <FormField
-                                    control={form.control}
-                                    name="email"
-                                    render={({ field }) => (
-                                        <FormItem >
-                                            <FormLabel>Email</FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    type="email"
-                                                    placeholder="joe.davis@example.com"
-                                                    disabled={loading}
-                                                    {...field}
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                {loading ? (
+                                    <Ripple aria-label="Signing in" className="size-8 [&_circle]:stroke-current" />
+                                ) : (
+                                    "Sign in with email"
+                                )}
+                            </motion.button>
+                        </Button>
 
-                                <FormField
-                                    control={form.control}
-                                    name="password"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Password</FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                    type="password"
-                                                    disabled={loading}
-                                                    {...field}
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-
-                                <Button type="submit" size="lg" className="mt-4" disabled={loading}>
-                                    Sign in
-                                </Button>
-
-                                <div className="relative flex items-center justify-center">
-                                    <Separator className="absolute inset-0 top-1/2" />
-                                    <span className="relative bg-background px-3 text-xs text-muted-foreground">
-                                        OR
-                                    </span>
-                                </div>
-
-                                <Button type="submit" variant="outline" size="lg" className="w-full text-primary" disabled={loading}>
-                                    Sign in anyways
-                                </Button>
-                            </form>
-                        </Form>
-
-                        <div className=" text-muted-foreground leading-relaxed text-button text-center pt-8">
-                            I have read and consent to the&nbsp;&nbsp;
-                            <Hyperlink>
-                                System User Agreement
-                            </Hyperlink>
-                            &nbsp;.
+                        <div className="max-w-72 text-center text-xs leading-relaxed text-muted-foreground">
+                            By continuing you agree to the&nbsp;
+                            <Hyperlink >System User Agreement</Hyperlink>
+                            &nbsp;and&nbsp;
+                            <Hyperlink >Privacy Policy</Hyperlink>
                         </div>
                     </div>
-
-                    <div className="hidden dark:block absolute -bottom-75 -left-75 w-150 h-150 bg-[#ffffff0d] rounded-full blur-3xl" />
-                    <div className="hidden dark:block absolute -top-75 -right-75 w-150 h-150 bg-[#ffffff0d] rounded-full blur-3xl" />
-                </div>
-                <div className="relative bg-background dark:bg-transparent h-48 lg:h-full w-full lg:rounded-5xl overflow-hidden">
-                    <div className="absolute inset-0 bg-[url(/gradient-light.jpg)] dark:bg-[url(/granite.png)] bg-cover bg-center opacity-50 dark:opacity-100" />
-                    <div className="absolute inset-0 bg-[url(/grain.png)] bg-repeat opacity-40 mix-blend-overlay" />
-                    <div className="hidden dark:block absolute inset-0 bg-[linear-gradient(225deg,rgb(4_12_45/67%)_0%,rgb(2_6_25/75%)_100%)]" />
-                    <div className="absolute z-1 h-full w-full flex items-center justify-center p-[15%] ">
-                        <TypeLogoLight className="w-full h-auto max-w-50 dark:hidden" />
-                        <TypeLogoDark className="w-full h-auto max-w-50 hidden dark:block" />
-                    </div>
-                </div>
-
-            </div>
+                </Transition>
+            </main>
         </div>
     )
 }

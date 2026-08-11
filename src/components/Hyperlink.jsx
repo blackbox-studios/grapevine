@@ -15,7 +15,7 @@ const Hyperlink = ({ children, className, soft, href, ...props }) => {
     const Comp = href ? NextLink : "span"
 
     return (
-        <Comp className={cn("group text-inherit font-semibold w-fit inline-flex", className)} {...(href ? { href } : {})} {...props}>
+        <Comp className={cn("group text-inherit w-fit inline-flex cursor-pointer", className)} {...(href ? { href } : {})} {...props}>
             <div
                 className={cn(
                     "overflow-hidden relative w-fit pb-1.5 -mb-1.5",

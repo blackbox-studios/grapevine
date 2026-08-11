@@ -156,6 +156,19 @@ export function gradientFor(value) {
     }
 }
 
+/* "#rrggbb" → { r, g, b } (0–255). */
+function hexToRgb(hex) {
+    const value = parseInt(String(hex).replace("#", ""), 16)
+    return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 }
+}
+
+/* "#rrggbb" → "rgba(r, g, b, a)". For canvas paint servers, where gradient stops
+ * need a per-stop alpha and Tailwind tokens aren't available. */
+export function withAlpha(hex, alpha) {
+    const { r, g, b } = hexToRgb(hex)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 export function hashColorScheme(value) {
     const BADGE_COLOR_PALETTE = [
         "text-red-600 bg-red-600/10 border-red-600/30 dark:text-red-400 dark:bg-red-400/10 dark:border-red-400/40",

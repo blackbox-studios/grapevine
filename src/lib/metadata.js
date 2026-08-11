@@ -137,8 +137,10 @@ export const EVENTS = [
  * Our Diocese "Activity" feed). Each post is authored by a person (the poster)
  * into a `group` (the parish community), which is the primary identity on the
  * card. Posts carry one of a few media shapes: an uploaded `image` (photos, e.g.
- * a birth announcement), no media at all (a text-only announcement), or a
- * `document` attachment (a shared PDF). Images live under public/img/mock and
+ * a birth announcement), multiple images (`images: [...]`, rendered as a
+ * swipeable Instagram-style carousel), no media at all (a text-only
+ * announcement), or a `document` attachment (a shared PDF). A post uses either
+ * `image` (single) or `images` (carousel). Images live under public/img/mock and
  * are referenced root-absolute; render them through appPath() so they resolve
  * under a subpath. The `feed` store paginates over this array (see
  * lib/store/feed/store.js). */
@@ -210,7 +212,15 @@ export const FEED = [
         },
         group: "Holy Trinity Cathedral",
         timeAgo: "4d",
-        image: "/img/mock/fr-thomas.jpg",
+        images: [
+            "/img/mock/fr-thomas-1.jpg",
+            "/img/mock/fr-thomas-2.jpg",
+            "/img/mock/fr-thomas-3.jpg",
+            "/img/mock/fr-thomas-4.jpg",
+            "/img/mock/cross-1.jpg",
+            "/img/mock/cross-2.jpg",
+            "/img/mock/cross-3.jpg",
+        ],
         title: "20 Years of Priesthood — Fr. Thomas",
         body: "Today, August 6, the Great Feast of the Transfiguration of the Lord, we celebrate the 20th anniversary of ordination of Fr. Thomas. Fr. Thomas has a long history of serving the Cathedral that dates well before his diaconal service — as Parish Council President, catechist, singer, Reader, and Subdeacon.",
         likes: 13,

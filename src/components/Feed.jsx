@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 
+import Carousel from "@/components/Carousel"
 import Icon from "@/components/Icon"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -92,6 +93,9 @@ const PostCard = ({ post }) => {
 
     const { handle, name, avatar, verified } = post.author
 
+    /* A post carries either a single `image` or an `images` array (carousel). */
+    const images = post.images ?? (post.image ? [post.image] : [])
+
     /* Optimistically reflect the viewer's own like in the count. */
     const likeCount = post.likes + (liked && !post.liked ? 1 : 0)
 
@@ -132,14 +136,18 @@ const PostCard = ({ post }) => {
                 <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
             )}
 
-            {post.image && (
-                <div className="overflow-hidden rounded-lg bg-muted">
-                    <img
-                        src={appPath(post.image)}
-                        alt=""
-                        className="h-auto w-full"
-                    />
-                </div>
+            {images.length > 1 ? (
+                <Carousel images={images} />
+            ) : (
+                images.length === 1 && (
+                    <div className="overflow-hidden rounded-lg border bg-muted">
+                        <img
+                            src={appPath(images[0])}
+                            alt=""
+                            className="h-auto w-full"
+                        />
+                    </div>
+                )
             )}
 
             {post.document && (
@@ -147,7 +155,7 @@ const PostCard = ({ post }) => {
                     href="#"
                     className={cn(
                         "flex items-center gap-3 rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted",
-                        post.image && "mt-3",
+                        images.length > 0 && "mt-3",
                     )}
                 >
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
@@ -165,7 +173,7 @@ const PostCard = ({ post }) => {
                 </a>
             )}
 
-            <div className="flex items-center pt-4">
+            <div className="flex items-center pt-2">
                 <div className="flex items-center text-sm font-medium">
                     <button
                         type="button"

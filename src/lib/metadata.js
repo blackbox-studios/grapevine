@@ -142,8 +142,11 @@ export const EVENTS = [
  * announcement), or a `document` attachment (a shared PDF). A post uses either
  * `image` (single) or `images` (carousel). Images live under public/img/mock and
  * are referenced root-absolute; render them through appPath() so they resolve
- * under a subpath. The `feed` store paginates over this array (see
- * lib/store/feed/store.js). */
+ * under a subpath. Single-`image` posts also carry the media's intrinsic
+ * `width`/`height` (px) so the feed card can reserve the correct aspect-ratio box
+ * before the image decodes — otherwise the img collapses to 0 height on a cold
+ * cache and shifts the layout as it loads. The `feed` store paginates over this
+ * array (see lib/store/feed/store.js). */
 export const FEED = [
     {
         id: "post-001",
@@ -156,6 +159,8 @@ export const FEED = [
         group: "Holy Trinity Cathedral",
         created_at: "2026-08-09T14:00:00.000000Z",
         image: "/img/mock/cyrus.jpg",
+        width: 533,
+        height: 400,
         title: null,
         body: "Cyrus John Novak, born 8/3 at 6:41am, 9lbs 5oz and 22.5in. Stephanie and Cyrus are both doing well. Glory to God — many years!",
         likes: 18,
@@ -175,6 +180,8 @@ export const FEED = [
         group: "Holy Trinity Cathedral",
         created_at: "2026-08-08T14:00:00.000000Z",
         image: "/img/mock/st-herman.jpg",
+        width: 2000,
+        height: 1500,
         title: "Feast of St. Herman of Alaska",
         body: "The saint who brought and lived Holy Orthodoxy to America, St. Herman, will be celebrated this weekend. Come and spend the weekend celebrating Christ's Resurrection and the saint who lived in the joy of the Lord's Resurrection here in America.",
         likes: 3,
@@ -194,6 +201,8 @@ export const FEED = [
         group: "Holy Trinity Cathedral",
         created_at: "2026-08-07T14:00:00.000000Z",
         image: "/img/mock/lydia.jpg",
+        width: 301,
+        height: 400,
         title: null,
         body: "Lydia Oneill. Born July 22, 2026 at 11:21pm. 7lb 7oz 21 inches. Glory to God! Many years!",
         likes: 22,
@@ -240,6 +249,8 @@ export const FEED = [
         group: "Holy Trinity Cathedral",
         created_at: "2026-08-06T14:00:00.000000Z",
         image: "/img/mock/transfiguration.jpg",
+        width: 1024,
+        height: 683,
         title: "The Holy Transfiguration of Our Lord",
         body: "August 6 — This feast is tied to the commemoration of the event on Mount Tabor, written about by the evangelists (Mt. 17:1-13; Lk. 9:28-36), when Christ was transfigured in glory before His disciples in view of the approach of His suffering and death.",
         likes: 2,
@@ -259,6 +270,8 @@ export const FEED = [
         group: "Holy Trinity Cathedral",
         created_at: "2026-08-06T10:00:00.000000Z",
         image: "/img/mock/coffee-hour.jpg",
+        width: 464,
+        height: 600,
         document: {
             name: "Coffee-Hour.pdf",
             size: "142 KB",

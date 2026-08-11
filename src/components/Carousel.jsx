@@ -121,8 +121,13 @@ const Arrow = ({ dir, onClick, visible }) => {
 
 /* `bare` (used inside the desktop comments modal): drop the feed card's border and
  * rounding, fill the parent's height, and overlay the paging dots on the image so
- * they don't add height — letting the modal size itself to the media. */
-const Carousel = ({ images, bare = false }) => {
+ * they don't add height — letting the modal size itself to the media.
+ *
+ * `onImageClick` (feed card): fires when the media is *tapped* rather than dragged
+ * or paged. Framer suppresses the click that follows a drag, and the arrows are
+ * siblings of the track (their clicks don't bubble here), so this only runs on a
+ * genuine tap — used to open the post (modal on desktop, `/p/:id` on mobile). */
+const Carousel = ({ images, bare = false, onImageClick }) => {
     const n = images.length
 
     const [index, setIndex] = useState(0)
@@ -192,13 +197,14 @@ const Carousel = ({ images, bare = false }) => {
                 )}
             >
                 <motion.div
-                    className="flex"
+                    className={cn("flex", onImageClick && "cursor-pointer")}
                     style={{ x }}
                     drag="x"
                     dragConstraints={{ left: -(n - 1) * width, right: 0 }}
                     dragElastic={0.12}
                     onDragStart={showPill}
                     onDragEnd={onDragEnd}
+                    onClick={onImageClick}
                 >
                     {images.map((src, i) => (
                         <div

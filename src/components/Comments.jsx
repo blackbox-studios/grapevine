@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useSyncExternalStore } from "react"
+import { useRef, useState } from "react"
 import { AnimatePresence } from "motion/react"
 
 import Carousel from "@/components/Carousel"
@@ -26,20 +26,10 @@ import {
     DialogPortal,
     DialogTitle,
 } from "@/components/ui/dialog"
+import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useComments } from "@/lib/store/comments/hook"
 import { appPath, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
-
-/* One-shot breakpoint read. Per the brief we don't react to resizing after mount
- * (the no-op subscribe never re-fires); the overlay is opened by a click, by which
- * point the client snapshot has settled. Server snapshot is `false` (mobile). */
-const NOOP_SUBSCRIBE = () => () => {}
-const useIsDesktop = () =>
-    useSyncExternalStore(
-        NOOP_SUBSCRIBE,
-        () => window.matchMedia("(min-width: 640px)").matches,
-        () => false,
-    )
 
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
@@ -191,7 +181,7 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
  * (`h-[90dvh]`) so the width is derived from the media's aspect ratio — the modal
  * then shrinks to `media width + rail`. Capped at `95vw − rail` so a large photo can
  * never push the comments rail off the right edge (RAIL_W must match the aside). */
-const PostMedia = ({ post }) => {
+export const PostMedia = ({ post }) => {
     const images = post.images ?? (post.image ? [post.image] : [])
     if (images.length > 1) {
         return (
@@ -256,9 +246,12 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => (
 /* Desktop — centered modal                                                   */
 /* -------------------------------------------------------------------------- */
 
-/* The right-hand rail: post header, pinned caption + comment thread, the post's
- * action row (like / comment / share / save), the like tally, and the composer. */
-const DialogRail = ({ post }) => {
+/* The full comments surface for a post as a self-contained flex column: post
+ * header, pinned caption + comment thread (its own internal scroll), the post's
+ * action row (like / comment), the like tally, and the composer. Shared verbatim
+ * between the desktop dialog's right rail and the mobile detail page (`/p/:id`) —
+ * pass a `className` (e.g. `flex-1`) to size it inside its parent. */
+export const CommentsPanel = ({ post, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
         useComments(post.id)
     const now = useNow()
@@ -276,11 +269,7 @@ const DialogRail = ({ post }) => {
     ) : null
 
     return (
-        <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
-            <DialogTitle className="sr-only">
-                Comments on {author.handle}&apos;s post
-            </DialogTitle>
-
+        <div className={cn("flex min-h-0 flex-col", className)}>
             <header className="flex shrink-0 items-center gap-3 px-4 py-3">
                 <Avatar name={author.name} src={author.avatar} className="size-8" />
                 <span className="text-sm font-semibold">{author.handle}</span>
@@ -355,9 +344,20 @@ const DialogRail = ({ post }) => {
             </div>
 
             <CommentComposer viewer={viewer} onSubmit={add} inputRef={composerRef} />
-        </aside>
+        </div>
     )
 }
+
+/* The desktop dialog's right-hand rail — the shared CommentsPanel in a fixed-width
+ * bordered aside, plus the dialog's accessible title. */
+const DialogRail = ({ post }) => (
+    <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
+        <DialogTitle className="sr-only">
+            Comments on {post.author.handle}&apos;s post
+        </DialogTitle>
+        <CommentsPanel post={post} className="flex-1" />
+    </aside>
+)
 
 const CommentsDialog = ({ post, open, onOpenChange }) => (
     <Dialog open={open} onOpenChange={onOpenChange}>

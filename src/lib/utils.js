@@ -1,6 +1,8 @@
 import { clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
+import { ROUTES } from "@/lib/constants"
+
 /* Custom classes */
 const twMerge = extendTailwindMerge({
     extend: {
@@ -123,6 +125,10 @@ export const basePath = () => (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(
 /* Prefix a router route with the base path so redirects that bypass the router
  * still resolve when the SPA is served under a subpath. */
 export const appPath = (route) => `${basePath()}${route}`
+
+/* The deep-link route for a single post's detail page (`/p/:id`). Built off
+ * ROUTES.POST so the path prefix lives in one place. */
+export const postPath = (id) => `${ROUTES.POST}/${id}`
 
 /* Compact tally for like/comment counts: 182 → "182", 2629 → "2.6K". */
 export function formatCompact(n) {

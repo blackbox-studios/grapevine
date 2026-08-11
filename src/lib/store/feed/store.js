@@ -84,7 +84,8 @@ const useStore = create(immer((set, get) => ({
     },
 
     /* Nudge a post's comment tally — called cross-store by the comments store when
-     * the viewer posts (or would remove) a comment. */
+     * the viewer posts (or would remove) a comment. The detail page reads the same
+     * `items` entry, so bumping it here keeps the count in sync there too. */
     bumpCommentCount: (postId, delta = 1) => set(state => {
         const post = state.items.find(p => p.id === postId)
         if (post) post.comments += delta

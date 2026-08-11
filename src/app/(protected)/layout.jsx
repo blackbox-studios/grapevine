@@ -85,8 +85,11 @@ const NavSlot = ({ children }) => (
     </div>
 )
 
-/* Auth redirects are handled by middleware.js (see it for the protected-route gate). */
-const ProtectedLayout = ({ children }) => {
+/* Auth redirects are handled by middleware.js (see it for the protected-route gate).
+ * `modal` is the @modal parallel slot: on a soft nav to /p/:id it holds the
+ * intercepted post overlay (rendered over the still-mounted feed); otherwise it's
+ * the slot's default (null). */
+const ProtectedLayout = ({ children, modal }) => {
     const pathname = usePathname()
     const { scrollRef, scrollToTop } = useScroll()
     const [navOpen, setNavOpen] = useState(false)
@@ -94,6 +97,7 @@ const ProtectedLayout = ({ children }) => {
     return (
         <>
             <Grain />
+            {modal}
             <div className="relative h-screen w-full bg-background overflow-x-hidden">
                 <div className="relative h-full w-full bg-background">
 
@@ -112,7 +116,7 @@ const ProtectedLayout = ({ children }) => {
                             href={ROUTES.DEFAULT}
                             aria-label="Home"
                             onClick={() => setNavOpen(false)}
-                            className="flex items-center px-2 pt-9 md:pt-13.5"
+                            className="flex items-center px-2 pt-8 md:pt-12"
                         >
                             <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
                                 <Logo className="w-7 text-foreground" />
@@ -135,9 +139,18 @@ const ProtectedLayout = ({ children }) => {
                             <main className="flex flex-col w-full h-fit mx-auto max-w-8xl pt-8 md:pt-12 pb-[calc(var(--bottombar-height)+1.5rem)] md:pb-0">
                                 {/* Collapse every /settings* route to one key so switching sub-tabs
                                     doesn't fade here — the Settings layout runs its own nested
-                                    transition for that. */}
+                                    transition for that. A post detail (`/p/:id`) collapses to the
+                                    feed key too: it's a full-screen overlay portaled to <body> that
+                                    runs its own fade, so we don't want this layer to also fade the
+                                    feed out (and scroll it to top) behind it on open/close. */}
                                 <PageTransition
-                                    getKey={(pathname) => (pathname.startsWith(ROUTES.SETTINGS) ? ROUTES.SETTINGS : pathname)}
+                                    getKey={(pathname) =>
+                                        pathname.startsWith(ROUTES.SETTINGS)
+                                            ? ROUTES.SETTINGS
+                                            : pathname.startsWith(`${ROUTES.POST}/`)
+                                              ? ROUTES.DEFAULT
+                                              : pathname
+                                    }
                                     onExitComplete={scrollToTop}
                                 >
                                     {children}

@@ -1,6 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
+import { motion, useReducedMotion } from "motion/react"
+import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
 import Comments from "@/components/Comments"
@@ -9,47 +12,80 @@ import { Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
-import {
-    Collapsible,
-    CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
-import { appPath, cn, formatCompact, timeAgoCompact } from "@/lib/utils"
+import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
 
 /* Instagram-style caption: the author handle in bold followed by the post body.
- * Long bodies truncate at a word boundary with an inline "... more" affordance —
- * a shadcn Collapsible drives the expanded/collapsed state. */
+ * Long bodies truncate at a word boundary with an inline "... more" affordance.
+ *
+ * The caption stays a single inline paragraph so the body wraps naturally, and the
+ * "more" word simply disappears on expand. Radix's Collapsible can't do this — its
+ * content is a separate block, which would break the sentence onto its own line — so
+ * we animate height ourselves: `react-use-measure` reports the paragraph's natural
+ * height, and a `motion.div` tweens to it whenever the text swaps preview ↔ full. */
 const Caption = ({ label, text }) => {
     const [open, setOpen] = useState(false)
+    /* True only while an expand is in flight — drives the soft bottom fade so the
+     * revealed text feathers in rather than snapping past a hard clip line. */
+    const [revealing, setRevealing] = useState(false)
+    const [ref, { height }] = useMeasure()
+    const shouldReduceMotion = useReducedMotion()
+    /* Only tween in response to a real expand — otherwise the first async measurement
+     * (a subpixel delta from the natural auto height) would animate on load and nudge
+     * the whole feed down a pixel or two. Until then, height snaps instantly. */
+    const expandedOnce = useRef(false)
 
     const isLong = text.length > CAPTION_LIMIT
     const preview = isLong
         ? text.slice(0, CAPTION_LIMIT).replace(/\s+\S*$/, "")
         : text
 
+    const animate = !shouldReduceMotion && expandedOnce.current
+
     return (
-        <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
-            <p className="text-sm leading-snug">
+        <motion.div
+            className="relative overflow-hidden pt-1 text-sm leading-snug"
+            initial={false}
+            animate={{ height: height || "auto" }}
+            transition={animate ? { duration: 0.4, ease: [0, 0.4, 0, 1] } : { duration: 0 }}
+            onAnimationComplete={() => setRevealing(false)}
+        >
+            <p ref={ref}>
                 <span className="font-semibold">{label}</span>{" "}
                 {open || !isLong ? text : preview}
                 {isLong && !open && (
                     <>
                         {" ... "}
-                        <CollapsibleTrigger asChild>
-                            <button
-                                type="button"
-                                className="text-muted-foreground transition-colors hover:text-foreground"
-                            >
-                                more
-                            </button>
-                        </CollapsibleTrigger>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                expandedOnce.current = true
+                                if (!shouldReduceMotion) setRevealing(true)
+                                setOpen(true)
+                            }}
+                            className="text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                            more
+                        </button>
                     </>
                 )}
             </p>
-        </Collapsible>
+            {/* Feathers the clip line while the height grows: the gradient tracks the
+              * bottom edge (cascading the fade downward) and dissolves as it settles. */}
+            {revealing && (
+                <motion.div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-background to-transparent"
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 0 }}
+                    transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
+                />
+            )}
+        </motion.div>
     )
 }
 
@@ -58,11 +94,20 @@ const PostCard = ({ post }) => {
     const [liked, setLiked] = useState(post.liked)
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
+    const isDesktop = useIsDesktop()
+    const router = useRouter()
 
     const { handle, name, avatar, verified } = post.author
 
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
+
+    /* Tapping the photo opens the same surface the comment icon does — the modal on
+     * desktop, and a dedicated, back-able detail page (`/p/:id`) on mobile. */
+    const openPost = useCallback(() => {
+        if (isDesktop) setCommentsOpen(true)
+        else router.push(postPath(post.id))
+    }, [isDesktop, router, post.id])
 
     /* Optimistically reflect the viewer's own like in the count. */
     const likeCount = post.likes + (liked && !post.liked ? 1 : 0)
@@ -105,16 +150,23 @@ const PostCard = ({ post }) => {
             )}
 
             {images.length > 1 ? (
-                <Carousel images={images} />
+                <Carousel images={images} onImageClick={openPost} />
             ) : (
                 images.length === 1 && (
-                    <div className="overflow-hidden rounded-lg border bg-muted">
+                    <button
+                        type="button"
+                        onClick={openPost}
+                        aria-label="Open post"
+                        className="block w-full cursor-pointer overflow-hidden rounded-lg border bg-muted"
+                    >
                         <img
                             src={appPath(images[0])}
                             alt=""
+                            width={post.width}
+                            height={post.height}
                             className="h-auto w-full"
                         />
-                    </div>
+                    </button>
                 )
             )}
 

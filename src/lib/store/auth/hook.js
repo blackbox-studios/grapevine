@@ -4,14 +4,12 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from 'zustand/react/shallow'
 
-import { useDelay } from "@/lib/hooks/useDebounce.hook"
 import useAuthStore from "./store"
 
 /* Loads the full list of app users for the User Management table. */
 export const useAdmin = () => {
-    const [users, loadingUsers, init] = useAuthStore(useShallow(state => ([
+    const [users, init] = useAuthStore(useShallow(state => ([
         state.users,
-        state.loading.users,
         state.init,
     ])))
 
@@ -19,7 +17,10 @@ export const useAdmin = () => {
         init()
     }, [init])
 
-    const skeleton = useDelay(useMemo(() => loadingUsers && users.length === 0, [loadingUsers, users]))
+    /* A loaded users list is never empty, so emptiness is a reliable "not loaded
+     * yet" signal — the skeleton paints on the first frame and clears once the list
+     * arrives (a background refresh keeps it populated, so it never re-flashes). */
+    const skeleton = users.length === 0
 
     return useMemo(() => ({
         users,

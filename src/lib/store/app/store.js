@@ -27,6 +27,9 @@ const useStore = create(immer((set, get) => ({
     refresh: async () => {
         set(state => { state.loading.detail = true })
         try {
+            /* Floor the load at MOCK_LATENCY_MS so the skeleton is always on long
+             * enough to read (no fetch here yet — race `api.get(...)` against the
+             * floor via Promise.all when a backend lands). */
             await mockDelay()
             set(state => { state.ready = true })
         } finally {

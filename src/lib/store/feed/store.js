@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import { mockDelay } from '@/lib/mock'
+import { MOCK_LATENCY_MS } from '@/lib/constants'
 import { FEED } from '@/lib/metadata'
 
 /* How many posts a single page pulls. `refresh` loads the first page; `loadMore`
@@ -40,8 +41,13 @@ const useStore = create(immer((set, get) => ({
     refresh: async () => {
         set(state => { state.loading.list = true })
         try {
-            await mockDelay()
-            const page = FEED.slice(0, PAGE_SIZE)
+            /* Race the fetch against a floor so the skeleton is always visible for at
+             * least MOCK_LATENCY_MS — whichever finishes last wins. Swap the
+             * Promise.resolve for `api.get(...)` when a backend lands. */
+            const [page] = await Promise.all([
+                Promise.resolve(FEED.slice(0, PAGE_SIZE)),
+                mockDelay(MOCK_LATENCY_MS),
+            ])
             set(state => {
                 state.items = page
                 state.page = 1
@@ -76,6 +82,13 @@ const useStore = create(immer((set, get) => ({
             set(state => { state.loading.list = false })
         }
     },
+
+    /* Nudge a post's comment tally — called cross-store by the comments store when
+     * the viewer posts (or would remove) a comment. */
+    bumpCommentCount: (postId, delta = 1) => set(state => {
+        const post = state.items.find(p => p.id === postId)
+        if (post) post.comments += delta
+    }),
 
     reset: () => set(() => ({ ...INIT })),
     clearErrors: () => set(state => { state.error = ERROR_INIT }),

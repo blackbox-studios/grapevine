@@ -3,7 +3,9 @@
 import { useState } from "react"
 
 import Carousel from "@/components/Carousel"
+import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
+import { Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
@@ -11,44 +13,8 @@ import {
     Collapsible,
     CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { appPath, cn, gradientFor } from "@/lib/utils"
-
-/* Compact count for the action-row tallies: 182 → "182", 2629 → "2.6K". */
-const formatCount = (n) =>
-    n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 })
-
-/* Up-to-two-letter initials from a display name, for the gradient avatar fallback. */
-const initials = (name) =>
-    String(name ?? "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((word) => word[0])
-        .join("")
-        .toUpperCase()
-
-/* Author avatar. Uses the profile image when one is provided; otherwise falls
- * back to a deterministic gradient (via gradientFor()) with the author's initials. */
-const Avatar = ({ name, src, className }) =>
-    src ? (
-        <img
-            src={appPath(src)}
-            alt=""
-            aria-hidden="true"
-            className={cn("shrink-0 rounded-full object-cover", className)}
-        />
-    ) : (
-        <span
-            className={cn(
-                "flex shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold text-white",
-                className,
-            )}
-            style={gradientFor(name)}
-            aria-hidden="true"
-        >
-            {initials(name)}
-        </span>
-    )
+import { useNow } from "@/lib/hooks/useNow.hook"
+import { appPath, cn, formatCompact, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
@@ -90,6 +56,8 @@ const Caption = ({ label, text }) => {
 /* A single Instagram-style feed card: header, media, action row, likes, caption. */
 const PostCard = ({ post }) => {
     const [liked, setLiked] = useState(post.liked)
+    const [commentsOpen, setCommentsOpen] = useState(false)
+    const now = useNow()
 
     const { handle, name, avatar, verified } = post.author
 
@@ -114,7 +82,7 @@ const PostCard = ({ post }) => {
                             </Icon>
                         )}
                         <span className="whitespace-nowrap text-sm text-muted-foreground">
-                            • {post.timeAgo}
+                            • {timeAgoCompact(now, new Date(post.created_at).getTime())}
                         </span>
                     </div>
                     {post.group && (
@@ -200,19 +168,20 @@ const PostCard = ({ post }) => {
                         </span>
                     </button>
                     {likeCount > 0 && (
-                        <span className="tracking-tight tabular-nums">{formatCount(likeCount)}</span>
+                        <span className="tracking-tight tabular-nums">{formatCompact(likeCount)}</span>
                     )}
                 </div>
                 <button
                     type="button"
                     aria-label="Comment"
+                    onClick={() => setCommentsOpen(true)}
                     className="flex items-center text-sm font-medium"
                 >
                     <span className="p-2">
                         <CommentOutline className="size-6 text-foreground" />
                     </span>
                     {post.comments > 0 && (
-                        <span className="tracking-tight tabular-nums">{formatCount(post.comments)}</span>
+                        <span className="tracking-tight tabular-nums">{formatCompact(post.comments)}</span>
                     )}
                 </button>
             </div>
@@ -239,14 +208,11 @@ const PostCard = ({ post }) => {
                 <Caption label={handle} text={post.body} />
             )}
 
-            {post.comments > 0 && (
-                <button
-                    type="button"
-                    className="w-fit pt-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                    View all {post.comments} comments
-                </button>
-            )}
+            <Comments
+                post={post}
+                open={commentsOpen}
+                onOpenChange={setCommentsOpen}
+            />
         </article>
     )
 }

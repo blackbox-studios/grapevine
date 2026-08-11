@@ -13,7 +13,4 @@ const useDebounce = (value, delay, initial = value) => {
     return debounced;
 };
 
-export const useDelay = (flag, delayMs = 150) =>
-    useDebounce(flag, delayMs, false) && flag;
-
 export default useDebounce;

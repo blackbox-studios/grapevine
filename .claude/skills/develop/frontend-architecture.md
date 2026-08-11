@@ -206,7 +206,8 @@ Every domain store lives at `lib/store/<domain>/store.js` and follows this exact
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import api from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
+import { mockDelay } from '@/lib/mock'
+import { API_ENDPOINTS, MOCK_LATENCY_MS } from '@/lib/constants'
 
 const ERROR_INIT = {
     list: false,
@@ -240,7 +241,13 @@ const useStore = create(immer((set, get) => ({
     refresh: async () => {
         try {
             set(state => { state.loading.list = true })
-            const res = await api.get(API_ENDPOINTS.ITEMS)
+            // Race the fetch against a floor so the skeleton is always visible for at
+            // least MOCK_LATENCY_MS (see the hook-layer section). In the mock app the
+            // fetch is `Promise.resolve(SEED)`; both forms take the same shape.
+            const [res] = await Promise.all([
+                api.get(API_ENDPOINTS.ITEMS),
+                mockDelay(MOCK_LATENCY_MS),
+            ])
             const items = res?.data || []
             set(state => {
                 state.items = items
@@ -270,7 +277,7 @@ Rules for stores:
 - **Always** expose `ready`, `loading`, `error`, plus `init`, `refresh`, `reset`, `clearErrors`. If you don't, the global aggregator and `useErrorListener` will silently drop you.
 - Use **Immer**: write mutations as `set(state => { state.x = y })` whenever you can. Plain object replacement (`set(state => ({ ...state, x: y }))`) is allowed for trivial cases and is what older stores use, but new code should prefer Immer.
 - When a domain has **multiple loading/error surfaces** (e.g. `nodes` and `installables`), make `loading` and `error` *objects* keyed by the sub-resource (see `lib/store/nodes/store.js`). `useErrorListener` walks them recursively. Even a store with a single primary fetch should keep `loading` (and `error`) as an object so additional resources slot in as `loading.<resource>` later without a refactor.
-- **One `ready` per store, not per resource.** `ready` exists solely to gate the store's `init()` (the primary boot fetch). Do **not** add parallel `xxxReady` flags for secondary resources — track their in-flight state with `loading.<resource>` only. For a secondary resource's `skeleton`, gate on the *data being empty* rather than inventing a ready flag: `skeleton = loading.<resource> && items.length === 0`. This shows the skeleton on the first load only; once the store holds data, a background refetch updates it in place without flashing the skeleton. Example: `auth` holds the primary `user` (gated by `ready`) plus a secondary `users` list whose hook (`useAdmin`) reads `loading.users` and exposes `skeleton = loading.users && users.length === 0`.
+- **One `ready` per store, not per resource.** `ready` exists solely to gate the store's `init()` (the primary boot fetch). Do **not** add parallel `xxxReady` flags for secondary resources. For a secondary resource's `skeleton`, gate on the *data being empty*: `skeleton = items.length === 0`. Because a loaded list is never empty, emptiness is a reliable "not loaded yet" signal, so the skeleton **paints on the very first frame** and clears once data arrives; a background refetch keeps the list populated, so it never re-flashes. Example: `auth` holds the primary `user` (gated by `ready`) plus a secondary `users` list whose hook (`useAdmin`) exposes `skeleton = users.length === 0`. (If a resource can legitimately be empty when loaded, add a small `xxxReady` boolean the fetch sets instead — see the `comments` thread's `commentsReady` in `lib/store/feed/store.js`.)
 - Use `persist(...)` from `zustand/middleware` **only** for state that must survive a page reload (currently: `auth`). Other stores are in-memory.
 
 ### Parallel API calls
@@ -325,24 +332,33 @@ Every store has a matching `hook.js` that components consume. Hooks are the **on
 Three non-negotiable patterns inside hooks:
 
 1. **`useShallow` for multi-selectors.** Pull every value you need in one selector so the component re-renders on shallow changes only.
-2. **Initial-load gate via `skeleton`.** Expose a `skeleton` flag (`!ready && loading`) so components know whether to render the skeleton on the *first* load only — refreshes shouldn't flash skeletons.
-3. **Wrap the `skeleton` flag in `useDelayed`.** Always. Even fast API calls (~20ms) would otherwise guarantee one frame of skeleton because React paints the initial render before `useEffect` fires the fetch. `useDelayed` (in `lib/hooks/useDebounce.hook.jsx`) only flips on after the flag has been continuously truthy for 150ms, so sub-perceptual loads never paint a skeleton at all. The "off" edge is instant. **Any new hook that returns a `skeleton`/`loading` flag must apply this wrapper** — no exceptions.
+2. **Initial-load gate via `skeleton`, derived so it paints on the first frame.** Expose a `skeleton` flag derived straight from readiness — `skeleton = !ready` for a primary load, `skeleton = items.length === 0` for a secondary resource. Both are already truthy on the component's very first render (the store boots `ready: false` / `items: []`), so the skeleton is present on frame one rather than fading in a beat late. Once loaded, `ready`/data stays truthy, so refreshes never re-flash it. **Do not** derive it as `!ready && loading` — `loading` is false until the fetch effect runs *after* the first paint, which produces the no-skeleton → fade-in → fade-out flash.
+3. **Floor the load in the store, don't debounce in the hook.** A guaranteed-visible skeleton needs a minimum on-screen duration. Enforce it in the store action by racing the fetch against a floor delay with `Promise.all`, so the load never resolves faster than `MOCK_LATENCY_MS` (`lib/constants.js`, currently 1000ms):
+
+   ```javascript
+   const [res] = await Promise.all([
+       api.get(API_ENDPOINTS.ITEMS),   // mock: Promise.resolve(SEED.slice(...))
+       mockDelay(MOCK_LATENCY_MS),
+   ])
+   ```
+
+   Because the skeleton is always on long enough to read, there is **no** sub-perceptual flash to debounce away — hooks must **not** wrap the flag in a delay/debounce. (The old `useDelay` wrapper is gone; deriving the flag per rule 2 plus this store-side floor replaces it.)
 
 ```javascript
 import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useMemo } from 'react'
-import { useDelayed } from '@/lib/hooks/useDebounce.hook'
 import useAppStore from './store'
 
 export const useApps = () => {
-    const [items, ready, loading, init] = useAppStore(
-        useShallow(state => [state.items, state.ready, state.loading, state.init])
+    const [items, ready, init] = useAppStore(
+        useShallow(state => [state.items, state.ready, state.init])
     )
 
     useEffect(() => { init() }, [init])
 
-    /* Skeletons only on initial load AND only if the load takes >150ms */
-    const skeleton = useDelayed(useMemo(() => !ready && loading, [ready, loading]))
+    /* Painted on the first frame; cleared once ready. The store floors the load at
+     * MOCK_LATENCY_MS (Promise.all), so no debounce is needed to avoid a flash. */
+    const skeleton = !ready
 
     return useMemo(() => ({ items, skeleton }), [items, skeleton])
 }
@@ -996,8 +1012,8 @@ import { TableSkeleton } from '@/components/Skeleton'
 </AnimatePresence>
 ```
 
-- The `skeleton` flag comes from the hook (`!ready && loading`), so it is only true on the **first** load — refreshes update silently.
-- The hook **must** wrap that flag in `useDelayed` (from `lib/hooks/useDebounce.hook.jsx`) so sub-150ms loads never paint a skeleton at all. See the hook-layer section for the pattern. This is enforced for every hook that exposes a `skeleton`/`loading` flag.
+- The `skeleton` flag comes from the hook, derived from readiness (`!ready`, or `items.length === 0` for a secondary resource) so it paints on the **first** frame and is only true on the first load — refreshes update silently. See the hook-layer section.
+- Guaranteeing the skeleton stays on long enough to read is the **store's** job, not the hook's: the fetch is raced against a `mockDelay(MOCK_LATENCY_MS)` floor via `Promise.all`. There is no hook-side debounce (`useDelay` was removed) — with a floored load there is no sub-perceptual flash to suppress.
 
 ### Page transitions
 

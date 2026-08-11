@@ -95,6 +95,27 @@ export function timeAgo(current, previous) {
     return `${Math.round(elapsed / msPerYear)} yr ago`
 }
 
+/* Compact, Instagram-style relative time from a timestamp: "now", "5m", "9h",
+ * "2d", "3w", "5mo", "2y". `current`/`previous` are epoch ms (pass now from
+ * useNow() so it stays pure across renders and refreshes on the minute). */
+export function timeAgoCompact(current, previous) {
+    const seconds = Math.max(0, Math.floor((current - previous) / 1000))
+    const minutes = Math.floor(seconds / 60)
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+    const weeks = Math.floor(days / 7)
+    const months = Math.floor(days / 30)
+    const years = Math.floor(days / 365)
+
+    if (seconds < 60) return "now"
+    if (minutes < 60) return `${minutes}m`
+    if (hours < 24) return `${hours}h`
+    if (days < 7) return `${days}d`
+    if (weeks < 5) return `${weeks}w`
+    if (months < 12) return `${months}mo`
+    return `${years}y`
+}
+
 /* The app's base path with any trailing slash stripped: "" in host dev, otherwise
  * the configured NEXT_PUBLIC_BASE_PATH (kept in sync with basePath in next.config). */
 export const basePath = () => (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(/\/$/, '')
@@ -102,6 +123,14 @@ export const basePath = () => (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(
 /* Prefix a router route with the base path so redirects that bypass the router
  * still resolve when the SPA is served under a subpath. */
 export const appPath = (route) => `${basePath()}${route}`
+
+/* Compact tally for like/comment counts: 182 → "182", 2629 → "2.6K". */
+export function formatCompact(n) {
+    return Number(n ?? 0).toLocaleString("en-US", {
+        notation: "compact",
+        maximumFractionDigits: 1,
+    })
+}
 
 /* Display label for a role string. */
 export function roleLabel(role) {

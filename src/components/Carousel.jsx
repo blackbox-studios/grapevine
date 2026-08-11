@@ -119,7 +119,10 @@ const Arrow = ({ dir, onClick, visible }) => {
     )
 }
 
-const Carousel = ({ images }) => {
+/* `bare` (used inside the desktop comments modal): drop the feed card's border and
+ * rounding, fill the parent's height, and overlay the paging dots on the image so
+ * they don't add height — letting the modal size itself to the media. */
+const Carousel = ({ images, bare = false }) => {
     const n = images.length
 
     const [index, setIndex] = useState(0)
@@ -180,10 +183,13 @@ const Carousel = ({ images }) => {
     }
 
     return (
-        <div>
+        <div className={cn(bare && "relative h-full")}>
             <div
                 ref={containerRef}
-                className="group relative cursor-grab overflow-hidden rounded-lg border bg-black active:cursor-grabbing"
+                className={cn(
+                    "group relative cursor-grab overflow-hidden bg-black active:cursor-grabbing",
+                    bare ? "h-full" : "rounded-lg border",
+                )}
             >
                 <motion.div
                     className="flex"
@@ -240,7 +246,13 @@ const Carousel = ({ images }) => {
                 </AnimatePresence>
             </div>
 
-            <CarouselDots count={n} active={active} />
+            {bare ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+                    <CarouselDots count={n} active={active} />
+                </div>
+            ) : (
+                <CarouselDots count={n} active={active} />
+            )}
         </div>
     )
 }

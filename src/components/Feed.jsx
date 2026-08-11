@@ -148,7 +148,7 @@ const PostCard = ({ post }) => {
                         onClick={() => setLiked((v) => !v)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
-                        className="p-2 transition-transform active:scale-90"
+                        className="p-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
                     >
                         <span className="relative block size-6">
                             <HeartOutline
@@ -175,9 +175,9 @@ const PostCard = ({ post }) => {
                     type="button"
                     aria-label="Comment"
                     onClick={() => setCommentsOpen(true)}
-                    className="flex items-center text-sm font-medium"
+                    className="flex cursor-pointer items-center text-sm font-medium"
                 >
-                    <span className="p-2">
+                    <span className="p-2 transition-transform hover:scale-105 active:scale-95">
                         <CommentOutline className="size-6 text-foreground" />
                     </span>
                     {post.comments > 0 && (

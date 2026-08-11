@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useSyncExternalStore } from "react"
+import { useRef, useState, useSyncExternalStore } from "react"
 import { AnimatePresence } from "motion/react"
 
 import Carousel from "@/components/Carousel"
@@ -11,7 +11,6 @@ import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
-import SendOutline from "@/assets/svg/icons/send-outline.svg"
 import More from "@/assets/svg/icons/more.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import {
@@ -52,7 +51,7 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
     const { author, text, created_at, likes, liked } = comment
     return (
         <div className="flex items-start gap-3 px-4 py-2.5">
-            <Avatar name={author.name} src={author.avatar} className="mt-0.5 size-9" />
+            <Avatar name={author.name} src={author.avatar} className="size-9" />
             <div className="min-w-0 flex-1">
                 <p className="text-sm leading-snug">
                     <span className="font-semibold">{author.handle}</span>{" "}
@@ -60,7 +59,7 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                         · {timeAgoCompact(now, new Date(created_at).getTime())}
                     </span>
                 </p>
-                <p className="text-sm leading-snug break-words">{text}</p>
+                <p className="text-sm leading-snug wrap-break-word font-medium">{text}</p>
             </div>
             <div className="flex flex-col items-center gap-1 pt-1.5">
                 <button
@@ -68,26 +67,26 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                     onClick={onToggleLike}
                     aria-pressed={liked}
                     aria-label={liked ? "Unlike comment" : "Like comment"}
-                    className="transition-transform active:scale-90"
+                    className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
                 >
-                    <span className="relative block size-4">
+                    <span className="relative block size-3.5">
                         <HeartOutline
                             aria-hidden="true"
                             className={cn(
-                                "absolute inset-0 size-4 text-muted-foreground transition-opacity duration-300 ease-in-out",
+                                "absolute inset-0 size-3.5  transition-opacity duration-300 ease-in-out",
                                 liked ? "opacity-0" : "opacity-100",
                             )}
                         />
                         <Heart
                             aria-hidden="true"
                             className={cn(
-                                "absolute inset-0 size-4 text-red-500 transition-opacity duration-300 ease-in-out",
+                                "absolute inset-0 size-3.5 text-current transition-opacity duration-300 ease-in-out",
                                 liked ? "opacity-100" : "opacity-0",
                             )}
                         />
                     </span>
                 </button>
-                <span className="min-h-3 text-xs tabular-nums text-muted-foreground">
+                <span className="min-h-3 text-xs tabular-nums text-muted-foreground font-bold">
                     {likes > 0 ? formatCompact(likes) : ""}
                 </span>
             </div>
@@ -150,7 +149,7 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
 )
 
 /* The composer at the foot of both surfaces. Owns its own draft text. */
-const CommentComposer = ({ viewer, onSubmit }) => {
+const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
     const [text, setText] = useState("")
     const canPost = text.trim().length > 0
 
@@ -166,10 +165,11 @@ const CommentComposer = ({ viewer, onSubmit }) => {
                 e.preventDefault()
                 submit()
             }}
-            className="flex shrink-0 items-center gap-3 border-t p-4"
+            className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
             <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
             <input
+                ref={inputRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Add a comment…"
@@ -195,7 +195,7 @@ const PostMedia = ({ post }) => {
     const images = post.images ?? (post.image ? [post.image] : [])
     if (images.length > 1) {
         return (
-            <div className="aspect-square h-full max-w-[calc(95vw-400px)]">
+            <div className="aspect-square h-full max-w-[calc(95vw-var(--commentbar-width))]">
                 <Carousel images={images} bare/>
             </div>
         )
@@ -205,7 +205,7 @@ const PostMedia = ({ post }) => {
             <img
                 src={appPath(images[0])}
                 alt=""
-                className="h-[90dvh] w-auto max-w-[calc(95vw-400px)] object-contain"
+                className="h-[90dvh] w-auto max-w-[calc(95vw-var(--commentbar-width))] object-contain"
             />
         )
     }
@@ -263,6 +263,7 @@ const DialogRail = ({ post }) => {
         useComments(post.id)
     const now = useNow()
     const [liked, setLiked] = useState(post.liked)
+    const composerRef = useRef(null)
     const { author } = post
 
     const caption = post.body ? (
@@ -275,12 +276,12 @@ const DialogRail = ({ post }) => {
     ) : null
 
     return (
-        <aside className="flex h-full w-[400px] shrink-0 flex-col border-l bg-popover">
+        <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
             <DialogTitle className="sr-only">
                 Comments on {author.handle}&apos;s post
             </DialogTitle>
 
-            <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
+            <header className="flex shrink-0 items-center gap-3 px-4 py-3">
                 <Avatar name={author.name} src={author.avatar} className="size-8" />
                 <span className="text-sm font-semibold">{author.handle}</span>
                 {author.verified && (
@@ -310,14 +311,14 @@ const DialogRail = ({ post }) => {
                 />
             </div>
 
-            <div className="shrink-0 border-t px-4 pt-3 pb-1">
+            <div className="shrink-0 px-4 pt-3 pb-1">
                 <div className="flex items-center gap-4">
                     <button
                         type="button"
                         onClick={() => setLiked((v) => !v)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
-                        className="transition-transform active:scale-90"
+                        className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
                     >
                         <span className="relative block size-6">
                             <HeartOutline
@@ -330,31 +331,30 @@ const DialogRail = ({ post }) => {
                             <Heart
                                 aria-hidden="true"
                                 className={cn(
-                                    "absolute inset-0 size-6 text-red-500 transition-opacity duration-300 ease-in-out",
+                                    "absolute inset-0 size-6 text-current transition-opacity duration-300 ease-in-out",
                                     liked ? "opacity-100" : "opacity-0",
                                 )}
                             />
                         </span>
                     </button>
-                    <CommentOutline className="size-6" />
-                    <SendOutline className="size-6" />
                     <button
                         type="button"
-                        aria-label="Save"
-                        className="ml-auto text-foreground transition-colors hover:text-muted-foreground"
+                        aria-label="Comment"
+                        onClick={() => composerRef.current?.focus()}
+                        className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
                     >
-                        <Icon>bookmark</Icon>
+                        <CommentOutline className="size-6" />
                     </button>
                 </div>
                 <p className="pt-2 text-sm font-semibold">
                     {formatCompact(post.likes + (liked && !post.liked ? 1 : 0))} likes
                 </p>
-                <p className="text-xxs uppercase tracking-wide text-muted-foreground">
+                <p className="text-xs font-medium text-muted-foreground pb-2">
                     {timeAgoMacro(now, new Date(post.created_at).getTime())}
                 </p>
             </div>
 
-            <CommentComposer viewer={viewer} onSubmit={add} />
+            <CommentComposer viewer={viewer} onSubmit={add} inputRef={composerRef} />
         </aside>
     )
 }

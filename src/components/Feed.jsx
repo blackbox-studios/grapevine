@@ -132,13 +132,38 @@ const PostCard = ({ post }) => {
                 <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
             )}
 
-            <div className="overflow-hidden rounded-lg bg-muted">
-                <img
-                    src={appPath(post.image)}
-                    alt=""
-                    className="h-auto w-full"
-                />
-            </div>
+            {post.image && (
+                <div className="overflow-hidden rounded-lg bg-muted">
+                    <img
+                        src={appPath(post.image)}
+                        alt=""
+                        className="h-auto w-full"
+                    />
+                </div>
+            )}
+
+            {post.document && (
+                <a
+                    href="#"
+                    className={cn(
+                        "flex items-center gap-3 rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted",
+                        post.image && "mt-3",
+                    )}
+                >
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                        <Icon>description</Icon>
+                    </span>
+                    <span className="flex min-w-0 flex-col leading-tight">
+                        <span className="truncate text-sm font-medium">
+                            {post.document.name}
+                        </span>
+                        <span className="text-xs uppercase text-muted-foreground">
+                            {post.document.type} · {post.document.size}
+                        </span>
+                    </span>
+                    <Icon className="ml-auto text-muted-foreground">download</Icon>
+                </a>
+            )}
 
             <div className="flex items-center pt-4">
                 <div className="flex items-center text-sm font-medium">

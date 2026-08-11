@@ -1,6 +1,6 @@
 ---
 name: create-pr
-description: Open a pull request from the current branch to main for the scrolls repo. Use when the user says "create a PR", "open a PR", "ship this branch", or asks to put up changes for review. Handles push + upstream tracking, derives title/body from the branch's commits, matches this repo's title style, and refuses to target main from main.
+description: Open a pull request from the current branch to main for the synaxis repo. Use when the user says "create a PR", "open a PR", "ship this branch", or asks to put up changes for review. Handles push + upstream tracking, derives title/body from the branch's commits, matches this repo's title style, and refuses to target main from main.
 ---
 
 # Create PR

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 
 /* Server-side auth gate — the idiomatic Next.js replacement for client route guards.
- * Reads the `scrolls-auth` cookie the mock login sets (see lib/store/auth/store.js):
+ * Reads the `synaxis-auth` cookie the mock login sets (see lib/store/auth/store.js):
  * unauthenticated requests are bounced to /login, and authenticated requests to
  * /login are sent to the dashboard. */
-const AUTH_COOKIE = "scrolls-auth"
+const AUTH_COOKIE = "synaxis-auth"
 const LOGIN_PATH = "/login"
 
 export function middleware(request) {

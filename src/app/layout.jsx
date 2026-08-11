@@ -4,7 +4,7 @@ import Providers from "@/app/providers"
 import App from "@/app/App"
 
 export const metadata = {
-    title: "Scrolls",
+    title: "Synaxis",
     icons: { icon: "/favicon.svg" },
 }
 

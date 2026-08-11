@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Scrolls** (scrolls.chat) is a **Next.js 15 (App Router) on React 19** app template. It ships as a clickable front end running entirely on in-session mock data (users, dashboard cards, connections, events) so the flows work before a real backend is wired in. It is intentionally lightweight, but structured so you can build a full product on top of it.
+**Synaxis** (synaxis.chat) is a **Next.js 15 (App Router) on React 19** app template. It ships as a clickable front end running entirely on in-session mock data (users, dashboard cards, connections, events) so the flows work before a real backend is wired in. It is intentionally lightweight, but structured so you can build a full product on top of it.
 
 **No real backend yet, but Next.js provides the Node server.** The app is client-rendered (pages/layouts are Client Components); a real API will land as Next **route handlers** under `src/app/api/**/route.js`. Until then every store is seeded from `src/lib/metadata.js` and mutates its own in-memory copy in-session.
 
@@ -16,7 +16,7 @@ Not a monorepo — the whole project is a single npm package rooted at the repo 
 
 - **Stores** (`src/lib/store/`) each expose an `init()` that reads seed data from `metadata.js` after a `mockDelay()` — so loading skeletons still fire. Mutations update in-memory state and, where relevant, cross-store state.
 - **Mock API surface** lives in `src/lib/mock.js` (`mockDelay`, `mockId`) — swap these for real `fetch` calls (or Prisma-backed route handlers) when you point the frontend at a live backend.
-- **Auth is a lightweight mock.** Any credentials sign you in — the whole gate is `loggedIn = true` in `src/lib/store/auth/store.js`, which also writes a `scrolls-auth` cookie so `src/middleware.js` can gate protected/public routes server-side. When you add a real provider, replace the cookie write with an HTTP-only session cookie set by the server and the middleware keeps working unchanged. See `.claude/skills/develop/auth-architecture.md`.
+- **Auth is a lightweight mock.** Any credentials sign you in — the whole gate is `loggedIn = true` in `src/lib/store/auth/store.js`, which also writes a `synaxis-auth` cookie so `src/middleware.js` can gate protected/public routes server-side. When you add a real provider, replace the cookie write with an HTTP-only session cookie set by the server and the middleware keeps working unchanged. See `.claude/skills/develop/auth-architecture.md`.
 
 Full patterns and conventions: `.claude/skills/develop/frontend-architecture.md`.
 

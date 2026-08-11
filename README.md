@@ -1,6 +1,6 @@
-# Scrolls
+# Synaxis
 
-Scrolls ([scrolls.chat](https://scrolls.chat)) is a lightweight **Next.js 15 + React 19** app template. It runs 100% on in-session mock data today, so you can click around the flows (dashboard, connections, settings, users) before wiring in a real backend — then grow it into a full product.
+Synaxis ([synaxis.chat](https://synaxis.chat)) is a lightweight **Next.js 15 + React 19** app template. It runs 100% on in-session mock data today, so you can click around the flows (dashboard, connections, settings, users) before wiring in a real backend — then grow it into a full product.
 
 Every Zustand store reads seed data from `src/lib/metadata.js` and mutates its own in-memory copy in-session. No backend required to run it. **Prisma** (Postgres) is included and wired but idle — turn it on when you need to persist real data.
 
@@ -46,7 +46,7 @@ Prisma is installed and configured against Postgres but **nothing imports the cl
 
 ```
 src/
-  middleware.js     server-side auth gate (reads the scrolls-auth cookie)
+  middleware.js     server-side auth gate (reads the synaxis-auth cookie)
   app/              Next.js App Router — (public)/ and (protected)/ route groups
   lib/
     metadata.js     seed data (users, events)

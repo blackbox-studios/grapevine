@@ -1,6 +1,6 @@
 # Auth Architecture
 
-> **Purpose.** How authentication works in Scrolls today (a deliberately lightweight
+> **Purpose.** How authentication works in Synaxis today (a deliberately lightweight
 > mock) and how to swap it for a real provider without rewriting the app. Read this
 > before touching `src/middleware.js`, `src/lib/store/auth/`, or the login page.
 >
@@ -15,12 +15,12 @@
   `loggedIn = true`. There is no password check, no token, no external provider.
 - Two pieces of state are written together on login and cleared together on logout:
   1. **Client UI state** — `loggedIn` / `user` in the Zustand auth store
-     (`src/lib/store/auth/store.js`), persisted to `localStorage` (key `scrolls-user`)
+     (`src/lib/store/auth/store.js`), persisted to `localStorage` (key `synaxis-user`)
      so a reload keeps you signed in.
-  2. **A server-readable cookie** — `scrolls-auth`, set via `document.cookie`, so the
+  2. **A server-readable cookie** — `synaxis-auth`, set via `document.cookie`, so the
      Next middleware (which can't read `localStorage`) can gate routes on the server.
 - **`src/middleware.js`** is the route guard. It runs on every matched request
-  (including client navigations) before the page renders: no `scrolls-auth` cookie →
+  (including client navigations) before the page renders: no `synaxis-auth` cookie →
   redirect to `/login`; has the cookie and on `/login` → redirect to `/`. There are
   **no client guard components** (`ProtectedRoute`/`PublicRoute`).
 
@@ -33,10 +33,10 @@ login page (any credentials)
       │  useLogin() → store.login()
       ▼
 auth store:  loggedIn = true, user = CURRENT_USER   (persisted to localStorage)
-             document.cookie "scrolls-auth=1"        (server-readable gate)
+             document.cookie "synaxis-auth=1"        (server-readable gate)
              router.replace("/")
       ▼
-middleware.js reads the scrolls-auth cookie on every request → allows /,
+middleware.js reads the synaxis-auth cookie on every request → allows /,
       redirects unauthenticated requests to /login
 ```
 
@@ -58,7 +58,7 @@ Files:
 The seam is deliberately small. When you add real auth (NextAuth/Auth.js, Clerk,
 Auth0, a custom `/api/auth/*` route handler, etc.):
 
-1. **Session cookie.** Replace the client-written `scrolls-auth` cookie with an
+1. **Session cookie.** Replace the client-written `synaxis-auth` cookie with an
    **HTTP-only session cookie set by the server** (the login response / token
    exchange / OAuth callback). Delete `setAuthCookie` / `clearAuthCookie`.
 2. **Middleware.** Point `src/middleware.js` at the real session cookie (or verify a

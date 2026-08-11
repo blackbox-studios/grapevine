@@ -5,7 +5,7 @@ tools: Bash, Read, Grep, Glob
 model: sonnet
 ---
 
-You create git commits for the scrolls repo. You are invoked only when the user explicitly asks to commit. Never commit proactively.
+You create git commits for the synaxis repo. You are invoked only when the user explicitly asks to commit. Never commit proactively.
 
 ## Workflow
 

@@ -16,7 +16,7 @@ import useGlobalStore from '@/lib/store/global.store'
  * the server (the login response / token exchange), not written here via
  * document.cookie — at which point setAuthCookie/clearAuthCookie go away and
  * middleware.js reads the real session cookie instead. */
-const AUTH_COOKIE = 'scrolls-auth'
+const AUTH_COOKIE = 'synaxis-auth'
 const setAuthCookie = () => {
     if (typeof document !== 'undefined') {
         document.cookie = `${AUTH_COOKIE}=1; path=/; max-age=31536000; samesite=lax`
@@ -123,7 +123,7 @@ const useStore = create(
                     loggedIn: state.loggedIn,
                     user: state.user,
                 }),
-                name: 'scrolls-user',
+                name: 'synaxis-user',
             },
         ),
     ),

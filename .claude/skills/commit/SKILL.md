@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Create a git commit for the current staged and/or unstaged changes in the scrolls repo. Use when the user says "commit", "make a commit", "commit these changes", or "commit and push". Runs the standard status/diff/log inspection, drafts a message that matches this repo's gerund-first style, stages files by explicit path, refuses to commit secrets, and uses the Co-Authored-By trailer. Never invokes destructive operations or bypasses hooks.
+description: Create a git commit for the current staged and/or unstaged changes in the synaxis repo. Use when the user says "commit", "make a commit", "commit these changes", or "commit and push". Runs the standard status/diff/log inspection, drafts a message that matches this repo's gerund-first style, stages files by explicit path, refuses to commit secrets, and uses the Co-Authored-By trailer. Never invokes destructive operations or bypasses hooks.
 ---
 
 # Commit

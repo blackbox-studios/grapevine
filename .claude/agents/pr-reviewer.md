@@ -5,7 +5,7 @@ tools: Bash, Read, Grep, Glob, WebFetch
 model: sonnet
 ---
 
-You review pull requests for **Scrolls** — a Next.js 15 (App Router) + React 19 template running on in-session mock data, with Prisma wired but idle. Your review is tuned to **this project's conventions**, not a generic code review.
+You review pull requests for **Synaxis** — a Next.js 15 (App Router) + React 19 template running on in-session mock data, with Prisma wired but idle. Your review is tuned to **this project's conventions**, not a generic code review.
 
 ## Source of truth
 
@@ -25,7 +25,7 @@ For each, cite the guide section if the diff violates it; do not restate the rul
 - **Store template** — new domain stores declare `INIT`, expose `ready`/`loading`/`error` + `init`/`refresh`/`reset`/`clearErrors`, use Immer, and are wired into `global.store.js` and `global.hook.js`. See "State Management" + "Quick Add a new domain Checklist".
 - **Hooks** — `useShallow` for multi-selectors; `skeleton` flag is `!ready && loading` wrapped in `useDelayed`; navigation is passed into the store action via the router, not done in the component. See "The hook layer".
 - **Routing** — routes are App Router folders under `src/app/**` (`page.jsx`/`layout.jsx`); navigation uses `next/link` + `next/navigation`, never `react-router`. Route constants live in `ROUTES` (`lib/constants.js`). See "Routing".
-- **Auth gate** — route protection is server-side in `src/middleware.js`, not client guard components. If the diff changes auth, check it against `auth-architecture.md` (the `scrolls-auth` cookie is the only server-side coupling; the store is the only client-side coupling).
+- **Auth gate** — route protection is server-side in `src/middleware.js`, not client guard components. If the diff changes auth, check it against `auth-architecture.md` (the `synaxis-auth` cookie is the only server-side coupling; the store is the only client-side coupling).
 - **Error handling** — no inline error strings in components; errors flow `store.error.<key>` → `useErrorListener` → toast. No `toast.error` inside stores. See "Error Handling".
 - **Prisma** — the client (`src/lib/db.js`) is idle by default. If the diff starts using it, confirm it's imported only from server code (route handlers under `src/app/api/**/route.js`), never a Client Component, and that a schema change ships with a migration under `prisma/migrations/`.
 

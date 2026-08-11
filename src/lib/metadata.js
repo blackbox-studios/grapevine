@@ -4,8 +4,8 @@
 
 export const CURRENT_USER = {
     id: "7e799cc2-e781-447e-94a1-b825d08df9ca",
-    email: "admin@scrolls.chat",
-    full_name: "Scrolls Admin",
+    email: "admin@synaxis.chat",
+    full_name: "Synaxis Admin",
     is_enabled: true,
     role: "admin",
     created_at: "2026-05-26T20:33:48.795230Z",

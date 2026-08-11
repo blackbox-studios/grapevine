@@ -16,8 +16,8 @@ This document describes the frontend architecture and the patterns ALL agents mu
 | Forms | `react-hook-form` + `zod` (via `@hookform/resolvers`) |
 | Styling | **Tailwind CSS v4** (via `@tailwindcss/postcss`) |
 | Animation | `motion` (Framer Motion) |
-| Theming | **`next-themes`** (class strategy, `storageKey` `scrolls-ui-theme`) |
-| Auth gate | **`middleware.js`** reading the `scrolls-auth` cookie (mock auth) |
+| Theming | **`next-themes`** (class strategy, `storageKey` `synaxis-ui-theme`) |
+| Auth gate | **`middleware.js`** reading the `synaxis-auth` cookie (mock auth) |
 | Component Library | **shadcn/ui** (radix-ui primitives) — `components.json` at the repo root |
 | Icons | **Google Material Symbols** via the local `<Icon>` component |
 | SVG | **`@svgr/webpack`** (configured in `next.config.mjs`) — SVGs are imported as React components |
@@ -48,7 +48,7 @@ Reference files:
 
 ```
 ├── src/
-│   ├── middleware.js                # Server-side auth gate (reads the scrolls-auth cookie)
+│   ├── middleware.js                # Server-side auth gate (reads the synaxis-auth cookie)
 │   ├── app/                         # Next.js App Router — routes are folders
 │   │   ├── layout.jsx               # Root layout: <html>/<body>, globals.css, Material Symbols <link>,
 │   │   │                            #   metadata; renders <Providers> + <App/>
@@ -399,7 +399,7 @@ Hook rules:
 
   // lib/store/auth/store.js
   login: async (_email, _password, router) => {
-      // ...set loggedIn + scrolls-auth cookie...
+      // ...set loggedIn + synaxis-auth cookie...
       router.replace(ROUTES.DEFAULT)
   }
   ```
@@ -611,12 +611,12 @@ Page components do **not** add their own top-level `PageTransition` — the layo
 
 There are **no client guard components** (no `ProtectedRoute`/`PublicRoute`). Auth redirects are done server-side by `src/middleware.js`, the idiomatic Next.js approach — it runs on every matched request (including client-side navigations) before the page renders, so there's no flash and no `mounted` gate.
 
-Because the mock auth is client state, middleware needs something server-readable: the auth store writes an **`scrolls-auth` cookie** on login and clears it on logout (`lib/store/auth/store.js`), and middleware gates on that cookie.
+Because the mock auth is client state, middleware needs something server-readable: the auth store writes an **`synaxis-auth` cookie** on login and clears it on logout (`lib/store/auth/store.js`), and middleware gates on that cookie.
 
 ```js
 // src/middleware.js (essence)
 export function middleware(request) {
-    const authed = request.cookies.has("scrolls-auth")
+    const authed = request.cookies.has("synaxis-auth")
     const onLogin = request.nextUrl.pathname === "/login"
     if (!authed && !onLogin) return NextResponse.redirect(new URL("/login", request.url))
     if (authed && onLogin)  return NextResponse.redirect(new URL("/", request.url))
@@ -687,7 +687,7 @@ const { user } = useUser()
 - **`@utility` declarations** in `globals.css` (e.g. `panel`, `bg-dotted`) are off-limits unless the user explicitly asks.
 - **No inline color literals** in `className`. Forbidden: `bg-[#ABCDEF]`, `text-[oklch(...)]`. Use theme tokens (`bg-primary`, `text-muted-foreground`, `border-border`, `text-success`, `text-warning`, `text-destructive`).
 - **No `style={{...}}` prop** unless Tailwind genuinely can't express it. Always prefer string className.
-- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `scrolls-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
+- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `synaxis-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
 
 ### Layout tokens
 
@@ -1092,7 +1092,7 @@ There is no `main.jsx`. Three files split the responsibilities the old `main.jsx
 
 ```jsx
 // app/layout.jsx (essence)
-export const metadata = { title: "Scrolls", icons: { icon: "/favicon.svg" } }
+export const metadata = { title: "Synaxis", icons: { icon: "/favicon.svg" } }
 
 export default function RootLayout({ children }) {
     return (
@@ -1107,7 +1107,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="scrolls-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider`, plus the global `<Toaster/>`.
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider`, plus the global `<Toaster/>`.
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

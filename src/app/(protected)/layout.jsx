@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Logo from "@/assets/svg/logo.svg"
 import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
 import SendIcon from "@/assets/svg/icons/send.svg"
@@ -105,6 +106,19 @@ const ProtectedLayout = ({ children }) => {
                             navOpen ? "w-60 border-border" : "w-(--nav-width) border-transparent",
                         )}
                     >
+                        {/* Brand mark pinned to the top of the rail, aligned in the same
+                          * fixed icon column as the nav items so it stays put on expand. */}
+                        <Link
+                            href={ROUTES.DEFAULT}
+                            aria-label="Home"
+                            onClick={() => setNavOpen(false)}
+                            className="flex items-center px-2 pt-9 md:pt-13.5"
+                        >
+                            <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
+                                <Logo className="w-7 text-foreground" />
+                            </span>
+                        </Link>
+
                         <div className="flex flex-1 flex-col justify-center gap-2 px-2">
                             {NAV.map((item, idx) => (
                                 <NavItem key={idx} item={item} pathname={pathname} onNavigate={() => setNavOpen(false)} />

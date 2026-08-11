@@ -13,7 +13,7 @@ export default function Providers({ children }) {
             attribute="class"
             defaultTheme="dark"
             enableSystem
-            storageKey="scrolls-ui-theme"
+            storageKey="synaxis-ui-theme"
             disableTransitionOnChange
         >
             <TooltipProvider>

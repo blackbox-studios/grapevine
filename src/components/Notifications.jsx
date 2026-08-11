@@ -27,7 +27,7 @@ const ACTIVITY = [
     {
         id: "alex-family-join",
         title: "New User",
-        body: "A new user has joined Scrolls",
+        body: "A new user has joined Synaxis",
         timeLabel: "Yesterday",
         // Soft blue gradient disc, mirroring the design reference
         avatarClass:

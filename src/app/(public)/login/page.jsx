@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { useLogin } from "@/lib/store/auth/hook"
 
 /* Demo mode: credentials are ignored, so the single button signs straight in. */
-const DEMO_CREDENTIALS = { email: "admin@scrolls.chat", password: "admin@scrolls.chat" }
+const DEMO_CREDENTIALS = { email: "admin@synaxis.chat", password: "admin@synaxis.chat" }
 
 const LoginPage = () => {
     const { login, loading, clearError } = useLogin()

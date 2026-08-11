@@ -85,8 +85,8 @@ const useStore = create(
                             state.error.login = false
                         })
                         setAuthCookie()
-                        await get()._fetchUsers()
                         router.replace(ROUTES.DEFAULT)
+                        await get()._fetchUsers()
                     } finally {
                         set(state => { state.loading.login = false })
                     }

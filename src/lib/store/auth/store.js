@@ -7,26 +7,12 @@ import { CURRENT_USER, USERS } from '@/lib/metadata'
 import { mockDelay } from '@/lib/mock'
 import useGlobalStore from '@/lib/store/global.store'
 
-/* Mirror the mock login state into a cookie so the Next middleware (which can't read
- * localStorage) can gate protected/public routes on the server. Written alongside the
- * persisted store state on login, cleared on logout.
+/* `loggedIn` here (persisted to localStorage) is the whole auth state, and the route
+ * gates in components/AuthGate.jsx read it directly. There is no companion cookie: the
+ * app ships as a static export, so there is no middleware to serve one — see
+ * .claude/skills/develop/auth-architecture.md for how a real provider slots in.
  *
- * TEMPORARY: this manual, client-set cookie is a stand-in for real auth. When you
- * integrate a real provider, the session cookie should be an HTTP-only cookie set by
- * the server (the login response / token exchange), not written here via
- * document.cookie — at which point setAuthCookie/clearAuthCookie go away and
- * middleware.js reads the real session cookie instead. */
-const AUTH_COOKIE = 'synaxis-auth'
-const setAuthCookie = () => {
-    if (typeof document !== 'undefined') {
-        document.cookie = `${AUTH_COOKIE}=1; path=/; max-age=31536000; samesite=lax`
-    }
-}
-const clearAuthCookie = () => {
-    if (typeof document !== 'undefined') {
-        document.cookie = `${AUTH_COOKIE}=; path=/; max-age=0; samesite=lax`
-    }
-}
+ * TEMPORARY: this is a mock. Any credentials sign you in. */
 
 const ERROR_INIT = {
     login: false,
@@ -84,7 +70,6 @@ const useStore = create(
                             state.user = CURRENT_USER
                             state.error.login = false
                         })
-                        setAuthCookie()
                         router.replace(ROUTES.DEFAULT)
                         await get()._fetchUsers()
                     } finally {
@@ -96,7 +81,6 @@ const useStore = create(
                     try {
                         await mockDelay(200)
                     } finally {
-                        clearAuthCookie()
                         useGlobalStore.getState().reset()
                         set(state => {
                             state.ready = true

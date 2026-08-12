@@ -1,0 +1,30 @@
+{
+    "appId": "chat.synaxis.app",
+    "appName": "Synaxis",
+    "webDir": "out",
+    "backgroundColor": "#0a1014",
+    "ios": {
+        "contentInset": "never",
+        "backgroundColor": "#0a1014"
+    },
+    "android": {
+        "backgroundColor": "#0a1014",
+        "webContentsDebuggingEnabled": true
+    },
+    "plugins": {
+        "SplashScreen": {
+            "launchAutoHide": false,
+            "backgroundColor": "#0a1014",
+            "showSpinner": false,
+            "androidScaleType": "CENTER_CROP"
+        },
+        "StatusBar": {
+            "style": "DARK"
+        },
+        "Keyboard": {
+            "resize": "native",
+            "style": "DARK",
+            "resizeOnFullScreen": true
+        }
+    }
+}

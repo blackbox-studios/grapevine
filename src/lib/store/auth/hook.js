@@ -72,3 +72,10 @@ export const useLogout = () => {
 export const useUser = () => {
     return useAuthStore(state => state.user)
 }
+
+/* Whether anyone is signed in — the single fact the route gates need, kept separate from
+ * useLogin so mounting a gate doesn't drag in the login form's loading/error surface.
+ * Read by <ProtectedGate/> / <PublicGate/> (see components/AuthGate.jsx). */
+export const useAuthed = () => {
+    return useAuthStore(state => state.loggedIn)
+}

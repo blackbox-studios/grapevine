@@ -12,6 +12,7 @@ import GroupIcon from "@/assets/svg/icons/group.svg"
 import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
+import { ProtectedGate } from "@/components/AuthGate";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
@@ -88,21 +89,20 @@ const NavSlot = ({ children }) => (
     </div>
 )
 
-/* Auth redirects are handled by middleware.js (see it for the protected-route gate).
+/* Auth redirects are handled by <AuthGate/> (see it for the protected-route gate).
  *
- * `modal` is the @modal parallel slot: on a soft nav to a slide route it holds that
- * route's interceptor, which renders nothing and only declares itself (see
- * useSlideRoute). We still render `{modal}` so the interceptor mounts — that's what
- * keeps the page underneath alive — while <SlideRouter/> renders the actual surface.
- * Everything slide-route-specific lives in the SLIDE_ROUTES registry; nothing about a
- * given slide route is hard-coded in this file. */
-const ProtectedLayout = ({ children, modal }) => {
+ * Slide routes need nothing from this file beyond <SlideBase/> (the surface they push)
+ * and <SlideRouter/> (the surface itself): they open by shallow history navigation, so
+ * the route rendered here never changes while one is up. Everything slide-route-specific
+ * lives in the SLIDE_ROUTES registry; nothing about a given slide route is hard-coded
+ * here. */
+const ProtectedLayout = ({ children }) => {
     const pathname = usePathname()
     const [navOpen, setNavOpen] = useState(false)
     const vibing = useVibing()
 
     return (
-        <>
+        <ProtectedGate>
             <Grain />
 
             {/* Every layer here is a sibling in the document's own stacking context, in
@@ -181,13 +181,9 @@ const ProtectedLayout = ({ children, modal }) => {
                 <ProfileMenu />
             </nav>
 
-            {/* The interceptor — renders nothing, mounts only to keep the page
-                underneath alive and declare the active slide route. */}
-            {modal}
-
             {/* The slide-route surface. Last child so it stacks above the nav. */}
             <SlideRouter />
-        </>
+        </ProtectedGate>
     )
 }
 

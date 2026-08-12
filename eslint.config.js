@@ -4,7 +4,11 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', '.next', 'node_modules']),
+  /* Build output and native shells: `out` is the static export (bundled JS, not source),
+     and `android`/`ios` are Capacitor-generated Xcode/Gradle projects that carry their own
+     JS copy of that same export. Linting any of them reports thousands of errors about
+     minified code nobody wrote. */
+  globalIgnores(['dist', '.next', 'out', 'android', 'ios', 'node_modules']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

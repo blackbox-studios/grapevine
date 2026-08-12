@@ -10,7 +10,8 @@ import { SLIDE_TRANSITION } from "@/lib/utils"
 
 /* The surface each registered slide route renders, keyed by its prefix. This is the
  * only place that maps a slide route to a component — adding one is a single entry
- * here plus the SLIDE_ROUTES entry in constants.js and the `@modal` interceptor page.
+ * here plus the SLIDE_ROUTES entry in constants.js and the standalone page that serves
+ * the same URL when it's opened cold.
  *
  * A surface receives the route's dynamic param and is responsible for its own
  * presentation *and* its own enter/exit animation (so it can differ by breakpoint —
@@ -43,9 +44,9 @@ export const SlideBase = ({ className, children }) => {
     )
 }
 
-/* Renders the active slide route's surface, owned by the shell rather than by the
- * `@modal` slot that triggered it (see useSlideRoute for why). Mount it last in the
- * layout so it stacks above the nav.
+/* Renders the active slide route's surface. The shell owns it so it outlives the URL
+ * change that opened it (see useSlideRoute). Mount it last in the layout so it stacks
+ * above the nav.
  *
  * The surface is given a stable key off its prefix so AnimatePresence tracks one
  * instance across open → dismiss: on dismiss it retains this element, props and all,

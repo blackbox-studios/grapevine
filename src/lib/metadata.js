@@ -287,6 +287,13 @@ export const FEED = [
     },
 ]
 
+/* Every post id in the seed. The native build is a static export, so `/p/:id` has no
+ * server to resolve the segment at request time and Next needs the reachable ids up
+ * front (see (protected)/p/[postId]/page.jsx → generateStaticParams). Reading them from
+ * FEED keeps the one list of posts authoritative; a real backend replaces this with a
+ * query, and any id it can't know ahead of time can't be a prerendered path. */
+export const postIds = () => FEED.map((post) => post.id)
+
 /* The signed-in viewer's social identity — the author stamped on comments posted
  * from the composer, and the avatar shown in the composer's input row. A real
  * backend would derive this from the authenticated session/profile. */

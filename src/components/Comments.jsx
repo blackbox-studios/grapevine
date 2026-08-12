@@ -152,16 +152,13 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
             className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
             <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
-            {/* text-base (16px): iOS auto-zooms into any input that renders below 16px on
-                focus, which on a wrapped app reads as the whole UI jumping in. Sizing just
-                the composer at 16px sidesteps that without locking the app's zoom globally. */}
             <input
                 ref={inputRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Add a comment…"
                 aria-label="Add a comment"
-                className="flex-1 bg-transparent text-base lg:text-sm outline-none placeholder:text-muted-foreground"
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
             <button
                 type="submit"

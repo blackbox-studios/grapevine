@@ -101,33 +101,19 @@ const useHardwareBack = () => {
 
 /* Closes the on-screen keyboard when the field that opened it goes away — dismissing a
  * comment drawer mid-reply, say. The WebView otherwise keeps it up over a surface that no
- * longer has anything focused, since the native keyboard has no idea the element is gone.
- *
- * The check is deferred a frame, and that is load-bearing. Focusing a field inside a focus
- * scope (the Vaul comment drawer) fires `focusout` for the element that held the scope's
- * focus *before* the tapped input receives it, and in that gap `document.activeElement` is
- * transiently `<body>`. Reading it synchronously sees "nothing focused" and hides the
- * keyboard the instant it is opening — in the Safari log that lands as a `Keyboard.hide`
- * immediately after `keyboardWillShow`, which is the flicker on screen. A frame later focus
- * has settled on the input, so we only hide once it has genuinely left every field. */
+ * longer has anything focused, since the native keyboard has no idea the element is gone. */
 const useKeyboardDismiss = () => {
     useEffect(() => {
         if (!isNative()) return
 
-        let frame = 0
         const onFocusOut = () => {
-            cancelAnimationFrame(frame)
-            frame = requestAnimationFrame(() => {
-                const el = document.activeElement
-                if (!el || el === document.body) Keyboard.hide().catch(() => {})
-            })
+            if (!document.activeElement || document.activeElement === document.body) {
+                Keyboard.hide().catch(() => {})
+            }
         }
 
         window.addEventListener("focusout", onFocusOut)
-        return () => {
-            cancelAnimationFrame(frame)
-            window.removeEventListener("focusout", onFocusOut)
-        }
+        return () => window.removeEventListener("focusout", onFocusOut)
     }, [])
 }
 

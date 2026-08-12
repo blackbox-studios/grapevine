@@ -114,7 +114,7 @@ const PostCard = ({ post }) => {
                         </span>
                     </div>
                     {post.group && (
-                        <span className="truncate text-xs text-muted-foreground">
+                        <span className="truncate text-xs font-medium text-muted-foreground">
                             {post.group}
                         </span>
                     )}

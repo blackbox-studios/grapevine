@@ -205,7 +205,7 @@
     @apply font-display tracking-normal
   }
   p{
-    @apply tracking-[-0.015em]
+    @apply tracking-normal
   }
 
   /* Google Material Symbols, self-hosted rather than pulled from fonts.googleapis.com.

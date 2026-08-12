@@ -43,7 +43,7 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                         · {timeAgoCompact(now, new Date(created_at).getTime())}
                     </span>
                 </p>
-                <p className="text-sm leading-snug wrap-break-word font-medium">{text}</p>
+                <p className="text-sm leading-snug wrap-break-word">{text}</p>
             </div>
             <div className="flex flex-col items-center gap-1 pt-1.5">
                 <button
@@ -163,7 +163,7 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
             <button
                 type="submit"
                 disabled={!canPost}
-                className="text-sm font-semibold text-sky-500 transition-opacity hover:text-sky-400 disabled:pointer-events-none disabled:opacity-0"
+                className="text-sm font-semibold text-link transition-opacity hover:text-link/50 disabled:pointer-events-none disabled:opacity-0"
             >
                 Post
             </button>

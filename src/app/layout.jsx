@@ -12,10 +12,17 @@ export const metadata = {
  * and is what makes env(safe-area-inset-*) report real values on iOS and in mobile
  * browsers — required for the Capacitor build, a no-op on a device without cutouts.
  * (Android reports its insets a different way; globals.css reads both.) Everything that
- * touches a screen edge pads by the --safe-* tokens there. */
+ * touches a screen edge pads by the --safe-* tokens there.
+ *
+ * maximumScale + userScalable stop iOS Safari / WKWebView from auto-zooming when an
+ * input under 16px gets focus — so composers and fields can stay at text-sm without
+ * each one needing text-base as a workaround. Safari still lets users pinch-zoom for
+ * accessibility despite user-scalable=no (iOS 10+); Capacitor's webview honors the cap. */
 export const viewport = {
     width: "device-width",
     initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
     viewportFit: "cover",
 }
 

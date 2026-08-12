@@ -35,7 +35,7 @@ export default function Breadcrumbs({ className }) {
                                     <>
                                         <BreadcrumbItem>
                                             <BreadcrumbLink asChild>
-                                                <Link href={to} className="capitalize">
+                                                <Link href={to} scroll={false} className="capitalize">
                                                     {name}
                                                 </Link>
                                             </BreadcrumbLink>

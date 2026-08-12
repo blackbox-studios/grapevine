@@ -24,6 +24,9 @@ const SettingsLayout = ({ children }) => {
                         <Link
                             key={to}
                             href={to}
+                            /* Sub-tabs cross-fade in place; Next's scroll-to-top would
+                               throw the reader to the top of Settings on every switch. */
+                            scroll={false}
                             className={cn(
                                 "rounded-full px-6 py-3.5 text-sm font-medium transition-colors",
                                 isActive
@@ -37,7 +40,7 @@ const SettingsLayout = ({ children }) => {
                 })}
             </nav>
 
-            <div className="min-h-[60vh] border-l pl-16">
+            <div className="min-h-[60dvh] border-l pl-16">
                 {/* Nested transition: fades between General/Users while the Settings
                     pane itself stays mounted. Its own FrozenRouter keeps this working
                     at the nested level. */}

@@ -114,7 +114,7 @@ export default function NotificationsPopover() {
                 side="right"
                 align="end"
                 sideOffset={16}
-                className="w-88 gap-0 overflow-hidden p-2 h-[clamp(400px,50vh,600px)]"
+                className="w-88 gap-0 overflow-hidden p-2 h-[clamp(400px,50dvh,600px)]"
             >
                 <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
                     <h3 className="text-lg font-semibold tracking-tight">
@@ -156,7 +156,7 @@ export default function NotificationsPopover() {
 
                     <TabsContent
                         value="activity"
-                        className="mt-2 max-h-96 overflow-y-auto"
+                        className="mt-2 max-h-96 overflow-y-auto overscroll-contain"
                     >
                         <NotificationList
                             items={ACTIVITY}
@@ -166,7 +166,7 @@ export default function NotificationsPopover() {
 
                     <TabsContent
                         value="reminders"
-                        className="mt-2 max-h-96 overflow-y-auto"
+                        className="mt-2 max-h-96 overflow-y-auto overscroll-contain"
                     >
                         <NotificationList
                             items={REMINDERS}

@@ -22,7 +22,9 @@ export default function ProfilePopover() {
 
     const handleSettings = () => {
         setOpen(false);
-        router.push(ROUTES.SETTINGS);
+        /* The layout scrolls to top after its cross-fade; Next's own scroll would fire
+           first and yank the outgoing page. */
+        router.push(ROUTES.SETTINGS, { scroll: false });
     };
 
     const handleLogout = () => {

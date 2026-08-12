@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { useRouter } from "next/navigation"
-import { motion, useReducedMotion } from "motion/react"
+import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
@@ -79,9 +79,13 @@ const PostCard = ({ post }) => {
 
     /* Opening a post always routes to `/p/:id` — soft-navigation interception overlays
      * it on the live feed (the adaptive PostView: a centered dialog on desktop, a
-     * swipe-in sheet on mobile) without unmounting the feed, and the URL is shareable. */
+     * swipe-in sheet on mobile) without unmounting the feed, and the URL is shareable.
+     *
+     * `scroll: false` is load-bearing here: the feed is the document, so Next's default
+     * scroll-to-top would rewind it to the first post behind the overlay and drop the
+     * reader back at the top on dismiss. */
     const openPost = useCallback(() => {
-        router.push(postPath(post.id))
+        router.push(postPath(post.id), { scroll: false })
     }, [router, post.id])
 
     /* The comment icon opens that same post surface on desktop; on mobile it keeps the

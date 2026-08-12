@@ -101,12 +101,12 @@ Reference files:
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
 │   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
+│   │   │   ├── useScroll.hook.js      # scrollToTop + useScrollLock + useVibing
 │   │   │   └── useErrorListener.hook.jsx
 │   │   ├── providers/
 │   │   │   ├── Theme.jsx            # Thin re-export of next-themes ThemeProvider/useTheme
-│   │   │   ├── Scroll.jsx           # Layout scroll container ref + scrollToTop
 │   │   │   ├── Tooltip.jsx          # re-exports shadcn TooltipProvider
-│   │   │   └── index.jsx            # barrel (ThemeProvider, TooltipProvider, ScrollProvider)
+│   │   │   └── index.jsx            # barrel (ThemeProvider, TooltipProvider)
 │   │   └── store/                   # Zustand stores (one folder per domain)
 │   │       ├── global.store.js      # Orchestrates init/reset/clearErrors across stores
 │   │       ├── global.hook.js       # useErrors() aggregator (+ useReady() when stores grow)
@@ -645,7 +645,9 @@ So the responsibilities are split:
 - The **interceptor page renders `null`.** Its only jobs are (a) existing, which is what keeps the page underneath mounted, and (b) calling `useSlideRoute(prefix)` to declare itself. Its mount/unmount is also the only reliable **soft- vs hard-nav signal**: on a cold load the slot falls back to `default.jsx` and never mounts.
 - The **shell owns the surface.** `<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) renders it inside the layout's own `AnimatePresence`. That instance lives in the persistent layout, so it survives the slot teardown, and `AnimatePresence` retains the element — props and all — through the exit. That retention is also why the surface never blanks mid-animation: it keeps the param it opened with even though the route has already changed.
 
-`<SlideBase/>` is the other half: it wraps the shell's scroll container and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base.
+`<SlideBase/>` is the other half: it wraps the shell's page (an ordinary flow element — see **Scrolling** below) and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base. Because the document keeps its scroll offset through a pure horizontal transform, and the surface freezes the document while it's up, the base is exactly where the reader left it on dismiss.
+
+Navigate to a slide route with `router.push(path, { scroll: false })`. Without it Next rewinds the base to the top the moment the URL changes.
 
 #### Open/close gating
 
@@ -702,7 +704,7 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
    }
    ```
 
-   The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` scroll container and covers the viewport.
+   The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` page wrapper — which a slide route may be mid-transform on — and covers the viewport.
 
 Nothing in `app/(protected)/layout.jsx` changes — it already renders `{modal}` and `<SlideRouter/>` generically.
 
@@ -784,6 +786,30 @@ If the current page already has a slug, ID, or user object via a hook, the **sub
 const { current } = useApp()
 const { user } = useUser()
 ```
+
+---
+
+## Scrolling & overlays
+
+**The document is the app's only scroller.** There is no full-height inner container: the shell's page wrapper is an ordinary flow element inset past the rail (`md:pl-(--nav-width)`), so its height is its content's height and `<html>` is what scrolls.
+
+This is not cosmetic. A mobile browser only retracts its own URL bar and toolbar when the *document* scrolls, so an inner scroll container permanently pins the app to the small viewport (`svh`) — visibly less room on a phone. It is also the only model a Capacitor WebView handles natively.
+
+Rules that follow from it:
+
+- **Never add a viewport-height scroll container** (`h-screen overflow-y-auto`, `h-dvh overflow-auto`) around page content. Inner scrollers are fine for *bounded* panels — a comment thread, a dropdown, a popover list — and those should carry `overscroll-contain` so hitting their end doesn't chain out to the page.
+- **Prefer `dvh` over `vh`.** `vh` is the tall viewport on mobile, so anything sized in `vh` hides under the browser's own chrome.
+- **Chrome is `fixed`, content is in flow.** The rail, the mobile bar, the grain, and the background gradient are fixed siblings in the root stacking context (z: backdrop 0, page 1, rail 2, grain 10, mobile bar 20, overlays 50). Nothing wraps them in a sized box.
+- **Read scroll via framer-motion, not a hand-rolled listener.** The mobile bar dims out while scrolling down and reappears on scroll up via `useVibing` (`lib/hooks/useScroll.hook.js`), which is built on framer-motion's `useScroll` + `useMotionValueEvent` — event-driven, no `scroll` listener and no timer. Reach for `useScroll` for any new scroll-position UI.
+- **Any surface that covers the page must call `useScrollLock`** (from `lib/hooks/useScroll.hook.js`). Otherwise the page keeps scrolling behind it and you get two live scrollbars. The lock is counted, so nested overlays are safe, and it holds for the component's whole life — under `AnimatePresence` that spans the exit animation, so scrolling returns only once the surface is gone. Radix and Vaul guard `<body>`, not the document, so their overlays need it too (see `CommentsDrawer`).
+- **`<html>` reserves its scrollbar gutter unconditionally** (`scrollbar-gutter: stable`), which is what lets the lock flip `overflow` to `hidden` without the page shifting sideways. Don't remove it.
+- **Navigate with `scroll: false`.** `<Link scroll={false}>` / `router.push(path, { scroll: false })`. The layout scrolls to top itself from `PageTransition`'s `onExitComplete`, once the cross-fade has played; Next's own scroll fires up front and yanks the outgoing page.
+
+### Safe areas
+
+`viewport-fit=cover` is set in the root layout's `viewport` export, so `env(safe-area-inset-*)` reports real values on notched devices and in the Capacitor WebView. They are exposed as `--safe-top` / `--safe-right` / `--safe-bottom` / `--safe-left` in `globals.css`, plus `--bottombar` (the mobile rail's height *including* the home-indicator inset).
+
+Anything that hugs a screen edge pads by these — use `pb-(--safe-bottom)`, `pt-(--safe-top)`, and clear the mobile rail with `--bottombar` rather than `--bottombar-height`.
 
 ---
 
@@ -1215,7 +1241,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider`, plus the global `<Toaster/>`.
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider`, plus the global `<Toaster/>`. (There is no scroll provider — the document is the scroller, so scroll helpers are plain functions/hooks in `lib/hooks/useScroll.hook.js`.)
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

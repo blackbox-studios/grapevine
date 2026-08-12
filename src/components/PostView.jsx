@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
+import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { usePost } from "@/lib/store/feed/hook"
 import { appPath, cn, SLIDE_TRANSITION } from "@/lib/utils"
 
@@ -78,8 +79,8 @@ const NotFound = () => (
  * registered surface for the `/p` slide route, rendered by <SlideRouter/> in the shell
  * (not by the `@modal` slot) so the instance outlives the slot teardown and can animate
  * out with its `postId` intact. `variant="page"` is the hard-nav / deep-link fallback
- * (portaled to <body> so it escapes the layout's scroll container and covers the
- * viewport); it passes the id from the route params. */
+ * (portaled to <body> so it escapes the shell's page wrapper and covers the viewport);
+ * it passes the id from the route params. */
 const PostView = ({ variant = "modal", postId }) => {
     const router = useRouter()
     const isDesktop = useIsDesktop()
@@ -103,6 +104,13 @@ const PostView = ({ variant = "modal", postId }) => {
 
     const isModal = variant === "modal"
 
+    /* The page is the document's scroller, so a surface that covers it has to freeze it
+     * — otherwise the feed keeps scrolling (and keeps its scrollbar) behind this one.
+     * Held for the component's whole life, which AnimatePresence extends through the
+     * exit: scrolling returns once the base has finished sliding home, not the instant
+     * the route changed. */
+    useScrollLock(true)
+
     /* Desktop fades (dialog); the mobile modal swipes horizontally; a mobile hard-nav
      * page (nothing behind it to slide) just fades in. */
     const anim = isDesktop
@@ -117,7 +125,7 @@ const PostView = ({ variant = "modal", postId }) => {
                 "fixed z-50",
                 isDesktop
                     ? "inset-0 flex items-center justify-center"
-                    : "inset-x-0 top-0 bottom-(--bottombar-height) flex flex-col bg-background",
+                    : "inset-x-0 top-0 bottom-(--bottombar) pt-(--safe-top) flex flex-col bg-background",
             )}
             {...anim}
         >
@@ -189,9 +197,10 @@ const PostView = ({ variant = "modal", postId }) => {
         </motion.div>
     )
 
-    /* The hard-nav page portals to <body> to escape the layout's scroll container
-     * (a low z-1 context) and cover the viewport. The modal is rendered inline by
-     * <SlideRouter/> (already above the nav) so its exit isn't trapped in a portal. */
+    /* The hard-nav page portals to <body> to escape the shell's page wrapper (a low z-1
+     * context, and one a slide route may be mid-transform on) and cover the viewport.
+     * The modal is rendered inline by <SlideRouter/> (already above the nav) so its exit
+     * isn't trapped in a portal. */
     if (variant === "page") return mounted ? createPortal(overlay, document.body) : null
     return overlay
 }

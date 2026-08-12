@@ -8,7 +8,7 @@ const InboxPage = () => (
                 Inbox
             </h1>
         </header>
-        <section className="relative w-full min-h-[calc(100vh-420px)] rounded-5xl overflow-hidden flex flex-col items-center justify-center text-center px-6 py-20">
+        <section className="relative w-full min-h-[calc(100dvh-420px)] rounded-5xl overflow-hidden flex flex-col items-center justify-center text-center px-6 py-20">
             <img
                 src={appPath("/img/grid.jpg")}
                 alt="splatter"

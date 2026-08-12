@@ -19,6 +19,7 @@ import {
     DrawerTitle,
 } from "@/components/ui/drawer"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { useComments } from "@/lib/store/comments/hook"
 import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
@@ -200,13 +201,22 @@ const DrawerBody = ({ post }) => {
     )
 }
 
-const CommentsDrawer = ({ post, open, onOpenChange }) => (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="h-[85vh] max-h-[85vh]">
-            {open && <DrawerBody post={post} />}
-        </DrawerContent>
-    </Drawer>
-)
+const CommentsDrawer = ({ post, open, onOpenChange }) => {
+    /* Vaul guards <body>, but the app scrolls the document itself — without this the
+     * feed keeps scrolling behind the sheet, taking the post you opened comments on
+     * with it. */
+    useScrollLock(open)
+
+    return (
+        <Drawer open={open} onOpenChange={onOpenChange}>
+            {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the composer
+                at the foot of the drawer would sit under the browser's own toolbar. */}
+            <DrawerContent className="h-[85dvh] max-h-[85dvh] pb-(--safe-bottom)">
+                {open && <DrawerBody post={post} />}
+            </DrawerContent>
+        </Drawer>
+    )
+}
 
 /* -------------------------------------------------------------------------- */
 /* Desktop — centered modal                                                   */

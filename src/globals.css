@@ -62,6 +62,18 @@
 }
 
 :root {
+    /* Native display cutouts. Zero in a plain browser; real values once the page opts
+       into viewport-fit=cover (notched phones, and the Capacitor WebView, which draws
+       edge-to-edge under the status bar and home indicator). Everything that hugs a
+       screen edge pads by these rather than assuming the edge is safe. */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    /* The mobile rail's real footprint: its own height plus the home-indicator inset it
+       sits on top of. Use this — not --bottombar-height — to clear or align to the rail. */
+    --bottombar: calc(var(--bottombar-height) + var(--safe-bottom));
+
     --background: oklch(100% 0% 68deg);
     --foreground: oklch(17% 3% 236deg);
     --card: oklch(1 0 0);
@@ -141,10 +153,32 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground text-sm antialiased overscroll-auto;
+    @apply bg-background text-foreground text-sm antialiased;
   }
+
+  /* The document is the app's one and only scroller — there is no full-height inner
+     container. That is what lets a mobile browser collapse its own URL bar and toolbar
+     as you scroll (the svh -> lvh gain), and it is the only scroll model a Capacitor
+     WebView handles natively.
+     - overflow-x is clipped so a slide route can push the page a full viewport left
+       without opening a horizontal scrollbar.
+     - the gutter is reserved permanently so locking the scroll for an overlay doesn't
+       reflow the page by the scrollbar's width.
+     - overscroll is pinned so an inner scroller that hits its end can't chain out to
+       the document, and so there's no pull-to-refresh or rubber-band under the app. */
   html {
     @apply font-sans overflow-x-hidden;
+    scrollbar-gutter: stable;
+    overscroll-behavior: none;
+  }
+
+  /* Applied while any overlay owns the screen (see useScrollLock). Freezes the document
+     at its current offset so the page behind a slide route or dialog can't be scrolled,
+     and so only one scrollbar is ever live. The reserved gutter above survives the
+     overflow change, so the page keeps its width and nothing shifts sideways as an
+     overlay opens — which is the whole reason the gutter is reserved unconditionally. */
+  html.scroll-locked {
+    overflow: hidden;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -288,26 +322,32 @@
   }
 
 
-  /* Scroll bar stylings */
-  ::-webkit-scrollbar {
-    width: var(--scrollbar-width);
-    height: var(--scrollbar-width);
-  }
+  /* Desktop-styled scrollbars — a slim branded bar. Scoped to fine pointers (a mouse or
+     trackpad) so touch devices keep their native auto-hiding overlay scrollbar instead
+     of this permanently-drawn one. Styling ::-webkit-scrollbar at all opts an element out
+     of overlay scrollbars, so on a phone (or the Capacitor WebView) it would otherwise
+     sit a solid bar over the comment thread; the media query hands those back to native. */
+  @media (pointer: fine) {
+    ::-webkit-scrollbar {
+      width: var(--scrollbar-width);
+      height: var(--scrollbar-width);
+    }
 
-  /* Track */
-  ::-webkit-scrollbar-track {
-    background: var(--muted); 
-  }
-    
-  /* Handle */
-  ::-webkit-scrollbar-thumb {
-    background: var(--primary); 
-    border-radius: 100px;
-  }
+    /* Track */
+    ::-webkit-scrollbar-track {
+      background: var(--muted);
+    }
 
-  /* Handle on hover */
-  ::-webkit-scrollbar-thumb:hover {
-    background: #8b473f; 
+    /* Handle */
+    ::-webkit-scrollbar-thumb {
+      background: var(--primary);
+      border-radius: 100px;
+    }
+
+    /* Handle on hover */
+    ::-webkit-scrollbar-thumb:hover {
+      background: #8b473f;
+    }
   }
 
 }

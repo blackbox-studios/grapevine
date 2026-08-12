@@ -8,9 +8,14 @@ export const metadata = {
     icons: { icon: "/favicon.svg" },
 }
 
+/* viewportFit "cover" lets the page paint edge to edge under a notch / home indicator
+ * and is what makes env(safe-area-inset-*) report real values — required for the
+ * Capacitor build, a no-op on a device without cutouts. Everything that touches a
+ * screen edge pads by the --safe-* tokens in globals.css. */
 export const viewport = {
     width: "device-width",
     initialScale: 1,
+    viewportFit: "cover",
 }
 
 export default function RootLayout({ children }) {

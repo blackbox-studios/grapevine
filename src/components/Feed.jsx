@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion, useReducedMotion } from "motion/react"
 import useMeasure from "react-use-measure"
@@ -26,29 +26,23 @@ const CAPTION_LIMIT = 100
  * "more" word simply disappears on expand. Radix's Collapsible can't do this — its
  * content is a separate block, which would break the sentence onto its own line — so
  * we animate height ourselves: `react-use-measure` reports the paragraph's natural
- * height, and a `motion.div` tweens to it whenever the text swaps preview ↔ full. */
+ * height, and a `motion.div` tweens to it once the text swaps preview → full. */
 const Caption = ({ label, text }) => {
     const [open, setOpen] = useState(false)
     const [ref, { height }] = useMeasure()
-    const shouldReduceMotion = useReducedMotion()
-    /* Only tween in response to a real expand — otherwise the first async measurement
-     * (a subpixel delta from the natural auto height) would animate on load and nudge
-     * the whole feed down a pixel or two. Until then, height snaps instantly. */
-    const expandedOnce = useRef(false)
 
     const isLong = text.length > CAPTION_LIMIT
     const preview = isLong
         ? text.slice(0, CAPTION_LIMIT).replace(/\s+\S*$/, "")
         : text
 
-    const animate = !shouldReduceMotion && expandedOnce.current
 
     return (
         <motion.div
-            className="overflow-hidden pt-1 text-sm leading-snug"
+            className="overflow-hidden text-sm leading-snug"
             initial={false}
             animate={{ height: height || "auto" }}
-            transition={animate ? { duration: 0.4, ease: [0, 0.4, 0, 1] } : { duration: 0 }}
+            transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
         >
             <p ref={ref}>
                 <span className="font-semibold">{label}</span>{" "}
@@ -58,10 +52,7 @@ const Caption = ({ label, text }) => {
                         {" ... "}
                         <button
                             type="button"
-                            onClick={() => {
-                                expandedOnce.current = true
-                                setOpen(true)
-                            }}
+                            onClick={() => setOpen(true)}
                             className="text-muted-foreground transition-colors hover:text-foreground"
                         >
                             more

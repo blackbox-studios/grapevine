@@ -66,9 +66,9 @@
     --foreground: oklch(17% 3% 236deg);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(98% 0% 197deg / 80%);
+    --popover: oklch(100% 0% 68deg);
     --popover-foreground: oklch(17% 3% 236deg);
-    --primary: oklch(56% 51% 274deg);
+    --primary: oklch(0.23 0.0047 17.51);
     --primary-foreground: oklch(1 0 none);
     --secondary: oklch(49% 26% 253deg);
     --secondary-foreground: oklch(1 0 0);
@@ -141,10 +141,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground text-sm antialiased overscroll-none;
+    @apply bg-background text-foreground text-sm antialiased overscroll-auto;
   }
   html {
-    @apply font-sans;
+    @apply font-sans overflow-x-hidden;
   }
 
   h1, h2, h3, h4, h5, h6 {

@@ -78,6 +78,8 @@ Reference files:
 │   │   ├── Transition.jsx           # motion.div fade wrapper for AnimatePresence (skeleton/content swaps)
 │   │   ├── PageTransition.jsx       # "use client": route cross-fade (AnimatePresence + FrozenRouter)
 │   │   ├── FrozenRouter.jsx         # "use client": freezes LayoutRouterContext for exiting routes
+│   │   ├── SlideRouter.jsx          # "use client": <SlideRouter/> (slide-route surface + registry)
+│   │   │                            #   and <SlideBase/> (the base surface it pushes)
 │   │   ├── Loading.jsx              # <Spinner/>, <LoadOverlay/> (moved out of the old pages/loading)
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
@@ -89,13 +91,16 @@ Reference files:
 │   │   ├── Widgets.jsx              # Reusable misc/branded widgets (e.g. <Close/>, <YayOrNay/>) — DRY home, never repeat misc components in pages
 │   │   └── Grain.jsx
 │   ├── lib/
-│   │   ├── constants.js             # ROUTES, MOCK_LATENCY_MS (add API_ENDPOINTS/API_BASE when wiring a real API)
+│   │   ├── constants.js             # ROUTES, SLIDE_ROUTES, NESTED_TRANSITION_ROUTES, MOCK_LATENCY_MS
+│   │   │                            #   (add API_ENDPOINTS/API_BASE when wiring a real API)
 │   │   ├── mock.js                  # mockDelay / mockId — swap for real fetch when a backend lands
-│   │   ├── utils.js                 # Shared pure helpers (cn, formatDate, appPath/basePath, …)
+│   │   ├── utils.js                 # Shared pure helpers (cn, formatDate, appPath/basePath,
+│   │   │                            #   route resolvers: slideRouteFor/baseRouteFor/…)
 │   │   ├── metadata.js              # Static / mock metadata used while APIs are stubbed
 │   │   ├── hooks/                   # Cross-cutting React hooks (not Zustand hooks)
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
+│   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
 │   │   │   └── useErrorListener.hook.jsx
 │   │   ├── providers/
 │   │   │   ├── Theme.jsx            # Thin re-export of next-themes ThemeProvider/useTheme
@@ -594,18 +599,121 @@ return (
 **Two-level wiring (mirrors the old `RouteTransition`/`Outlet` split):**
 
 ```jsx
-// app/(protected)/layout.jsx — top level. Collapse /settings* so sub-tabs don't fade here.
-const topLevelKey = (p) => (p.startsWith(ROUTES.SETTINGS) ? ROUTES.SETTINGS : p)
-<PageTransition getKey={topLevelKey} onExitComplete={scrollToTop}>{children}</PageTransition>
+// app/(protected)/layout.jsx — top level. getKey comes from the shared resolver, never
+// an inline startsWith: it collapses nested trees and slide routes off the registries.
+<PageTransition getKey={pageTransitionKey} onExitComplete={scrollToTop}>{children}</PageTransition>
 
 // app/(protected)/settings/layout.jsx — nested level. Keyed by full pathname (default getKey),
 // so General ↔ Users fades while the Settings pane itself stays mounted.
 <PageTransition initial={false}>{children}</PageTransition>
 ```
 
+**Which routes are exempt from the fade is data, not code.** Every "this path is special" rule lives in two registries in `lib/constants.js` and is resolved by pure helpers in `lib/utils.js`. **Never hand-roll `pathname.startsWith(...)` at a call site** — add the route to the registry and every consumer (transition key, nav highlight, slide overlay) picks it up at once.
+
+| Registry (`lib/constants.js`) | Meaning |
+|---|---|
+| `NESTED_TRANSITION_ROUTES` | Route trees that collapse to one top-level key because a nested layout runs its own `<PageTransition/>` (currently `/settings`). |
+| `SLIDE_ROUTES` | Routes that open as a sliding overlay over a base surface that stays mounted (currently `/p`). See **Slide routes** below. |
+
+| Resolver (`lib/utils.js`) | Answers |
+|---|---|
+| `slideRouteFor(pathname)` | The matched slide route + its dynamic `param`, or `null`. |
+| `baseRouteFor(pathname)` | The route the shell should behave as if it's on (a slide route → its base). |
+| `pageTransitionKey(pathname)` | The key for the top-level `<PageTransition/>`. |
+| `isRouteActive(pathname, href)` | Whether a nav destination reads as current. |
+
 Page components do **not** add their own top-level `PageTransition` — the layout owns it. They may still use `components/Transition.jsx` internally for skeleton/content swaps (see the settings/users table).
 
 > **`eslint`:** `FrozenRouter` reads a ref during render on purpose; `react-hooks/refs` is disabled for it in `eslint.config.js`. Don't re-enable it there.
+
+### Slide routes — `<SlideRouter/>` (overlay routes that push the page behind them)
+
+A **slide route** is a real, shareable URL that, when reached by a soft nav from inside the app, opens as a full-screen surface sliding in from the right while the page behind it stays mounted and is pushed off to the left. Dismissing reverses it. The same URL opened cold (hard nav / refresh / a shared link) renders as an ordinary standalone page instead. `/p/:id` (a post) is the reference implementation.
+
+Three properties make it more than a modal:
+
+- **The surface behind stays mounted** — the feed keeps its scroll position and never refetches, because the route is *intercepted* (`@modal/(.)p/[postId]`).
+- **The push is coupled** — the incoming surface and the base are both a full viewport wide and both translate a full viewport on the same `SLIDE_TRANSITION` curve, so their touching edges stay locked together for the whole gesture. Same distance is what makes it read as one movement; different distances on the same curve visibly decouple.
+- **It animates out before unmounting** — dismissal plays the exit to completion, with content intact, then unmounts.
+
+#### The one non-obvious constraint (read before changing anything)
+
+**Next tears down a parallel-route slot's subtree the instant the route changes.** A surface rendered *inside* the `@modal` slot is therefore destroyed before `AnimatePresence` can retain it — you get no exit animation at all, just a blank. Wrapping `{modal}` in `AnimatePresence` does not help; the router, not your reconciliation, owns that subtree.
+
+So the responsibilities are split:
+
+- The **interceptor page renders `null`.** Its only jobs are (a) existing, which is what keeps the page underneath mounted, and (b) calling `useSlideRoute(prefix)` to declare itself. Its mount/unmount is also the only reliable **soft- vs hard-nav signal**: on a cold load the slot falls back to `default.jsx` and never mounts.
+- The **shell owns the surface.** `<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) renders it inside the layout's own `AnimatePresence`. That instance lives in the persistent layout, so it survives the slot teardown, and `AnimatePresence` retains the element — props and all — through the exit. That retention is also why the surface never blanks mid-animation: it keeps the param it opened with even though the route has already changed.
+
+`<SlideBase/>` is the other half: it wraps the shell's scroll container and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base.
+
+#### Open/close gating
+
+`useActiveSlide()` reports `open` only when **both** are true:
+
+- the **pathname** matches a registered slide route, and
+- an **interceptor is mounted** for that route.
+
+Both halves are load-bearing. The interceptor gate keeps hard-nav deep links out of the overlay (the standalone page handles those). The pathname gate closes the overlay the moment you navigate anywhere else — necessary because **Next does not reset a parallel slot on a soft nav to a non-matching route** (`default.jsx` only applies on a hard load), so the interceptor can linger with a stale prefix after you tap another nav tab.
+
+#### Adding a new slide route
+
+Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declarative steps — **no existing route is affected**, because everything keys off the registry and non-registered paths fall through every resolver unchanged:
+
+1. **Register the route** in `lib/constants.js`:
+
+   ```javascript
+   export const ROUTES = { /* … */ USER: "/u" }
+
+   export const SLIDE_ROUTES = [
+       { prefix: ROUTES.POST, base: ROUTES.DEFAULT },
+       { prefix: ROUTES.USER, base: ROUTES.DEFAULT },   // ← base = the surface it overlays
+   ]
+   ```
+
+   This alone makes the top-level `<PageTransition/>` stop cross-fading the base, and keeps the base's nav tab highlighted while the surface is open.
+
+2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param. It owns its own presentation *and* its own enter/exit animation, so it can differ by breakpoint. For the mobile push, animate `x: "100%" → 0` (and `exit: { x: "100%" }`) with `SLIDE_TRANSITION` from `@/lib/utils`, full-viewport wide — that's the contract that keeps it locked to `<SlideBase/>`. Model it on `components/PostView.jsx`.
+
+3. **Register the surface** in `components/SlideRouter.jsx`:
+
+   ```jsx
+   const SURFACES = {
+       [ROUTES.POST]: (param) => <PostView variant="modal" postId={param} />,
+       [ROUTES.USER]: (param) => <UserView variant="modal" handle={param} />,
+   }
+   ```
+
+4. **Add the two route files** — the interceptor and the standalone page:
+
+   ```jsx
+   // app/(protected)/@modal/(.)u/[handle]/page.jsx — renders nothing on purpose
+   "use client"
+   const UserModal = () => {
+       useSlideRoute(ROUTES.USER)
+       return null
+   }
+
+   // app/(protected)/u/[handle]/page.jsx — the cold deep link
+   "use client"
+   const UserPage = () => {
+       const { handle } = useParams()
+       return <UserView variant="page" handle={handle} />
+   }
+   ```
+
+   The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` scroll container and covers the viewport.
+
+Nothing in `app/(protected)/layout.jsx` changes — it already renders `{modal}` and `<SlideRouter/>` generically.
+
+> **Dev gotcha:** adding a new parallel-slot segment usually requires restarting `next dev` before the route manifest picks it up.
+
+#### Rules
+
+- **Never** re-derive slide-route behaviour inline (`pathname.startsWith("/p/")`) in a component. Use the resolvers, or add to the registry.
+- **Never** move the surface back into the `@modal` slot to "simplify" — that's the teardown trap above, and it silently removes the exit animation.
+- Keep the surface and `<SlideBase/>` on the **same distance, curve, and trigger**. If you change one, change the other; if they diverge, the push decouples.
+- Give the surface a stable key across open→dismiss (handled for you by `SlideRouter`, which keys off the route prefix) so `AnimatePresence` tracks a single instance rather than remounting it.
 
 ### Route guards — `middleware.js` (the out-of-the-box way)
 

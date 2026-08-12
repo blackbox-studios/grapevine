@@ -3,10 +3,9 @@
 import { useRef, useState } from "react"
 import { AnimatePresence } from "motion/react"
 
-import Carousel from "@/components/Carousel"
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
-import { Avatar, Close } from "@/components/Widgets"
+import { Avatar } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -19,17 +18,9 @@ import {
     DrawerHeader,
     DrawerTitle,
 } from "@/components/ui/drawer"
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogPortal,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useComments } from "@/lib/store/comments/hook"
-import { appPath, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
+import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
@@ -177,31 +168,6 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
     )
 }
 
-/* Post media for the desktop modal's left pane. Sized by a *definite* height
- * (`h-[90dvh]`) so the width is derived from the media's aspect ratio — the modal
- * then shrinks to `media width + rail`. Capped at `95vw − rail` so a large photo can
- * never push the comments rail off the right edge (RAIL_W must match the aside). */
-export const PostMedia = ({ post }) => {
-    const images = post.images ?? (post.image ? [post.image] : [])
-    if (images.length > 1) {
-        return (
-            <div className="aspect-square h-full max-w-[calc(95vw-var(--commentbar-width))]">
-                <Carousel images={images} bare/>
-            </div>
-        )
-    }
-    if (images.length === 1) {
-        return (
-            <img
-                src={appPath(images[0])}
-                alt=""
-                className="h-[90dvh] w-auto max-w-[calc(95vw-var(--commentbar-width))] object-contain"
-            />
-        )
-    }
-    return null
-}
-
 /* -------------------------------------------------------------------------- */
 /* Mobile — bottom drawer                                                     */
 /* -------------------------------------------------------------------------- */
@@ -248,9 +214,10 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => (
 
 /* The full comments surface for a post as a self-contained flex column: post
  * header, pinned caption + comment thread (its own internal scroll), the post's
- * action row (like / comment), the like tally, and the composer. Shared verbatim
- * between the desktop dialog's right rail and the mobile detail page (`/p/:id`) —
- * pass a `className` (e.g. `flex-1`) to size it inside its parent. */
+ * action row (like / comment), the like tally, and the composer. Reused across every
+ * post surface — the desktop dialog's right rail and the mobile sheet, both in
+ * `PostView` (`/p/:id`) — pass a `className` (e.g. `flex-1`) to size it inside its
+ * parent. */
 export const CommentsPanel = ({ post, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
         useComments(post.id)
@@ -348,62 +315,16 @@ export const CommentsPanel = ({ post, className }) => {
     )
 }
 
-/* The desktop dialog's right-hand rail — the shared CommentsPanel in a fixed-width
- * bordered aside, plus the dialog's accessible title. */
-const DialogRail = ({ post }) => (
-    <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
-        <DialogTitle className="sr-only">
-            Comments on {post.author.handle}&apos;s post
-        </DialogTitle>
-        <CommentsPanel post={post} className="flex-1" />
-    </aside>
-)
-
-const CommentsDialog = ({ post, open, onOpenChange }) => (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* The dialog box is a transparent, content-sized positioning frame: it shrinks
-         * to `media width + rail` at full height, so the X can hang in the dark padding
-         * just off its corner while the rounded inner wrapper does the clipping. */}
-        <DialogContent
-            showCloseButton={false}
-            aria-describedby={undefined}
-            className="flex h-[90dvh] w-auto max-w-[95vw] gap-0 overflow-visible border bg-transparent p-0 shadow-none sm:max-w-[95vw]"
-        >
-            <div className="flex h-full overflow-hidden rounded-2xl bg-black">
-                <div className="flex h-full shrink-0 items-center bg-black">
-                    <PostMedia post={post} />
-                </div>
-                <DialogRail post={post} />
-            </div>
-        </DialogContent>
-
-        {/* The Close lives in its own portal — a sibling of the content, not a child.
-         * DialogContent is transform-centered (-translate-1/2), and a transformed
-         * ancestor makes `fixed` resolve relative to *it*; portaling the button out
-         * escapes that transform so it pins to the viewport's top-right corner. */}
-        <DialogPortal>
-            <DialogClose asChild>
-                <Close aria-label="Close comments" className="fixed right-4 top-4 z-50" />
-            </DialogClose>
-        </DialogPortal>
-    </Dialog>
-)
-
 /* -------------------------------------------------------------------------- */
 /* Public entry                                                               */
 /* -------------------------------------------------------------------------- */
 
-/* Controlled comments surface for a post. Renders the mobile drawer or the
- * desktop modal based on the viewport at mount; the trigger (comment icon /
- * "View all comments") lives in the feed card and just flips `open`. */
-const PostComments = ({ post, open, onOpenChange }) => {
-    const isDesktop = useIsDesktop()
-
-    return isDesktop ? (
-        <CommentsDialog post={post} open={open} onOpenChange={onOpenChange} />
-    ) : (
-        <CommentsDrawer post={post} open={open} onOpenChange={onOpenChange} />
-    )
-}
+/* Mobile comment surface: the lightweight bottom drawer (comments only) the feed's
+ * comment icon flips open, leaving the feed in place behind it. Desktop opens the
+ * full post surface at `/p/:id` instead (see PostView + Feed's openComments), so
+ * this only ever mounts its drawer on small viewports. */
+const PostComments = ({ post, open, onOpenChange }) => (
+    <CommentsDrawer post={post} open={open} onOpenChange={onOpenChange} />
+)
 
 export default PostComments

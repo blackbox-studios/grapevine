@@ -1,7 +1,7 @@
 import { clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
-import { ROUTES } from "@/lib/constants"
+import { NESTED_TRANSITION_ROUTES, ROUTES, SLIDE_ROUTES } from "@/lib/constants"
 
 /* Custom classes */
 const twMerge = extendTailwindMerge({
@@ -129,6 +129,54 @@ export const appPath = (route) => `${basePath()}${route}`
 /* The deep-link route for a single post's detail page (`/p/:id`). Built off
  * ROUTES.POST so the path prefix lives in one place. */
 export const postPath = (id) => `${ROUTES.POST}/${id}`
+
+/* ---------------------------------------------------------------------------
+ * Route resolution
+ *
+ * Every "this pathname is special" question the shell asks is answered here, off
+ * the SLIDE_ROUTES / NESTED_TRANSITION_ROUTES registries in constants.js. Never
+ * re-derive these with an inline `pathname.startsWith(...)` at a call site — add
+ * the route to the registry instead, and every consumer picks it up at once.
+ * ------------------------------------------------------------------------- */
+
+/* Segment-safe prefix test: "/p" matches "/p" and "/p/abc" but never "/pizza". */
+const isUnder = (pathname, prefix) =>
+    pathname === prefix || pathname.startsWith(`${prefix}/`)
+
+/* The registered slide route this pathname belongs to, with the dynamic segment it
+ * was opened with — `{ prefix, base, param }` — or null for an ordinary route. */
+export const slideRouteFor = (pathname) => {
+    const route = SLIDE_ROUTES.find((r) => isUnder(pathname, r.prefix))
+    if (!route) return null
+    const param = pathname.slice(route.prefix.length + 1).split("/")[0] || null
+    return { ...route, param }
+}
+
+/* The route the shell should behave as if it's on. A slide route resolves to the
+ * base surface it overlays (the feed is still the "current place" while a post is
+ * open); every other route is itself. */
+export const baseRouteFor = (pathname) => slideRouteFor(pathname)?.base ?? pathname
+
+/* Key for the top-level <PageTransition/>. Collapsing a group of paths to one key
+ * suppresses the cross-fade at that level: nested trees own their sub-route fades,
+ * and a slide route keys to its base so the base never fades or scrolls out from
+ * under the overlay. */
+export const pageTransitionKey = (pathname) =>
+    NESTED_TRANSITION_ROUTES.find((prefix) => isUnder(pathname, prefix)) ??
+    baseRouteFor(pathname)
+
+/* Whether a nav destination should read as current. Resolves through the base route
+ * first, so an open slide route keeps its base tab lit. */
+export const isRouteActive = (pathname, href) => {
+    const base = baseRouteFor(pathname)
+    return href === ROUTES.DEFAULT ? base === ROUTES.DEFAULT : isUnder(base, href)
+}
+
+/* Shared timing for the slide-route push. The incoming surface and the base it
+ * pushes both animate on this exact curve — and, being the same width, over the
+ * exact same distance — so their touching edges stay locked together for the whole
+ * gesture instead of one outrunning the other. iOS-like ease. */
+export const SLIDE_TRANSITION = { duration: 0.34, ease: [0.32, 0.72, 0, 1] }
 
 /* Compact tally for like/comment counts: 182 → "182", 2629 → "2.6K". */
 export function formatCompact(n) {

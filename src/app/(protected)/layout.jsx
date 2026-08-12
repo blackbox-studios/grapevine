@@ -11,11 +11,12 @@ import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import GroupIcon from "@/assets/svg/icons/group.svg"
 import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
 import PageTransition from "@/components/PageTransition";
+import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useScroll } from "@/lib/providers/Scroll";
 import Grain from "@/components/Grain";
 
@@ -42,15 +43,14 @@ const NAV = [
     },
 ]
 
-const isActive = (pathname, href) =>
-    href === ROUTES.DEFAULT ? pathname === ROUTES.DEFAULT : pathname.includes(href)
-
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
  * the label fades in only while the rail (the `group`) is hovered. */
 const NavItem = ({ item, pathname, onNavigate }) => {
     const { title, href, Outline, Filled } = item
-    const active = isActive(pathname, href)
+    /* Resolves through the base route, so an open slide route (a post over the feed)
+     * keeps its base tab lit rather than un-highlighting the whole nav. */
+    const active = isRouteActive(pathname, href)
 
     return (
         <Link
@@ -86,9 +86,13 @@ const NavSlot = ({ children }) => (
 )
 
 /* Auth redirects are handled by middleware.js (see it for the protected-route gate).
- * `modal` is the @modal parallel slot: on a soft nav to /p/:id it holds the
- * intercepted post overlay (rendered over the still-mounted feed); otherwise it's
- * the slot's default (null). */
+ *
+ * `modal` is the @modal parallel slot: on a soft nav to a slide route it holds that
+ * route's interceptor, which renders nothing and only declares itself (see
+ * useSlideRoute). We still render `{modal}` so the interceptor mounts — that's what
+ * keeps the page underneath alive — while <SlideRouter/> renders the actual surface.
+ * Everything slide-route-specific lives in the SLIDE_ROUTES registry; nothing about a
+ * given slide route is hard-coded in this file. */
 const ProtectedLayout = ({ children, modal }) => {
     const pathname = usePathname()
     const { scrollRef, scrollToTop } = useScroll()
@@ -97,7 +101,6 @@ const ProtectedLayout = ({ children, modal }) => {
     return (
         <>
             <Grain />
-            {modal}
             <div className="relative h-screen w-full bg-background overflow-x-hidden">
                 <div className="relative h-full w-full bg-background">
 
@@ -134,30 +137,24 @@ const ProtectedLayout = ({ children, modal }) => {
                         </div>
                     </nav>
 
-                    <div ref={scrollRef} className="fixed left-0 md:left-(--nav-width) w-full md:w-[calc(100vw-var(--nav-width))] h-screen z-1 overflow-y-auto">
+                    {/* The shell's scroll container, and the base surface a slide route
+                        pushes off-screen as it swipes in (SlideBase owns that motion). */}
+                    <SlideBase
+                        ref={scrollRef}
+                        className="fixed left-0 md:left-(--nav-width) w-full md:w-[calc(100vw-var(--nav-width))] h-screen z-1 overflow-y-auto"
+                    >
                         <div className="w-full h-fit px-4 md:px-8 lg:px-18 ">
                             <main className="flex flex-col w-full h-fit mx-auto max-w-8xl pt-8 md:pt-12 pb-[calc(var(--bottombar-height)+1.5rem)] md:pb-0">
-                                {/* Collapse every /settings* route to one key so switching sub-tabs
-                                    doesn't fade here — the Settings layout runs its own nested
-                                    transition for that. A post detail (`/p/:id`) collapses to the
-                                    feed key too: it's a full-screen overlay portaled to <body> that
-                                    runs its own fade, so we don't want this layer to also fade the
-                                    feed out (and scroll it to top) behind it on open/close. */}
-                                <PageTransition
-                                    getKey={(pathname) =>
-                                        pathname.startsWith(ROUTES.SETTINGS)
-                                            ? ROUTES.SETTINGS
-                                            : pathname.startsWith(`${ROUTES.POST}/`)
-                                              ? ROUTES.DEFAULT
-                                              : pathname
-                                    }
-                                    onExitComplete={scrollToTop}
-                                >
+                                {/* Which routes are exempt from this cross-fade is decided by
+                                    pageTransitionKey off the route registries — nested trees
+                                    that fade their own sub-routes, and slide routes that must
+                                    leave their base mounted, unfaded, and unscrolled. */}
+                                <PageTransition getKey={pageTransitionKey} onExitComplete={scrollToTop}>
                                     {children}
                                 </PageTransition>
                             </main>
                         </div>
-                    </div>
+                    </SlideBase>
 
                     <div className="fixed left-0 md:left-(--nav-width) w-full md:w-[calc(100vw-var(--nav-width))] h-screen z-0 pointer-events-none">
                         <div className="relative w-full h-full bg-background overflow-hidden">
@@ -172,6 +169,13 @@ const ProtectedLayout = ({ children, modal }) => {
                         <NotificationsMenu />
                         <ProfileMenu />
                     </nav>
+
+                    {/* The interceptor — renders nothing, mounts only to keep the page
+                        underneath alive and declare the active slide route. */}
+                    {modal}
+
+                    {/* The slide-route surface. Last child so it stacks above the nav. */}
+                    <SlideRouter />
                 </div>
             </div>
         </>

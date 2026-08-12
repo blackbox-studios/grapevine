@@ -29,9 +29,6 @@ const CAPTION_LIMIT = 100
  * height, and a `motion.div` tweens to it whenever the text swaps preview ↔ full. */
 const Caption = ({ label, text }) => {
     const [open, setOpen] = useState(false)
-    /* True only while an expand is in flight — drives the soft bottom fade so the
-     * revealed text feathers in rather than snapping past a hard clip line. */
-    const [revealing, setRevealing] = useState(false)
     const [ref, { height }] = useMeasure()
     const shouldReduceMotion = useReducedMotion()
     /* Only tween in response to a real expand — otherwise the first async measurement
@@ -48,11 +45,10 @@ const Caption = ({ label, text }) => {
 
     return (
         <motion.div
-            className="relative overflow-hidden pt-1 text-sm leading-snug"
+            className="overflow-hidden pt-1 text-sm leading-snug"
             initial={false}
             animate={{ height: height || "auto" }}
             transition={animate ? { duration: 0.4, ease: [0, 0.4, 0, 1] } : { duration: 0 }}
-            onAnimationComplete={() => setRevealing(false)}
         >
             <p ref={ref}>
                 <span className="font-semibold">{label}</span>{" "}
@@ -64,7 +60,6 @@ const Caption = ({ label, text }) => {
                             type="button"
                             onClick={() => {
                                 expandedOnce.current = true
-                                if (!shouldReduceMotion) setRevealing(true)
                                 setOpen(true)
                             }}
                             className="text-muted-foreground transition-colors hover:text-foreground"
@@ -74,17 +69,6 @@ const Caption = ({ label, text }) => {
                     </>
                 )}
             </p>
-            {/* Feathers the clip line while the height grows: the gradient tracks the
-              * bottom edge (cascading the fade downward) and dissolves as it settles. */}
-            {revealing && (
-                <motion.div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-background to-transparent"
-                    initial={{ opacity: 1 }}
-                    animate={{ opacity: 0 }}
-                    transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
-                />
-            )}
         </motion.div>
     )
 }
@@ -102,12 +86,19 @@ const PostCard = ({ post }) => {
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
 
-    /* Tapping the photo opens the same surface the comment icon does — the modal on
-     * desktop, and a dedicated, back-able detail page (`/p/:id`) on mobile. */
+    /* Opening a post always routes to `/p/:id` — soft-navigation interception overlays
+     * it on the live feed (the adaptive PostView: a centered dialog on desktop, a
+     * swipe-in sheet on mobile) without unmounting the feed, and the URL is shareable. */
     const openPost = useCallback(() => {
-        if (isDesktop) setCommentsOpen(true)
-        else router.push(postPath(post.id))
-    }, [isDesktop, router, post.id])
+        router.push(postPath(post.id))
+    }, [router, post.id])
+
+    /* The comment icon opens that same post surface on desktop; on mobile it keeps the
+     * lightweight bottom drawer (comments only, feed stays put behind it). */
+    const openComments = useCallback(() => {
+        if (isDesktop) openPost()
+        else setCommentsOpen(true)
+    }, [isDesktop, openPost])
 
     /* Optimistically reflect the viewer's own like in the count. */
     const likeCount = post.likes + (liked && !post.liked ? 1 : 0)
@@ -226,7 +217,7 @@ const PostCard = ({ post }) => {
                 <button
                     type="button"
                     aria-label="Comment"
-                    onClick={() => setCommentsOpen(true)}
+                    onClick={openComments}
                     className="flex cursor-pointer items-center text-sm font-medium"
                 >
                     <span className="p-2 transition-transform hover:scale-105 active:scale-95">

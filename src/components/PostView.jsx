@@ -141,7 +141,7 @@ const PostView = ({ variant = "modal", postId }) => {
                         onClick={dismiss}
                         className="absolute inset-0 cursor-default bg-black/80"
                     />
-                    <div className="relative z-10 flex h-[90dvh] w-auto max-w-[95vw] overflow-hidden rounded-2xl bg-black">
+                    <div className="relative z-10 flex h-[90dvh] w-auto max-w-[95vw] overflow-hidden rounded-2xl bg-black lg:border">
                         {post ? (
                             <>
                                 <div className="flex h-full shrink-0 items-center bg-black">

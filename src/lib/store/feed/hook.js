@@ -5,10 +5,11 @@ import { FEED } from "@/lib/metadata"
 import useFeedStore from "./store"
 
 export const useFeed = () => {
-    const [posts, ready, init] = useFeedStore(useShallow(state => ([
+    const [posts, ready, init, refresh] = useFeedStore(useShallow(state => ([
         state.items,
         state.ready,
         state.init,
+        state.refresh,
     ])))
 
     useEffect(() => {
@@ -25,7 +26,8 @@ export const useFeed = () => {
     return useMemo(() => ({
         posts,
         skeleton,
-    }), [posts, skeleton])
+        refresh,
+    }), [posts, skeleton, refresh])
 }
 
 /* A single post for the detail page (`/p/:id`). Resolved synchronously — the

@@ -143,7 +143,7 @@ const PostCard = ({ post }) => {
                         type="button"
                         onClick={openPost}
                         aria-label="Open post"
-                        className="block w-full cursor-pointer overflow-hidden rounded-lg border bg-muted"
+                        className="block w-full cursor-pointer overflow-hidden rounded-lg bg-muted"
                     >
                         <img
                             src={appPath(images[0])}

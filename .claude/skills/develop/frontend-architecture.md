@@ -101,7 +101,7 @@ Reference files:
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
 │   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
-│   │   │   ├── useScroll.hook.js      # scrollToTop + useScrollLock + useVibing
+│   │   │   ├── useScroll.hook.js      # scrollToTop + useScrollLock + useVibing + usePullToRefresh
 │   │   │   └── useErrorListener.hook.jsx
 │   │   ├── providers/
 │   │   │   ├── Theme.jsx            # Thin re-export of next-themes ThemeProvider/useTheme
@@ -802,6 +802,7 @@ Rules that follow from it:
 - **Chrome is `fixed`, content is in flow.** The rail, the mobile bar, the grain, and the background gradient are fixed siblings in the root stacking context (z: backdrop 0, page 1, rail 2, grain 10, mobile bar 20, overlays 50). Nothing wraps them in a sized box.
 - **Read scroll via framer-motion, not a hand-rolled listener.** The mobile bar dims out while scrolling down and reappears on scroll up via `useVibing` (`lib/hooks/useScroll.hook.js`), which is built on framer-motion's `useScroll` + `useMotionValueEvent` — event-driven, no `scroll` listener and no timer. Reach for `useScroll` for any new scroll-position UI.
 - **Any surface that covers the page must call `useScrollLock`** (from `lib/hooks/useScroll.hook.js`). Otherwise the page keeps scrolling behind it and you get two live scrollbars. The lock is counted, so nested overlays are safe, and it holds for the component's whole life — under `AnimatePresence` that spans the exit animation, so scrolling returns only once the surface is gone. Radix and Vaul guard `<body>`, not the document, so their overlays need it too (see `CommentsDrawer`).
+- **Pull-to-refresh is hand-built, not native.** `<html>` pins `overscroll-behavior: none`, which kills the browser's rubber-band *and* its built-in pull-to-refresh so the app can own the gesture identically in a browser and the Capacitor WebView (which has no native pull-to-refresh). `usePullToRefresh(onRefresh)` (`lib/hooks/useScroll.hook.js`) hangs non-passive touch listeners off the window — the only way to `preventDefault` the drag — and only claims a clear downward pull that starts at the very top with no overlay locked; anything else (scroll, horizontal carousel swipe) goes back to the browser. The `<PullToRefresh>` component wraps a page's content, translating it down and riding the ripple loader in the gap above (mobile/touch only — a mouse never fires it). It's wired on the home feed (`(protected)/page.jsx`); `onRefresh` should return the store's `refresh` promise.
 - **`<html>` reserves its scrollbar gutter unconditionally** (`scrollbar-gutter: stable`), which is what lets the lock flip `overflow` to `hidden` without the page shifting sideways. Don't remove it.
 - **Navigate with `scroll: false`.** `<Link scroll={false}>` / `router.push(path, { scroll: false })`. The layout scrolls to top itself from `PageTransition`'s `onExitComplete`, once the cross-fade has played; Next's own scroll fires up front and yanks the outgoing page.
 

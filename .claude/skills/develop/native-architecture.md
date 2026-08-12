@@ -235,7 +235,7 @@ is called once from `src/app/App.jsx`:
 | Splash screen | `launchAutoHide: false` in config; hidden on the first frame after mount, so the app never flashes an unstyled shell |
 | Status bar | Follows the resolved `next-themes` value — this is why `<App/>` sits *inside* `<Providers>` |
 | Hardware back (Android) | Runs the topmost registered handler; else `history.back()`; else exits at the root |
-| Keyboard | `resize: "native"`; dismissed when focus leaves an input |
+| Keyboard | `resize: "native"` by default; dismissed when focus leaves an input; overridden per surface by `<KeyboardInset/>` (below) |
 
 **`useBackHandler(active, onBack)`** is the hook any dismissible surface should use so
 Android's back button closes it instead of leaving the app. `components/Comments.jsx`
@@ -243,6 +243,34 @@ is the reference. Handlers are a stack: the most recently registered wins.
 
 Slide routes need no handler — they are real history entries, so back unwinds them
 naturally, which is exactly why `closeSlide` uses `history.back()`.
+
+---
+
+## Keyboard — `components/KeyboardInset.jsx`
+
+**Any surface with a field near the bottom of the screen — a composer, a form's submit
+row — belongs in `<KeyboardInset/>`.** It is a flex column that keeps its own foot above
+the on-screen keyboard, and an ordinary `div` everywhere but native iOS.
+
+```jsx
+<KeyboardInset>          {/* flush with the bottom of the screen */}
+    …thread…
+    <Composer />
+</KeyboardInset>
+
+<KeyboardInset rest="0px" offset="var(--bottombar)">   {/* floats above the nav rail */}
+```
+
+`offset` is how much of the keyboard something below the surface already covers, and
+`rest` its padding with the keyboard down (the home-indicator inset by default). Mount it
+only while the surface is on screen, or pass `active`.
+
+**It requires the surface to hold a `useScrollLock`** — the two are a pair, and using it
+without one lets a focus snap the page to the top. See the comment on `useKeyboardInset`
+in `useNative.hook.js` for why iOS's own handling is bypassed; the short version is that
+`resize: "native"` reflows the WebView ~800ms after focus, long after the keyboard has
+finished animating, so the lift is driven off `keyboardWillShow` and the
+`--keyboard-inset` variable instead.
 
 ---
 

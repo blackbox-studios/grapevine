@@ -8,6 +8,7 @@ import { motion } from "motion/react"
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
 import Icon from "@/components/Icon"
+import KeyboardInset from "@/components/KeyboardInset"
 import { Close } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { ROUTES } from "@/lib/constants"
@@ -183,8 +184,12 @@ const PostView = ({ variant = "modal", postId }) => {
 
                     {/* The media is cached in the feed, so it paints immediately — no page
                      * skeleton. Only the comment thread loads (its skeleton lives inside
-                     * CommentsPanel via useComments). */}
-                    <div className="flex min-h-0 flex-1 flex-col">
+                     * CommentsPanel via useComments).
+                     *
+                     * This surface stops at the nav rail rather than the screen's edge, so
+                     * it needs no resting inset and the rail's own height is already keeping
+                     * the composer that far clear of the keyboard. */}
+                    <KeyboardInset rest="0px" offset="var(--bottombar)">
                         {post ? (
                             <>
                                 <div className="shrink-0 bg-black">
@@ -195,7 +200,7 @@ const PostView = ({ variant = "modal", postId }) => {
                         ) : (
                             <NotFound />
                         )}
-                    </div>
+                    </KeyboardInset>
                 </>
             )}
         </motion.div>

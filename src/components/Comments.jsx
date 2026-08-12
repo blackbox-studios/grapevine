@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { AnimatePresence } from "motion/react"
 
 import Icon from "@/components/Icon"
+import KeyboardInset from "@/components/KeyboardInset"
 import Transition from "@/components/Transition"
 import { Avatar } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
@@ -151,13 +152,16 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
             className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
             <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
+            {/* text-base (16px): iOS auto-zooms into any input that renders below 16px on
+                focus, which on a wrapped app reads as the whole UI jumping in. Sizing just
+                the composer at 16px sidesteps that without locking the app's zoom globally. */}
             <input
                 ref={inputRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Add a comment…"
                 aria-label="Add a comment"
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                className="flex-1 bg-transparent text-base lg:text-sm outline-none placeholder:text-muted-foreground"
             />
             <button
                 type="submit"
@@ -218,8 +222,14 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => {
         <Drawer open={open} onOpenChange={onOpenChange}>
             {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the composer
                 at the foot of the drawer would sit under the browser's own toolbar. */}
-            <DrawerContent className="h-[85dvh] max-h-[85dvh] pb-(--safe-bottom)">
-                {open && <DrawerBody post={post} />}
+            <DrawerContent className="h-[85dvh] max-h-[85dvh]">
+                {/* The lift lives on this wrapper rather than on the content, so it doesn't
+                    fight Vaul's own transform transition on the sheet. */}
+                {open && (
+                    <KeyboardInset>
+                        <DrawerBody post={post} />
+                    </KeyboardInset>
+                )}
             </DrawerContent>
         </Drawer>
     )

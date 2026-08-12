@@ -83,6 +83,12 @@
        sits on top of. Use this — not --bottombar-height — to clear or align to the rail. */
     --bottombar: calc(var(--bottombar-height) + var(--safe-bottom));
 
+    /* How much of the screen the on-screen keyboard is covering. Driven on <html> by
+       useKeyboardInset while a surface with a composer is open (iOS only, where we take the
+       keyboard off the native layer — see the hook); 0 the rest of the time, so anything
+       padding by it is simply inert. */
+    --keyboard-inset: 0px;
+
     --background: oklch(100% 0% 68deg);
     --foreground: oklch(17% 3% 236deg);
     --card: oklch(1 0 0);

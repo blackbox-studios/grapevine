@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import { animate, useMotionValue, useMotionValueEvent, useScroll, useTransform } from "motion/react"
 
+import { isNative, platform } from "@/lib/native"
+
 /* Everything scroll-related, in one place. The app scrolls the document itself (no
  * fixed inner container), so these all read/act on the window: framer-motion's
  * useScroll already tracks the page by default, and the lock freezes <html>. */
@@ -33,6 +35,20 @@ const LOCKED = "scroll-locked"
 let locks = 0
 let offset = 0
 
+/* `overflow: hidden` does not hold in the iOS WebView. It stops the *page* scrolling, but
+ * WKWebView's own scroll view still drags a focused input into view — measured going from
+ * scrollY 0 to 410 on focusing the comment composer, with the lock on. Pinning the body
+ * (fixed, the offset parked on `top`) leaves nothing to scroll, so the feed can't move
+ * behind the sheet, and the captured offset is restored on release as before.
+ *
+ * Vaul does exactly this internally and would make it redundant — except its iOS branch is
+ * behind a `Safari` user-agent test that Capacitor's WebView fails, so it never runs here
+ * (body.style.position reads empty all through a drawer session). Hence our own.
+ *
+ * iOS-only: the class freeze holds everywhere else, and pinning a desktop page would shift
+ * it sideways by the real scrollbar's width. */
+const pinsBody = () => isNative() && platform() === "ios"
+
 /* Holds the lock for as long as `locked` is true, releasing it on unmount. Lock and
  * release live inside the effect so all the freeze logic is in one place. */
 export const useScrollLock = (locked) => {
@@ -42,11 +58,25 @@ export const useScrollLock = (locked) => {
         if (locks++ === 0) {
             offset = window.scrollY
             document.documentElement.classList.add(LOCKED)
+            if (pinsBody()) {
+                const style = document.body.style
+                style.position = "fixed"
+                style.top = `-${offset}px`
+                style.left = "0"
+                style.right = "0"
+            }
         }
 
         return () => {
             if (locks === 0 || --locks > 0) return
             document.documentElement.classList.remove(LOCKED)
+            if (pinsBody()) {
+                const style = document.body.style
+                style.position = ""
+                style.top = ""
+                style.left = ""
+                style.right = ""
+            }
             if (Math.abs(window.scrollY - offset) > 1) window.scrollTo(0, offset)
         }
     }, [locked])

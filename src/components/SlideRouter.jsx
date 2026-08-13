@@ -1,24 +1,27 @@
 "use client"
 
 import { cloneElement } from "react"
+import { usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 
 import PostView from "@/components/PostView"
 import { ROUTES } from "@/lib/constants"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
-import { SLIDE_TRANSITION } from "@/lib/utils"
+import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
 
 /* The surface each registered slide route renders, keyed by its prefix. This is the
  * only place that maps a slide route to a component — adding one is a single entry
- * here plus the SLIDE_ROUTES entry in constants.js and the standalone page that serves
- * the same URL when it's opened cold.
+ * here plus the SLIDE_ROUTES entry in constants.js. There is no per-route page file:
+ * <SlideRouter/> draws the in-app overlay and <SlidePage/> serves the same URL when
+ * it's opened cold, both off this one map.
  *
- * A surface receives the route's dynamic param and is responsible for its own
- * presentation *and* its own enter/exit animation (so it can differ by breakpoint —
- * PostView swipes on mobile and fades as a dialog on desktop). Animate horizontally
- * with SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
+ * A surface receives the route's dynamic param and the presentation it should take
+ * (`modal` in-app, `page` for a cold load) and is responsible for its own presentation
+ * *and* its own enter/exit animation (so it can differ by breakpoint — PostView swipes
+ * on mobile and fades as a dialog on desktop). Animate horizontally with
+ * SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
 const SURFACES = {
-    [ROUTES.POST]: (param) => <PostView variant="modal" postId={param} />,
+    [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
 }
 
 /* The base surface a slide route pushes: the shell's page wrapper, holding the route
@@ -65,10 +68,28 @@ export const SlideRouter = () => {
     return (
         <AnimatePresence>
             {open && surface
-                ? cloneElement(surface(route.param), { key: route.prefix })
+                ? cloneElement(surface(route.param, "modal"), { key: route.prefix })
                 : null}
         </AnimatePresence>
     )
+}
+
+/* The cold-load half: a slide route reached by a hard navigation, a refresh, or a
+ * shared link, where nothing is mounted behind it to overlay. It renders the same
+ * registered surface in its `page` presentation, which portals to <body> and covers
+ * the viewport instead of sliding.
+ *
+ * This resolves the *pathname*, not a route segment, which is the whole point: a slide
+ * route needs no page file of its own, so no dynamic segment exists for the static
+ * export to enumerate and no post id has to be known at build time. It is mounted from
+ * the protected shell's catch-all, so every registered slide route gets cold-load
+ * handling for free — `fallback` is what that catch-all renders otherwise (the 404). */
+export const SlidePage = ({ fallback = null }) => {
+    const pathname = usePathname()
+    const route = slideRouteFor(pathname)
+    const surface = route ? SURFACES[route.prefix] : null
+
+    return surface ? surface(route.param, "page") : fallback
 }
 
 export default SlideRouter

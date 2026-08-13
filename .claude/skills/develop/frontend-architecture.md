@@ -79,8 +79,9 @@ Reference files:
 │   │   ├── Transition.jsx           # motion.div fade wrapper for AnimatePresence (skeleton/content swaps)
 │   │   ├── PageTransition.jsx       # "use client": route cross-fade (AnimatePresence + FrozenRouter)
 │   │   ├── FrozenRouter.jsx         # "use client": freezes LayoutRouterContext for exiting routes
-│   │   ├── SlideRouter.jsx          # "use client": <SlideRouter/> (slide-route surface + registry)
-│   │   │                            #   and <SlideBase/> (the base surface it pushes)
+│   │   ├── SlideRouter.jsx          # "use client": the slide-route surface registry —
+│   │   │                            #   <SlideRouter/> (in-app overlay), <SlidePage/> (cold
+│   │   │                            #   load), <SlideBase/> (the base surface it pushes)
 │   │   ├── Loading.jsx              # <Spinner/>, <LoadOverlay/> (moved out of the old pages/loading)
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
@@ -629,7 +630,9 @@ Page components do **not** add their own top-level `PageTransition` — the layo
 
 ### Slide routes — `<SlideRouter/>` (overlay routes that push the page behind them)
 
-A **slide route** is a real, shareable URL that, when reached by a soft nav from inside the app, opens as a full-screen surface sliding in from the right while the page behind it stays mounted and is pushed off to the left. Dismissing reverses it. The same URL opened cold (hard nav / refresh / a shared link) renders as an ordinary standalone page instead. `/p/:id` (a post) is the reference implementation.
+A **slide route** is a real, shareable URL that, when reached by a soft nav from inside the app, opens as a full-screen surface sliding in from the right while the page behind it stays mounted and is pushed off to the left. Dismissing reverses it. The same URL opened cold (hard nav / refresh / a shared link) renders the same surface as a full-viewport page instead. `/p/:id` (a post) is the reference implementation.
+
+**A slide route has no page file of its own.** There is no `app/(protected)/p/[postId]/page.jsx` — deliberately. A dynamic segment would force `generateStaticParams` under `output: "export"`, which means every openable id would have to be enumerated at build time; that caps the app at a corpus known to the build and bloats the bundle with per-id HTML the native app never serves. Instead both presentations resolve the **pathname** off the `SLIDE_ROUTES` registry, so ids are only ever known at runtime, which is what lets the feed be genuinely live and paginated.
 
 Three properties make it more than a modal:
 
@@ -648,11 +651,13 @@ Two rules follow:
 
 The tradeoff to know about: while a slide route is open, the router's segment tree says the app is on the base route while the URL says otherwise. The next real navigation is computed from the tree and lands correctly, so this resolves itself.
 
-> **History note.** This replaced an `@modal/(.)p/[postId]` intercepting route, which held the base mounted by asking Next to intercept. `output: "export"` — the native build, see `native-architecture.md` — rejects intercepting routes outright. The shallow version is also simpler: no parallel slot, no `default.jsx`, no interceptor page, and none of the slot-teardown hazards those carried.
+> **History note — do not reintroduce `@modal`.** This replaced an `@modal/(.)p/[postId]` intercepting route, which held the base mounted by asking Next to intercept. `output: "export"` — the native build, see `native-architecture.md` — rejects it: the build dies with `Intercepting routes are not supported with static export.` (verified on Next 15.5.23; note the error only surfaces *after* you satisfy `generateStaticParams`, so the first failure you see is a misleading complaint about missing params). Interception would not buy anything here anyway — the interceptor is itself a dynamic segment needing enumeration, so it makes the build-time-ids problem worse, not better. The shallow version is also simpler: no parallel slot, no `default.jsx`, no interceptor page, and none of the slot-teardown hazards those carried.
 
 `<SlideBase/>` is the other half: it wraps the shell's page (an ordinary flow element — see **Scrolling** below) and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base. Because the document keeps its scroll offset through a pure horizontal transform, and the surface freezes the document while it's up, the base is exactly where the reader left it on dismiss.
 
 `<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) owns the surface, inside the layout's own `AnimatePresence`. Living in the persistent layout is what lets `AnimatePresence` retain the element — props and all — through the exit, so the surface keeps the param it opened with and never blanks mid-animation.
+
+`<SlidePage/>` is the cold-load half, mounted from the protected shell's `[...not-found]` catch-all. It reads `usePathname()`, resolves it through `slideRouteFor`, and renders the matched surface in its `page` presentation; anything that isn't a registered slide route falls through to the `fallback` it was given (the 404). Because the catch-all matches infinitely many paths off a single sentinel `generateStaticParams` entry, every registered slide route gets cold-load handling with **zero** per-route enumeration.
 
 #### Open/close gating
 
@@ -661,11 +666,11 @@ The tradeoff to know about: while a slide route is open, the router's segment tr
 - the **pathname** matches a registered slide route, and
 - that exact path is the one **the app itself opened** (`openedPath`, module-level state in `useSlideRoute.hook.js`).
 
-Both halves are load-bearing. The `openedPath` half is the **soft- vs cold-load signal**: a cold load of `/p/:id` (a shared link, or the standalone page) has a matching pathname but nothing mounted behind it, so it must render as an ordinary page rather than an overlay. The pathname half closes the surface the moment the URL moves anywhere else — dismissal or a tap on another nav tab — with nothing to reset, which is why `openedPath` stores the path rather than a boolean.
+Both halves are load-bearing. The `openedPath` half is the **soft- vs cold-load signal**: a cold load of `/p/:id` (a shared link, or a refresh) has a matching pathname but nothing mounted behind it, so `<SlidePage/>` must render it as a full-viewport page rather than an overlay. The pathname half closes the surface the moment the URL moves anywhere else — dismissal or a tap on another nav tab — with nothing to reset, which is why `openedPath` stores the path rather than a boolean.
 
 #### Adding a new slide route
 
-Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declarative steps — **no existing route is affected**, because everything keys off the registry and non-registered paths fall through every resolver unchanged:
+Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declarative steps — **no route folder, and no build-time enumeration** — and **no existing route is affected**, because everything keys off the registry and non-registered paths fall through every resolver unchanged:
 
 1. **Register the route** in `lib/constants.js`:
 
@@ -682,40 +687,26 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
 
 2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param. It owns its own presentation *and* its own enter/exit animation, so it can differ by breakpoint. For the mobile push, animate `x: "100%" → 0` (and `exit: { x: "100%" }`) with `SLIDE_TRANSITION` from `@/lib/utils`, full-viewport wide — that's the contract that keeps it locked to `<SlideBase/>`. Model it on `components/PostView.jsx`.
 
-3. **Register the surface** in `components/SlideRouter.jsx`:
+3. **Register the surface** in `components/SlideRouter.jsx`. One entry serves both presentations — the in-app overlay and the cold load:
 
    ```jsx
    const SURFACES = {
-       [ROUTES.POST]: (param) => <PostView variant="modal" postId={param} />,
-       [ROUTES.USER]: (param) => <UserView variant="modal" handle={param} />,
-   }
-   ```
-
-4. **Add the standalone page** that serves the same URL when it's opened cold. Because the app is statically exported, a dynamic segment **must** enumerate its paths, which means this file is a Server Component (no `"use client"`) so it can export `generateStaticParams`:
-
-   ```jsx
-   // app/(protected)/u/[handle]/page.jsx — the cold deep link
-   import UserView from "@/components/UserView"
-   import { userHandles } from "@/lib/metadata"
-
-   export const generateStaticParams = () => userHandles().map((handle) => ({ handle }))
-
-   const UserPage = async ({ params }) => {
-       const { handle } = await params
-       return <UserView variant="page" handle={handle} />
+       [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
+       [ROUTES.USER]: (param, variant) => <UserView variant={variant} handle={param} />,
    }
    ```
 
    The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` page wrapper — which a slide route may be mid-transform on — and covers the viewport.
 
-5. **Open it with `openSlide`** from the trigger (see `Feed.jsx`'s `openPost`), not `router.push`.
+4. **Open it with `openSlide`** from the trigger (see `Feed.jsx`'s `openPost`), not `router.push`.
 
-Nothing in `app/(protected)/layout.jsx` changes — it already renders `<SlideRouter/>` generically.
+**Do not add a route folder.** There is no step for `app/(protected)/u/[handle]/page.jsx`, and adding one is a regression: a dynamic segment forces `generateStaticParams` under the export, which puts you back to enumerating every handle at build time. `<SlidePage/>` in the catch-all already serves the cold load for any registered prefix, for any param value, resolved at runtime. Nothing in `app/(protected)/layout.jsx` changes either — it already renders `<SlideRouter/>` generically.
 
 #### Rules
 
 - **Never** re-derive slide-route behaviour inline (`pathname.startsWith("/p/")`) in a component. Use the resolvers, or add to the registry.
 - **Never** open one with `router.push` — that unmounts the base and the push has nothing to slide.
+- **Never** give a slide route its own route folder or an intercepting route. Both reintroduce build-time enumeration; interception additionally fails the export outright.
 - Keep the surface and `<SlideBase/>` on the **same distance, curve, and trigger**. If you change one, change the other; if they diverge, the push decouples.
 - Give the surface a stable key across open→dismiss (handled for you by `SlideRouter`, which keys off the route prefix) so `AnimatePresence` tracks a single instance rather than remounting it.
 

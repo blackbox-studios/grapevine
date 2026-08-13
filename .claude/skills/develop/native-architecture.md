@@ -22,7 +22,8 @@
 - `output: "export"` **forbids** middleware and intercepting routes. Both were used
   before; both were replaced with client-side equivalents (see below).
 - Every route must be statically enumerable, so dynamic segments need
-  `generateStaticParams`.
+  `generateStaticParams` — which is why **post detail is not a route**. See
+  **Dynamic routes at scale** below.
 - The app must run with **no network at all** — assets, fonts, and icons are bundled.
 
 ---
@@ -94,7 +95,7 @@ it after mount (via `openSlide` for a slide route) instead of discarding it.
 | `src/middleware.js` gating routes on a cookie | `<ProtectedGate>` / `<PublicGate>` in `components/AuthGate.jsx` | `output: "export"` drops middleware silently — there is no server to run it |
 | `@modal/(.)p/[postId]` intercepting route | `history.pushState` in `useSlideRoute.hook.js` | Export rejects intercepting routes outright |
 | Material Symbols from `fonts.googleapis.com` | self-hosted `@font-face` in `globals.css` | A CDN font renders as text on a cold offline launch |
-| `/p/[postId]` as a Client Component | Server Component exporting `generateStaticParams` | Export must know every path up front |
+| `/p/[postId]` page enumerating every post id | no post route at all — `<SlidePage/>` resolves the pathname from the catch-all | A dynamic segment must enumerate its paths up front, which caps the app at a build-time corpus |
 
 Details for the first two live in `auth-architecture.md` and the **Slide routes**
 section of `frontend-architecture.md`.
@@ -123,7 +124,7 @@ the native app for it to run on.
 | Server Components that fetch, `cookies()`, `headers()` | No request context at export time | Fetch from a store, read the session client-side |
 | Server Actions | Need a running server to POST back to | A normal `fetch` to your deployed API |
 | Route handlers the native app depends on (`src/app/api/**`) | Not emitted into the static bundle | Deploy the API separately; call it by absolute URL |
-| Intercepting / parallel routes (`@slot`, `(.)path`) | Rejected by the export | Shallow history — see **Slide routes** |
+| Intercepting / parallel routes (`@slot`, `(.)path`) | Rejected by the export: `Intercepting routes are not supported with static export.` The check runs *after* the `generateStaticParams` check, so the first error you get is a misleading one about missing params — satisfy it and the real error appears. | Shallow history — see **Slide routes** |
 | `rewrites`, `redirects`, `headers` in `next.config.mjs` | Server features; ignored in an export | Handle in the client, or at your web host for web only |
 | `next/image` optimization | No optimizer process | Already forced to `images: { unoptimized: true }` |
 
@@ -164,63 +165,57 @@ HTML and therefore hides both classes of bug).
 
 ## Dynamic routes at scale (thousands of posts)
 
-Short answer: **fetching thousands of posts at runtime is completely unaffected, and
-opening any one of them in-app does not depend on `generateStaticParams` at all.** The
-only thing that does not scale is *enumerating* them at build time, and you do not have
-to.
+**Nothing about a post is known at build time, and nothing needs to be.** The corpus can
+be millions of UUIDs created a second ago. This is settled by not making post detail a
+route at all — there is no `app/(protected)/p/[postId]/` folder, and `generateStaticParams`
+appears nowhere near posts.
 
 Two separate things get conflated here, so keep them apart:
 
 **1. Runtime data — no routing involvement whatsoever.** When the feed store swaps
-`metadata.js` for a real `fetch`, that's ordinary data loading. Ids can be UUIDs, there
-can be millions, they can be created a second ago. Nothing about the export cares,
-because no route is being resolved. This is the layer described in
+`metadata.js` for a real `fetch`, that's ordinary data loading. Nothing about the export
+cares, because no route is being resolved. This is the layer described in
 `frontend-architecture.md`, and it works identically in both build targets.
 
-**2. Build-time enumeration — the only constrained part.** `generateStaticParams` in
-`app/(protected)/p/[postId]/page.jsx` exists solely to satisfy the export, and it feeds
-**only the standalone cold-load page**. It does not gate what the app can open:
+**2. Routing — deliberately kept out of the export's way.** Both ways of reaching a post
+resolve the **pathname**, never a route segment:
 
-- Opening a post in-app is `openSlide()` → `history.pushState`, which resolves no route
-  and issues **zero network requests**. Verified: with the per-post pages removed from
-  the bundle (so `/p/post-001.html` returns 404), tapping a post still opens the overlay
-  with full content, and back still restores the feed's scroll offset.
-- Natively it could not matter anyway — every extensionless path is served `index.html`,
-  so a pre-rendered id and an unknown id are served byte-identically.
+- **In-app** is `openSlide()` → `history.pushState`, which resolves no route and issues
+  **zero network requests**. `<SlideRouter/>` draws the overlay off the `SLIDE_ROUTES`
+  registry.
+- **Cold** (refresh, shared link) is `<SlidePage/>`, mounted from the `[...not-found]`
+  catch-all, which matches infinitely many paths off one sentinel param.
 
-So the enumeration is close to vestigial for the native app, and paying for it at scale
-is a real cost: each post is ~20 KB of `.html` + `.txt`, so 1,000 posts adds roughly
-19 MB and 10,000 adds ~195 MB of files to the app bundle **that the native app never
-serves**. It also couples every build to your API and still can't cover posts created
-after the build.
+So the export emits no per-post files at all. That matters at scale: enumerating would
+cost ~20 KB of `.html` + `.txt` per post — roughly 19 MB per 1,000 posts, ~195 MB per
+10,000 — added to the app bundle **that the native app never serves**, since every
+extensionless path is answered with `index.html` regardless. It would also couple every
+build to your API and still miss anything created after the build.
 
-### What to do when the corpus gets real
+### What this means in each target
 
-Stop enumerating the corpus. Return a single sentinel and let the two targets do what
-each is good at:
+- **Native:** unaffected. Every extensionless path is served `index.html`, so a known and
+  an unknown id are byte-identical to the WebView.
+- **Web (Node build):** `/p/<anything>` matches the catch-all at request time and returns
+  200. Verified — `/p/post-001` and `/p/totally-made-up-uuid-9f8a` both render the post
+  surface from `npm run start`.
+- **Web (static export served directly):** `/p/<id>` has no file, so a plain host 404s
+  unless you configure an `index.html` fallback for extensionless paths. Deploy the web
+  target as the Node build (which is what `npm run build` / `npm run start` are for), or
+  add that fallback at your host.
 
-```js
-// Enough to satisfy the export; the native app opens posts via openSlide, not this page.
-export const generateStaticParams = () => [{ postId: "_" }]
-```
+`PostView` renders a "Post not found" state, so an id that doesn't resolve degrades
+gracefully rather than crashing.
 
-- **`[]` does not work** — Next reports `Page "/p/[postId]" is missing
-  "generateStaticParams()" so it cannot be used with "output: export" config.` At least
-  one entry is required. One entry is O(1) no matter how large the corpus gets.
-- **Web deep links keep working** because the web deploys as the Node build, where
-  `generateStaticParams` is only a pre-render *hint*: `dynamicParams` defaults to true,
-  so any id renders on demand. Verified — `/p/does-not-exist-999` and
-  `/p/some-uuid-4f8a2b` both return 200 from `npm run start`.
-- **Do not call your API from `generateStaticParams`** to page through the whole table.
-  If you want a few posts pre-rendered for SEO or link previews, enumerate a small
-  bounded slice (recent or featured), never the corpus.
+Two caveats to keep in mind:
 
-`PostView` already renders a "Post not found" state, so an id that no longer resolves
-degrades gracefully rather than crashing.
-
-One caveat to keep in mind: on native, a cold load of `/p/:id` is rewritten to the root
-by the boot guard, so a native deep link into a specific post needs the replay described
-in **The one constraint that shapes everything** — not a pre-rendered page.
+- On native, a cold load of `/p/:id` is rewritten to the root by the boot guard, so a
+  native deep link into a specific post needs the replay described in **The one
+  constraint that shapes everything**.
+- **If you want a handful of posts pre-rendered for SEO or link previews**, add a
+  *separate*, explicitly bounded route for it (recent or featured only) — never
+  re-enumerate the corpus, and never call your API from `generateStaticParams` to page
+  through a whole table.
 
 ---
 

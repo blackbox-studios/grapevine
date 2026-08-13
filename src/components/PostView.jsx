@@ -76,12 +76,13 @@ const NotFound = () => (
  *    comment thread, with a back header. It swipes in from the right (the layout
  *    slides the feed left behind it) and back out on dismiss.
  *
- * `variant="modal"` is the in-app overlay — this component is the registered surface for
- * the `/p` slide route, rendered by <SlideRouter/> in the shell so the instance outlives
- * the URL change that opened it and can animate out with its `postId` intact.
- * `variant="page"` is the hard-nav / deep-link fallback
- * (portaled to <body> so it escapes the shell's page wrapper and covers the viewport);
- * it passes the id from the route params. */
+ * Both presentations come from the same registry entry in <SlideRouter/> — there is no
+ * `/p/[postId]` page file, so no post id is ever enumerated at build time.
+ * `variant="modal"` is the in-app overlay, rendered by <SlideRouter/> in the shell so the
+ * instance outlives the URL change that opened it and can animate out with its `postId`
+ * intact. `variant="page"` is the cold-load fallback (a refresh or a shared link),
+ * resolved from the pathname by <SlidePage/> and portaled to <body> so it escapes the
+ * shell's page wrapper and covers the viewport. */
 const PostView = ({ variant = "modal", postId }) => {
     const router = useRouter()
     const isDesktop = useIsDesktop()

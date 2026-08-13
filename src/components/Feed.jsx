@@ -222,7 +222,7 @@ const PostCard = ({ post }) => {
             </div>
 
             {post.likedBy && (
-                <div className="flex items-center gap-2 pt-2 text-sm">
+                <div className="flex items-center gap-2 py-2 text-sm ">
                     <Avatar name={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}

@@ -36,11 +36,11 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
     return (
         <div className="flex items-start gap-3 px-4 py-2.5">
             <Avatar name={author.name} src={author.avatar} className="size-9" />
-            <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug">
-                    <span className="font-semibold">{author.handle}</span>{" "}
+            <div className="min-w-0 flex flex-col gap-1 flex-1">
+                <p className="text-xs leading-snug ">
+                    <span className="font-semibold">{author.handle}</span>
                     <span className="text-muted-foreground">
-                        · {timeAgoCompact(now, new Date(created_at).getTime())}
+                        &nbsp;{timeAgoCompact(now, new Date(created_at).getTime())}
                     </span>
                 </p>
                 <p className="text-sm leading-snug wrap-break-word">{text}</p>

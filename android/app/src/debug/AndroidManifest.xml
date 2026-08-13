@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only overlay. Applies the cleartext dev hosts (network_security_config.xml
+     lives in src/debug/res/xml) to debug builds ONLY. Release builds never see this,
+     so they keep Android's default https-only policy. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:networkSecurityConfig" />
+</manifest>

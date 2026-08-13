@@ -22,8 +22,11 @@ import { appPath, cn, SLIDE_TRANSITION } from "@/lib/utils"
 /* The post's media. Desktop is sized by a *definite* height so the box width derives
  * from the media's aspect ratio (the dialog then shrinks to media + rail), capped at
  * `95vw − rail` so a wide photo can't shove the rail off-screen. Mobile is capped by
- * height so the comment thread always keeps room on short screens. Carousels reuse
- * the `bare` variant (fills its box, dots overlaid). */
+ * height so the comment thread always keeps room on short screens. That mobile cap is a
+ * share of --viewport-height rather than of dvh so the media also yields room as the keyboard
+ * rises — the sheet is a fixed-height column, so a media box that held its full share of the
+ * viewport would squeeze the thread's composer off the bottom the moment the field was
+ * tapped. Carousels reuse the `bare` variant (fills its box, dots overlaid). */
 const PostMedia = ({ post, desktop }) => {
     const images = post.images ?? (post.image ? [post.image] : [])
     if (images.length === 0) return null
@@ -35,7 +38,7 @@ const PostMedia = ({ post, desktop }) => {
                     "aspect-square",
                     desktop
                         ? "h-full max-w-[calc(95vw-var(--commentbar-width))]"
-                        : "mx-auto w-full max-w-[42dvh]",
+                        : "mx-auto w-full max-w-[calc(var(--viewport-height)*0.42)]",
                 )}
             >
                 <Carousel images={images} bare />
@@ -51,7 +54,7 @@ const PostMedia = ({ post, desktop }) => {
                 "object-contain",
                 desktop
                     ? "h-[90dvh] w-auto max-w-[calc(95vw-var(--commentbar-width))]"
-                    : "mx-auto max-h-[42dvh] w-auto",
+                    : "mx-auto max-h-[calc(var(--viewport-height)*0.42)] w-auto",
             )}
         />
     )
@@ -159,13 +162,17 @@ const PostView = ({ variant = "modal", postId }) => {
           ? { initial: { x: "100%" }, animate: { x: 0 }, exit: { x: "100%" }, transition: SLIDE_TRANSITION }
           : { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.2, ease: "easeOut" } }
 
+    /* The mobile sheet stops at the mobile rail, except while the keyboard is up, when it
+     * stops at the keyboard instead — which is covering the rail anyway, and is what keeps
+     * its composer reachable. It transitions so it rides the keyboard's own animation up
+     * rather than jumping once the keyboard has settled; see useKeyboardInset. */
     const overlay = (
         <motion.div
             className={cn(
                 "fixed z-50",
                 isDesktop
                     ? "inset-0 flex items-center justify-center"
-                    : "inset-x-0 top-0 bottom-(--bottombar) pt-(--safe-top) flex flex-col bg-background",
+                    : "inset-x-0 top-0 bottom-[max(var(--bottombar),var(--keyboard-inset))] pt-(--safe-top) flex flex-col bg-background transition-[bottom] duration-250 ease-out",
             )}
             {...anim}
         >

@@ -5,6 +5,7 @@ import { AnimatePresence } from "motion/react"
 
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
+import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Avatar } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
@@ -151,6 +152,10 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
                 e.preventDefault()
                 submit()
             }}
+            /* Vaul treats the whole drawer as a drag handle, so without this a touch that
+             * starts anywhere in the composer — reaching for the field, or dragging to
+             * select text in a half-typed reply — swipes the drawer shut instead. */
+            data-vaul-no-drag
             className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
             <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
@@ -183,7 +188,9 @@ const DrawerBody = ({ post }) => {
     const now = useNow()
 
     return (
-        <>
+        /* KeyboardAwareColumn keeps the composer on top of the on-screen keyboard: the
+         * thread (the scroll region) yields the room, the composer rides up. */
+        <KeyboardAwareColumn>
             <DrawerHeader className="shrink-0 border-b py-3.5">
                 <DrawerTitle className="text-center text-base font-semibold">
                     Comments
@@ -201,7 +208,7 @@ const DrawerBody = ({ post }) => {
                 />
             </div>
             <CommentComposer viewer={viewer} onSubmit={add} />
-        </>
+        </KeyboardAwareColumn>
     )
 }
 
@@ -213,10 +220,18 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => {
     useBackHandler(open, () => onOpenChange(false))
 
     return (
-        <Drawer open={open} onOpenChange={onOpenChange}>
+        /* repositionInputs is off because Vaul's implementation of it is unusable inside a
+         * WebView, and not in a way you'd guess from the name: it keeps react-aria's
+         * mobile-Safari scroll lock installed, which calls preventDefault on every touchend
+         * over an input and then focuses the field itself, having first shoved it 2000px up
+         * to stop Safari scrolling to it. That hand-rolled focus doesn't take in the
+         * Capacitor WebView, so tapping the composer did nothing at all — no caret, no
+         * keyboard, and no way to type even on a hardware one. Turning it off restores plain
+         * tap-to-focus; keeping the composer above the keyboard is DrawerBody's job instead. */
+        <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
             {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the composer
                 at the foot of the drawer would sit under the browser's own toolbar. */}
-            <DrawerContent className="h-[85dvh] max-h-[85dvh] pb-(--safe-bottom)">
+            <DrawerContent className="h-[85dvh] max-h-[85dvh]">
                 {open && <DrawerBody post={post} />}
             </DrawerContent>
         </Drawer>

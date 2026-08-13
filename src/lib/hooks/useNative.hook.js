@@ -117,11 +117,46 @@ const useKeyboardDismiss = () => {
     }, [])
 }
 
+/* Mirrors the on-screen keyboard's height into the --keyboard-inset custom property, so any
+ * surface pinned to the bottom edge can lift itself clear of the keyboard in CSS (see
+ * globals.css for that token and the two derived from it).
+ *
+ * iOS only, and only because the plugin's own resize modes can't do this smoothly. `resize:
+ * "native"` re-frames the WebView from a delayed selector — the keyboard's own animation
+ * duration *plus* 200ms — so the composer snaps into place a beat after the keyboard has
+ * already covered it, and every dvh in the app relayouts in that one frame. `resize: "none"`
+ * in capacitor.config.json turns that off and hands us `keyboardWillShow`, which fires as
+ * the animation *begins* and already carries the final height: set the inset there and a CSS
+ * transition rides along with the keyboard instead of chasing it.
+ *
+ * Android is left alone — it resizes its own WebView as the keyboard opens (the `resize`
+ * option is iOS-only), so the inset stays 0 and dvh-sized surfaces adapt on their own. */
+const useKeyboardInset = () => {
+    useEffect(() => {
+        if (!isNative() || platform() !== "ios") return
+
+        const setInset = (px) =>
+            document.documentElement.style.setProperty("--keyboard-inset", `${px}px`)
+
+        const shown = Keyboard.addListener("keyboardWillShow", ({ keyboardHeight }) =>
+            setInset(keyboardHeight),
+        )
+        const hidden = Keyboard.addListener("keyboardWillHide", () => setInset(0))
+
+        return () => {
+            shown.then((handle) => handle.remove()).catch(() => {})
+            hidden.then((handle) => handle.remove()).catch(() => {})
+            setInset(0)
+        }
+    }, [])
+}
+
 export const useNative = () => {
     useStatusBarTheme()
     useSplashScreen()
     useHardwareBack()
     useKeyboardDismiss()
+    useKeyboardInset()
 }
 
 export default useNative

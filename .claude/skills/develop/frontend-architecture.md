@@ -933,6 +933,38 @@ Rules that follow from it:
 
 Anything that hugs a screen edge pads by these — use `pb-(--safe-bottom)`, `pt-(--safe-top)`, and clear the mobile rail with `--bottombar` rather than `--bottombar-height`.
 
+### Keyboard-aware surfaces
+
+Any surface with a text input near the bottom of the screen (a comment composer, a chat box, an inline reply) has to lift itself clear of the on-screen keyboard **itself** — nothing does it for you. On iOS the Capacitor WebView is deliberately **not** resized when the keyboard opens; instead `useKeyboardInset` (in `useNative.hook.js`) mirrors the keyboard's height into a CSS variable as the show/hide animation begins. The full rationale — why we don't use the plugin's `resize: "native"`, and how it behaves on Android and in a browser — is the **keyboard section of `native-architecture.md`**; read that before touching any of this.
+
+Three tokens fall out of it (defined in `globals.css`):
+
+| Token | Use |
+|---|---|
+| `--keyboard-inset` | How much of the bottom edge the keyboard covers; `0px` when down (and always `0px` in a browser / on Android, which shrink the viewport themselves) |
+| `--bottom-inset` | What a bottom-pinned element must clear: `max(--safe-bottom, --keyboard-inset)` — never both, since a raised keyboard already covers the home indicator |
+| `--viewport-height` | `100dvh` minus the keyboard; size against this where something has to fit in the room the keyboard leaves |
+
+**The reusable wrapper is `<KeyboardAwareColumn>`** (`components/KeyboardAware.jsx`) — reach for it first. It is a flex column that pads its foot by `--bottom-inset` (with the transition that rides the keyboard's animation), so its **last child stays on top of the keyboard** while a scroll region above it gives up the room. Drop it into a bottom-anchored surface with a scrollable region (`overflow-y-auto min-h-0`) and the pinned control last:
+
+```jsx
+import { KeyboardAwareColumn } from "@/components/KeyboardAware"
+
+<KeyboardAwareColumn>
+    <div className="flex-1 overflow-y-auto overscroll-contain">{/* thread */}</div>
+    <Composer />   {/* rides up onto the keyboard */}
+</KeyboardAwareColumn>
+```
+
+`components/Comments.jsx` (the mobile drawer) is the reference. For a **full-screen sheet** where the media above should also yield room rather than a scroll region absorbing it all — `components/PostView.jsx`'s mobile surface — the pattern is instead to move the fixed panel's own bottom edge (`bottom-[max(var(--bottombar),var(--keyboard-inset))]`) and cap the media at a share of `--viewport-height`. Use the column for a thread-plus-composer; use the moved-edge form for a whole surface.
+
+**A Vaul drawer with an input needs two more things** (see `CommentsDrawer` / `CommentComposer` in `Comments.jsx`), both documented at length in `native-architecture.md`:
+
+- **`repositionInputs={false}` on `<Drawer>`.** Vaul's default keeps a mobile-Safari scroll lock installed that hijacks `touchend` on inputs and hand-focuses them — which does not take in the WebView, so the field looks completely dead (no caret, no keyboard, hardware keyboard included). This is a hard requirement, not a nicety.
+- **`data-vaul-no-drag` on the composer** so a touch that starts in the field reaches for it / selects text instead of swiping the drawer shut.
+
+> **The blue ring on open.** Vaul focuses the drawer surface itself when it opens, and the WebView traces a focus outline around the whole sheet. `globals.css` drops it with a scoped `[data-vaul-drawer]:focus { outline: none }` (the surface is a passive container; the controls inside keep their rings). The same file sets `-webkit-tap-highlight-color: transparent` on `html` to kill the WebView's grey/blue tap flash app-wide.
+
 ---
 
 ## Styling & Theming (Tailwind v4)

@@ -230,7 +230,7 @@ is called once from `src/app/App.jsx`:
 | Splash screen | `launchAutoHide: false` in config; hidden on the first frame after mount, so the app never flashes an unstyled shell |
 | Status bar | Follows the resolved `next-themes` value — this is why `<App/>` sits *inside* `<Providers>` |
 | Hardware back (Android) | Runs the topmost registered handler; else `history.back()`; else exits at the root |
-| Keyboard | `resize: "native"`; dismissed when focus leaves an input |
+| Keyboard | `resize: "none"`; height mirrored into `--keyboard-inset`; dismissed when focus leaves an input |
 
 **`useBackHandler(active, onBack)`** is the hook any dismissible surface should use so
 Android's back button closes it instead of leaving the app. `components/Comments.jsx`
@@ -253,6 +253,45 @@ reads both, preferring Capacitor's injected variables and falling back to `env()
 
 Everything that touches a screen edge pads by the `--safe-*` tokens. Never use `env()`
 directly at a call site — Android won't fill it in.
+
+---
+
+## The keyboard
+
+**The WebView is not resized on iOS.** `resize: "none"` in the plugin config, and
+`useKeyboardInset` (in `useNative.hook.js`) mirrors the keyboard's height into
+`--keyboard-inset` from `keyboardWillShow` / `keyboardWillHide` instead.
+
+That is a deliberate trade, because the plugin's own modes can't animate. `resize: "native"`
+re-frames the WebView from a *delayed* selector — the keyboard's animation duration plus
+200ms — so the layout snaps a beat after the keyboard has already covered the field, and
+every `dvh` in the app relayouts in that single frame. `keyboardWillShow` fires as the
+animation begins and already carries the final height, so setting a custom property there
+lets a CSS transition move with the keyboard rather than after it.
+
+Three tokens come out of it (all defined and documented in `globals.css`):
+
+| Token | Use |
+|---|---|
+| `--keyboard-inset` | How much of the bottom edge the keyboard covers; `0px` when down |
+| `--bottom-inset` | What a bottom-pinned surface must clear: `max(--safe-bottom, --keyboard-inset)` — never both, a raised keyboard covers the home indicator |
+| `--viewport-height` | `100dvh` minus the keyboard; size against this where something has to fit in the room left over |
+
+**Any surface with a text input near the bottom of the screen has to opt in** — nothing
+lifts it for you now. `Comments.jsx` (the drawer's foot) and `PostView.jsx` (the mobile
+sheet's bottom edge, and the media cap that yields room to it) are the two worked examples.
+
+Android is left on its own: the `resize` option is iOS-only, Android resizes its WebView as
+the keyboard opens, and `--keyboard-inset` therefore stays `0px` there — which is why the
+tokens are written to degrade to the plain safe-area/`dvh` behaviour rather than to require
+the inset.
+
+> **A drawer with an input needs `repositionInputs={false}`.** Vaul's default keeps
+> react-aria's mobile-Safari scroll lock installed, which `preventDefault`s every `touchend`
+> over an input and focuses the field itself. That hand-rolled focus does not take in the
+> Capacitor WebView: the field never focuses, so there is no caret, no keyboard, and no way
+> to type even with a hardware keyboard attached. It looks like a dead control, and it only
+> reproduces in the native build.
 
 ---
 

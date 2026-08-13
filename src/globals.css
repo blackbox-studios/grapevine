@@ -83,6 +83,20 @@
        sits on top of. Use this — not --bottombar-height — to clear or align to the rail. */
     --bottombar: calc(var(--bottombar-height) + var(--safe-bottom));
 
+    /* How much of the viewport's bottom edge the on-screen keyboard is covering, and 0
+       whenever it is down. Set from the native keyboard events on iOS only, where the
+       WebView is deliberately never resized; a browser and Android both shrink the
+       viewport themselves, so there it stays 0 and dvh already tells the truth. The
+       whole rationale is in useNative.hook.js. */
+    --keyboard-inset: 0px;
+    /* What a surface pinned to the bottom of the screen has to clear: the home indicator,
+       or the keyboard once it is up — never the sum of the two, since a raised keyboard
+       covers the indicator anyway. */
+    --bottom-inset: max(var(--safe-bottom), var(--keyboard-inset));
+    /* The viewport minus whatever the keyboard is covering. Size against this rather than
+       dvh wherever something has to fit in the room the keyboard leaves behind. */
+    --viewport-height: calc(100dvh - var(--keyboard-inset));
+
     --background: oklch(100% 0% 68deg);
     --foreground: oklch(17% 3% 236deg);
     --card: oklch(1 0 0);
@@ -176,6 +190,20 @@
      pull in both a browser and the Capacitor WebView. */
   html {
     @apply font-sans overflow-x-hidden;
+    /* Kill the grey/blue box the mobile WebView flashes over whatever you tap — the app
+       supplies its own :active/hover affordances, and the native flash reads as a bug on
+       a full-screen app. Inherited, so setting it here covers every element. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Vaul focuses the drawer surface itself when it opens; the WebView (and some browsers)
+     then trace a focus ring around the whole sheet, hugging its rounded top — the blue
+     outline you see the moment a drawer appears. The surface is a passive container, not a
+     control, so dropping its own outline is right; every focusable control inside it (the
+     composer, the buttons) keeps its focus-visible ring. */
+  [data-vaul-drawer]:focus,
+  [data-vaul-drawer]:focus-visible {
+    outline: none;
   }
 
   h1, h2, h3, h4, h5, h6 {

@@ -1,5 +1,5 @@
 import { PAGE_SIZE } from "@/lib/constants"
-import { pageParams, route } from "@/lib/server/handler"
+import { pageParams, preflight, route } from "@/lib/server/handler"
 import { sendCollection, sendCreated } from "@/lib/server/respond"
 import { addComment, listComments } from "@/lib/server/posts.service"
 
@@ -22,3 +22,5 @@ export const POST = route(async (request, { params }) => {
     const comment = await addComment(postId, text)
     return sendCreated(comment, `/api/posts/${postId}/comments/${comment.id}`)
 })
+
+export const OPTIONS = preflight

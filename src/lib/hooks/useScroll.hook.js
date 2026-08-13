@@ -1,56 +1,15 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { animate, useMotionValue, useMotionValueEvent, useScroll, useTransform } from "motion/react"
+import { animate, useMotionValue, useMotionValueEvent, useScroll as useMotionScroll, useTransform } from "motion/react"
 
-/* Everything scroll-related, in one place. The app scrolls the document itself (no
- * fixed inner container), so these all read/act on the window: framer-motion's
- * useScroll already tracks the page by default, and the lock freezes <html>. */
+import { useScroll } from "@/lib/providers/Scroll"
 
-/* Scrolls the document to the top. Navigation runs with `scroll: false` so Next doesn't
- * jump the outgoing page mid-cross-fade; the layout calls this from the transition's
- * onExitComplete once the fade has finished instead. */
-export const scrollToTop = (options = {}) => {
-    window.scrollTo({ top: 0, ...options })
-}
-
-/* -------------------------------------------------------------------------- */
-/* Scroll lock                                                                */
-/* -------------------------------------------------------------------------- */
-
-/* Freezes the document scroll while an overlay owns the screen. Without it the page
- * keeps scrolling behind a slide route / dialog / drawer — two live scrollbars, and a
- * backdrop that drifts under the surface. Locking <html> (the scroller) rather than
- * <body> is what holds in a WebView; the reserved scrollbar gutter in globals.css keeps
- * the lock from reflowing the page by the scrollbar's width.
- *
- * The count and captured offset are module-level so overlaps compose: a dialog opened
- * from inside another surface must not unlock the document when only it closes — only
- * the outermost release restores. The offset is re-applied as insurance against an
- * engine that doesn't preserve scrollTop across the overflow change. */
-const LOCKED = "scroll-locked"
-
-let locks = 0
-let offset = 0
-
-/* Holds the lock for as long as `locked` is true, releasing it on unmount. Lock and
- * release live inside the effect so all the freeze logic is in one place. */
-export const useScrollLock = (locked) => {
-    useEffect(() => {
-        if (!locked) return
-
-        if (locks++ === 0) {
-            offset = window.scrollY
-            document.documentElement.classList.add(LOCKED)
-        }
-
-        return () => {
-            if (locks === 0 || --locks > 0) return
-            document.documentElement.classList.remove(LOCKED)
-            if (Math.abs(window.scrollY - offset) > 1) window.scrollTo(0, offset)
-        }
-    }, [locked])
-}
+/* Everything scroll-related, in one place. The app scrolls a fixed, viewport-height
+ * container in the shell (see ScrollProvider) rather than the document, so these all
+ * read/act on that container's node: framer-motion's useScroll is pointed at it via
+ * `container`, and the pull gesture reads its `scrollTop` and rides its own touch
+ * listeners. `scrollToTop` lives on the provider, since it needs the same ref. */
 
 /* -------------------------------------------------------------------------- */
 /* Vibing                                                                     */
@@ -68,7 +27,8 @@ const DELTA = 8
  * The mobile bar reads this to get out of the way while they're vibing — dimming down
  * the page and coming back the instant they reach for it by scrolling up. */
 export const useVibing = () => {
-    const { scrollY } = useScroll()
+    const { scrollRef } = useScroll()
+    const { scrollY } = useMotionScroll({ container: scrollRef })
     const [vibing, setVibing] = useState(false)
 
     useMotionValueEvent(scrollY, "change", (latest) => {
@@ -100,31 +60,38 @@ const PULL_SLOP = 6
 const PULL_SPRING = { type: "spring", stiffness: 500, damping: 40 }
 
 /* Instagram-style pull-to-refresh, built by hand rather than leaning on the browser's
- * native overscroll: globals.css pins `overscroll-behavior: none` (no rubber-band, no
- * built-in reload) precisely so this can own the gesture and behave the same in a plain
- * browser and in the Capacitor WebView, where the native pull-to-refresh doesn't exist.
+ * native overscroll: the scroll container pins `overscroll-behavior: none` (no
+ * rubber-band, no built-in reload) precisely so this can own the gesture and behave the
+ * same in a plain browser and in the Capacitor WebView, where the native pull-to-refresh
+ * doesn't exist.
  *
- * Touch listeners hang off the window (not React's synthetic events) so `touchmove` can
- * be non-passive and call preventDefault — the only way to stop the page/WebView from
- * scrolling or bouncing while we drag. It only claims the gesture when the page is at the
- * very top, the drag is clearly downward, and no overlay is locking the scroll; anything
- * else is handed straight back to the scroller (or a horizontal carousel).
+ * Touch listeners hang off the container (not React's synthetic events) so `touchmove`
+ * can be non-passive and call preventDefault — the only way to stop the container from
+ * scrolling or bouncing while we drag. It only claims the gesture when the container is
+ * at the very top and the drag is clearly downward; anything else is handed straight back
+ * to the scroller (or a horizontal carousel). Because the listeners live on the container
+ * and an overlay is a separate fixed layer above it, a gesture on an open overlay never
+ * reaches this.
  *
  * Returns motion values for the caller to bind: `y` translates the content (and the
  * loader that rides above it), `progress` (0→1 across the threshold) drives the loader's
  * fade/scale, and `refreshing` reports the in-flight state. */
 export const usePullToRefresh = (onRefresh) => {
+    const { scrollRef } = useScroll()
     const y = useMotionValue(0)
     const progress = useTransform(y, [0, PULL_THRESHOLD], [0, 1], { clamp: true })
     const [refreshing, setRefreshing] = useState(false)
 
-    /* Kept in refs so the window listeners (attached once) always see the latest callback
-     * and never fire mid-refresh, without re-binding on every render. */
+    /* Kept in refs so the container listeners (attached once) always see the latest
+     * callback and never fire mid-refresh, without re-binding on every render. */
     const onRefreshRef = useRef(onRefresh)
     onRefreshRef.current = onRefresh
     const refreshingRef = useRef(false)
 
     useEffect(() => {
+        const node = scrollRef.current
+        if (!node) return
+
         let startX = 0
         let startY = 0
         let tracking = false /* a touch began at the top, gesture not yet decided */
@@ -137,9 +104,8 @@ export const usePullToRefresh = (onRefresh) => {
 
         const onStart = (e) => {
             if (refreshingRef.current || e.touches.length !== 1) return
-            /* An overlay owns the screen, or the page is scrolled — not our gesture. */
-            if (document.documentElement.classList.contains("scroll-locked")) return
-            if (window.scrollY > 0) return
+            /* The container is scrolled — not our gesture. */
+            if (node.scrollTop > 0) return
             startX = e.touches[0].clientX
             startY = e.touches[0].clientY
             tracking = true
@@ -154,16 +120,16 @@ export const usePullToRefresh = (onRefresh) => {
             if (!active) {
                 if (Math.abs(dx) < PULL_SLOP && Math.abs(dy) < PULL_SLOP) return
                 /* Only claim a clear downward, vertical drag that's still at the top; a
-                 * scroll-up, a scroll that's already moved the page, or a horizontal swipe
-                 * (carousel) all go back to the browser untouched. */
-                if (dy <= 0 || window.scrollY > 0 || Math.abs(dx) > Math.abs(dy)) {
+                 * scroll-up, a scroll that's already moved the container, or a horizontal
+                 * swipe (carousel) all go back to the browser untouched. */
+                if (dy <= 0 || node.scrollTop > 0 || Math.abs(dx) > Math.abs(dy)) {
                     reset()
                     return
                 }
                 active = true
             }
 
-            /* Own the drag: hold the page still and rubber-band the content down instead. */
+            /* Own the drag: hold the container still and rubber-band the content down instead. */
             e.preventDefault()
             y.set(Math.min(dy * PULL_RESISTANCE, PULL_MAX))
         }
@@ -191,17 +157,17 @@ export const usePullToRefresh = (onRefresh) => {
             }
         }
 
-        window.addEventListener("touchstart", onStart, { passive: true })
-        window.addEventListener("touchmove", onMove, { passive: false })
-        window.addEventListener("touchend", onEnd, { passive: true })
-        window.addEventListener("touchcancel", onEnd, { passive: true })
+        node.addEventListener("touchstart", onStart, { passive: true })
+        node.addEventListener("touchmove", onMove, { passive: false })
+        node.addEventListener("touchend", onEnd, { passive: true })
+        node.addEventListener("touchcancel", onEnd, { passive: true })
         return () => {
-            window.removeEventListener("touchstart", onStart)
-            window.removeEventListener("touchmove", onMove)
-            window.removeEventListener("touchend", onEnd)
-            window.removeEventListener("touchcancel", onEnd)
+            node.removeEventListener("touchstart", onStart)
+            node.removeEventListener("touchmove", onMove)
+            node.removeEventListener("touchend", onEnd)
+            node.removeEventListener("touchcancel", onEnd)
         }
-    }, [y])
+    }, [y, scrollRef])
 
     return { y, progress, refreshing }
 }

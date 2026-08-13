@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
 import { motion } from "motion/react"
+import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
@@ -14,7 +15,6 @@ import { Button } from "@/components/ui/button"
 import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { closeSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePost } from "@/lib/store/post/hook"
 import { appPath, cn, SLIDE_TRANSITION } from "@/lib/utils"
@@ -54,6 +54,43 @@ const PostMedia = ({ post, desktop }) => {
                     : "mx-auto max-h-[42dvh] w-auto",
             )}
         />
+    )
+}
+
+/* Wraps the media in a box that eases to the media's own dimensions as it changes. The
+ * inner (ref'd) node is content-sized, so `react-use-measure` reports the media's natural
+ * size and the `motion.div` tweens the box to it — desktop along width (height pinned to
+ * the dialog), mobile along height (width pinned full). With `initial={false}` and an
+ * `"auto"` fallback the box already renders at that size, so there's nothing to animate
+ * until the size actually *changes* — i.e. the cold-load skeleton resolving to the photo.
+ * An in-app open (photo known on the first frame) never changes size, so it just paints. */
+const PostMediaBox = ({ post, skeleton, desktop }) => {
+    const [ref, { width, height }] = useMeasure()
+
+    return (
+        <motion.div
+            className={cn(
+                "relative shrink-0 overflow-hidden bg-black",
+                desktop ? "h-[90dvh]" : "w-full",
+            )}
+            initial={false}
+            animate={desktop ? { width: width || "auto" } : { height: height || "auto" }}
+            transition={{ duration: 0.3, ease: [0, 0.4, 0, 1] }}
+        >
+            <div
+                ref={ref}
+                className={cn(
+                    "flex",
+                    desktop ? "h-full w-fit items-center" : "h-fit w-full justify-center",
+                )}
+            >
+                {skeleton ? (
+                    <PostMediaSkeleton desktop={desktop} />
+                ) : (
+                    <PostMedia post={post} desktop={desktop} />
+                )}
+            </div>
+        </motion.div>
     )
 }
 
@@ -114,13 +151,6 @@ const PostView = ({ variant = "modal", postId }) => {
 
     const isModal = variant === "modal"
 
-    /* The page is the document's scroller, so a surface that covers it has to freeze it
-     * — otherwise the feed keeps scrolling (and keeps its scrollbar) behind this one.
-     * Held for the component's whole life, which AnimatePresence extends through the
-     * exit: scrolling returns once the base has finished sliding home, not the instant
-     * the route changed. */
-    useScrollLock(true)
-
     /* Desktop fades (dialog); the mobile modal swipes horizontally; a mobile hard-nav
      * page (nothing behind it to slide) just fades in. */
     const anim = isDesktop
@@ -152,29 +182,26 @@ const PostView = ({ variant = "modal", postId }) => {
                         className="absolute inset-0 cursor-default bg-black/80"
                     />
                     <div className="relative z-10 flex h-[90dvh] w-auto max-w-[95vw] overflow-hidden rounded-2xl bg-black lg:border">
-                        {skeleton ? (
-                            <>
-                                <PostMediaSkeleton desktop />
-                                <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
-                                    <CommentsSkeleton />
-                                </aside>
-                            </>
-                        ) : post ? (
-                            <>
-                                <div className="flex h-full shrink-0 items-center bg-black">
-                                    <PostMedia post={post} desktop />
-                                </div>
-                                <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
-                                    <h2 className="sr-only">
-                                        Comments on {post.author.handle}&apos;s post
-                                    </h2>
-                                    <CommentsPanel post={post} className="flex-1" />
-                                </aside>
-                            </>
-                        ) : (
+                        {!skeleton && !post ? (
                             <div className="flex h-full w-[min(90vw,28rem)] items-center justify-center bg-popover">
                                 <NotFound />
                             </div>
+                        ) : (
+                            <>
+                                <PostMediaBox post={post} skeleton={skeleton} desktop />
+                                <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
+                                    {skeleton ? (
+                                        <CommentsSkeleton />
+                                    ) : (
+                                        <>
+                                            <h2 className="sr-only">
+                                                Comments on {post.author.handle}&apos;s post
+                                            </h2>
+                                            <CommentsPanel post={post} className="flex-1" />
+                                        </>
+                                    )}
+                                </aside>
+                            </>
                         )}
                     </div>
                     <Close onClick={dismiss} aria-label="Close post" className="fixed right-4 top-4 z-10" />
@@ -199,20 +226,17 @@ const PostView = ({ variant = "modal", postId }) => {
                      * inside CommentsPanel via useComments). The skeleton branch is the
                      * cold-load path, where the post itself is still in flight. */}
                     <div className="flex min-h-0 flex-1 flex-col">
-                        {skeleton ? (
-                            <>
-                                <PostMediaSkeleton />
-                                <CommentsSkeleton />
-                            </>
-                        ) : post ? (
-                            <>
-                                <div className="shrink-0 bg-black">
-                                    <PostMedia post={post} />
-                                </div>
-                                <CommentsPanel post={post} className="flex-1" />
-                            </>
-                        ) : (
+                        {!skeleton && !post ? (
                             <NotFound />
+                        ) : (
+                            <>
+                                <PostMediaBox post={post} skeleton={skeleton} />
+                                {skeleton ? (
+                                    <CommentsSkeleton />
+                                ) : (
+                                    <CommentsPanel post={post} className="flex-1" />
+                                )}
+                            </>
                         )}
                     </div>
                 </>

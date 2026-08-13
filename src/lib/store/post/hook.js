@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useMemo } from "react"
+import { useCallback, useMemo } from "react"
 import { useShallow } from 'zustand/react/shallow'
 
+import useIsomorphicLayoutEffect from "@/lib/hooks/useIsomorphicLayoutEffect.hook"
 import usePostStore from "./store"
 
 /* The open post (`/p/:id`), fetched when it opens rather than resolved from a build-time
  * list. Mounting this hook is what triggers the load; unmounting clears the store so the
  * next open starts clean.
  *
- * `skeleton` is normally false on the very first frame, because the store seeds `current`
- * from the feed's cached copy of the post — the photo is already decoded, so the surface
- * paints whole and the background detail fetch is invisible. It is only true when there was
- * no cached copy to seed from, i.e. a cold deep link, where the fetch really is the first
- * thing that can paint. See post/store.js → load. */
+ * `skeleton` is false on the very first frame for an in-app open, because the store seeds
+ * `current` from the feed's cached copy of the post — the photo is already decoded, so the
+ * surface paints whole and the background detail fetch is invisible. It is only true when
+ * there was no cached copy to seed from, i.e. a cold deep link, where the fetch really is
+ * the first thing that can paint. See post/store.js → load.
+ *
+ * The open runs through `useIsomorphicLayoutEffect` so the seed lands before paint; a plain
+ * `useEffect` would flash the skeleton for a frame. */
 export const usePost = (postId) => {
     const [current, ready, load, reset] = usePostStore(
         useShallow(state => ([
@@ -22,7 +26,7 @@ export const usePost = (postId) => {
         ])),
     )
 
-    useEffect(() => {
+    useIsomorphicLayoutEffect(() => {
         if (!postId) return
         load(postId)
         return () => reset()

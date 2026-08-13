@@ -24,20 +24,21 @@ const SURFACES = {
     [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
 }
 
-/* The base surface a slide route pushes: the shell's page wrapper, holding the route
+/* The base surface a slide route pushes: the shell's scroll container, holding the route
  * that stays mounted underneath. Slides a full viewport left — the same distance,
  * curve, and timing as the incoming surface, so the two move as one coupled unit
  * rather than one outrunning the other. Untouched by non-slide navigation.
  *
- * It is a flow element, not a viewport-sized box: the document is the scroller, so the
- * base is as tall as its content and the push is a pure horizontal transform that
- * leaves the scroll offset exactly where the reader left it. The document is frozen for
- * the duration (see SlideRouter), so nothing moves underneath while it's off-screen. */
-export const SlideBase = ({ className, children }) => {
+ * The push is a pure horizontal transform on the container, so it leaves the scroll
+ * offset exactly where the reader left it: the offset lives on this node, and nothing
+ * underneath moves while it's off-screen because there's no separate document scroll to
+ * drift. The layout attaches the shared scroll ref here (see ScrollProvider). */
+export const SlideBase = ({ ref, className, children }) => {
     const { pushed } = useActiveSlide()
 
     return (
         <motion.div
+            ref={ref}
             className={className}
             animate={{ x: pushed ? "-100%" : 0 }}
             transition={SLIDE_TRANSITION}
@@ -57,10 +58,9 @@ export const SlideBase = ({ className, children }) => {
  * param is read at render time rather than during the exit — the retained element
  * keeps the value it opened with, so the surface never blanks mid-animation.
  *
- * That retention is also what scopes the document scroll lock correctly: a surface
- * freezes the page from its own mount (see PostView), and AnimatePresence keeps it
- * mounted until the exit finishes — so scrolling comes back exactly when the base has
- * finished sliding home, not the instant the route changed. */
+ * No scroll lock is needed while it's up: the surface is a separate fixed layer over the
+ * scroll container, so the container behind it can't be reached and scrolled. It keeps
+ * its offset untouched and the reader lands right where they left off on dismiss. */
 export const SlideRouter = () => {
     const { route, open } = useActiveSlide()
     const surface = route ? SURFACES[route.prefix] : null

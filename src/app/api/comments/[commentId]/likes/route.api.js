@@ -1,4 +1,4 @@
-import { route } from "@/lib/server/handler"
+import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
 import { toggleCommentLike } from "@/lib/server/posts.service"
 
@@ -9,3 +9,5 @@ export const POST = route(async (_request, { params }) => {
     const { commentId } = await params
     return sendResource(await toggleCommentLike(commentId))
 })
+
+export const OPTIONS = preflight

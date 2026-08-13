@@ -1,5 +1,5 @@
 import { PAGE_SIZE } from "@/lib/constants"
-import { pageParams, route } from "@/lib/server/handler"
+import { pageParams, preflight, route } from "@/lib/server/handler"
 import { sendCollection } from "@/lib/server/respond"
 import { listFeed } from "@/lib/server/posts.service"
 
@@ -16,3 +16,5 @@ export const GET = route(async (request) => {
     )
     return sendCollection(items, nextCursor)
 })
+
+export const OPTIONS = preflight

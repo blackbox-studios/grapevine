@@ -112,12 +112,13 @@ Reference files:
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
 │   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
-│   │   │   ├── useScroll.hook.js      # scrollToTop + useScrollLock + useVibing + usePullToRefresh
+│   │   │   ├── useScroll.hook.js      # useVibing + usePullToRefresh (container-targeted)
 │   │   │   └── useErrorListener.hook.jsx
 │   │   ├── providers/
 │   │   │   ├── Theme.jsx            # Thin re-export of next-themes ThemeProvider/useTheme
 │   │   │   ├── Tooltip.jsx          # re-exports shadcn TooltipProvider
-│   │   │   └── index.jsx            # barrel (ThemeProvider, TooltipProvider)
+│   │   │   ├── Scroll.jsx           # shell scroll container ref + scrollToTop (useScroll)
+│   │   │   └── index.jsx            # barrel (ThemeProvider, TooltipProvider, ScrollProvider)
 │   │   └── store/                   # Zustand stores (one folder per domain)
 │   │       ├── global.store.js      # Orchestrates init/reset/clearErrors across stores
 │   │       ├── global.hook.js       # useErrors() aggregator (+ useReady() when stores grow)
@@ -784,7 +785,7 @@ The tradeoff to know about: while a slide route is open, the router's segment tr
 
 > **History note — do not reintroduce `@modal`.** This replaced an `@modal/(.)p/[postId]` intercepting route, which held the base mounted by asking Next to intercept. `output: "export"` — the native build, see `native-architecture.md` — rejects it: the build dies with `Intercepting routes are not supported with static export.` (verified on Next 15.5.23; note the error only surfaces *after* you satisfy `generateStaticParams`, so the first failure you see is a misleading complaint about missing params). Interception would not buy anything here anyway — the interceptor is itself a dynamic segment needing enumeration, so it makes the build-time-ids problem worse, not better. The shallow version is also simpler: no parallel slot, no `default.jsx`, no interceptor page, and none of the slot-teardown hazards those carried.
 
-`<SlideBase/>` is the other half: it wraps the shell's page (an ordinary flow element — see **Scrolling** below) and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base. Because the document keeps its scroll offset through a pure horizontal transform, and the surface freezes the document while it's up, the base is exactly where the reader left it on dismiss.
+`<SlideBase/>` is the other half: it *is* the shell's scroll container (see **Scrolling** below) and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base. Because the container keeps its scroll offset through a pure horizontal transform, and the surface above it is a separate fixed layer that can't touch it, the base is exactly where the reader left it on dismiss — no lock required.
 
 `<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) owns the surface, inside the layout's own `AnimatePresence`. Living in the persistent layout is what lets `AnimatePresence` retain the element — props and all — through the exit, so the surface keeps the param it opened with and never blanks mid-animation.
 
@@ -910,20 +911,21 @@ const { user } = useUser()
 
 ## Scrolling & overlays
 
-**The document is the app's only scroller.** There is no full-height inner container: the shell's page wrapper is an ordinary flow element inset past the rail (`md:pl-(--nav-width)`), so its height is its content's height and `<html>` is what scrolls.
+**A fixed container is the app's only scroller — not the document.** The protected shell mounts one `fixed … overflow-y-auto` box (the `<SlideBase/>` in `(protected)/layout.jsx`) and the page lives inside it; `<html>`/`<body>` never scroll. The container's node is shared through `<ScrollProvider>` (`lib/providers/Scroll.jsx`): `useScroll()` returns `{ scrollRef, scrollToTop }`, the layout attaches `scrollRef` to the container, and every scroll read/write targets that node.
 
-This is not cosmetic. A mobile browser only retracts its own URL bar and toolbar when the *document* scrolls, so an inner scroll container permanently pins the app to the small viewport (`svh`) — visibly less room on a phone. It is also the only model a Capacitor WebView handles natively.
+On mobile the container is bounded to the usable viewport (`top-(--safe-top) bottom-(--bottombar)`), not `inset-0`, so its scrollbar starts below the status-bar notch and stops above the mobile rail instead of running edge-to-edge under the system chrome — which is where an edge-to-edge Capacitor WebView would otherwise draw it. Both insets reset on `md:` (`md:top-0 md:bottom-0`), so desktop keeps a full-height scroller inset past the rail.
+
+This is what keeps overlays simple: a surface that covers the screen (slide route, dialog, drawer) is a separate `fixed` layer *over* the container, so the container behind it can't be reached and scrolled — no scroll lock, no second scrollbar, and it keeps its offset so the reader lands right where they left off on dismiss.
 
 Rules that follow from it:
 
-- **Never add a viewport-height scroll container** (`h-screen overflow-y-auto`, `h-dvh overflow-auto`) around page content. Inner scrollers are fine for *bounded* panels — a comment thread, a dropdown, a popover list — and those should carry `overscroll-contain` so hitting their end doesn't chain out to the page.
+- **There is one shell scroller, and it already exists.** Don't wrap page content in another viewport-height scroll container — render into the shell container. Inner scrollers are still fine for *bounded* panels — a comment thread, a dropdown, a popover list — and those should carry `overscroll-contain` so hitting their end doesn't chain out.
 - **Prefer `dvh` over `vh`.** `vh` is the tall viewport on mobile, so anything sized in `vh` hides under the browser's own chrome.
-- **Chrome is `fixed`, content is in flow.** The rail, the mobile bar, the grain, and the background gradient are fixed siblings in the root stacking context (z: backdrop 0, page 1, rail 2, grain 10, mobile bar 20, overlays 50). Nothing wraps them in a sized box.
-- **Read scroll via framer-motion, not a hand-rolled listener.** The mobile bar dims out while scrolling down and reappears on scroll up via `useVibing` (`lib/hooks/useScroll.hook.js`), which is built on framer-motion's `useScroll` + `useMotionValueEvent` — event-driven, no `scroll` listener and no timer. Reach for `useScroll` for any new scroll-position UI.
-- **Any surface that covers the page must call `useScrollLock`** (from `lib/hooks/useScroll.hook.js`). Otherwise the page keeps scrolling behind it and you get two live scrollbars. The lock is counted, so nested overlays are safe, and it holds for the component's whole life — under `AnimatePresence` that spans the exit animation, so scrolling returns only once the surface is gone. Radix and Vaul guard `<body>`, not the document, so their overlays need it too (see `CommentsDrawer`).
-- **Pull-to-refresh is hand-built, not native.** `<html>` pins `overscroll-behavior: none`, which kills the browser's rubber-band *and* its built-in pull-to-refresh so the app can own the gesture identically in a browser and the Capacitor WebView (which has no native pull-to-refresh). `usePullToRefresh(onRefresh)` (`lib/hooks/useScroll.hook.js`) hangs non-passive touch listeners off the window — the only way to `preventDefault` the drag — and only claims a clear downward pull that starts at the very top with no overlay locked; anything else (scroll, horizontal carousel swipe) goes back to the browser. The `<PullToRefresh>` component wraps a page's content, translating it down and riding the ripple loader in the gap above (mobile/touch only — a mouse never fires it). It's wired on the home feed (`(protected)/page.jsx`); `onRefresh` should return the store's `refresh` promise.
-- **`<html>` reserves its scrollbar gutter unconditionally** (`scrollbar-gutter: stable`), which is what lets the lock flip `overflow` to `hidden` without the page shifting sideways. Don't remove it.
-- **Navigate with `scroll: false`.** `<Link scroll={false}>` / `router.push(path, { scroll: false })`. The layout scrolls to top itself from `PageTransition`'s `onExitComplete`, once the cross-fade has played; Next's own scroll fires up front and yanks the outgoing page.
+- **Chrome is `fixed`, the scroll container is one more fixed sibling.** The rail, the mobile bar, the grain, and the background gradient are fixed siblings in the shell's stacking context (z: backdrop 0, scroll container 1, rail 2, grain 10, mobile bar 20, overlays 50).
+- **Read scroll via framer-motion, not a hand-rolled listener.** The mobile bar dims out while scrolling down and reappears on scroll up via `useVibing` (`lib/hooks/useScroll.hook.js`), built on framer-motion's `useScroll({ container })` (pointed at the shell container) + `useMotionValueEvent` — event-driven, no `scroll` listener and no timer. Reach for it for any new scroll-position UI.
+- **Overlays need no scroll lock.** Because the scroller is a container and not the document, a `fixed` overlay above it already blocks all interaction with the page behind — there is nothing to freeze. (This is the opposite of the document-scroller model, where a lock was mandatory.)
+- **Pull-to-refresh is hand-built, not native.** The scroll container pins `overscroll-behavior: none` (the `overscroll-none` class in the layout), which kills the browser's rubber-band *and* its built-in pull-to-refresh so the app can own the gesture identically in a browser and the Capacitor WebView (which has no native pull-to-refresh). `usePullToRefresh(onRefresh)` (`lib/hooks/useScroll.hook.js`) hangs non-passive touch listeners off the *container* — the only way to `preventDefault` the drag — and only claims a clear downward pull that starts at the very top (`scrollTop === 0`); anything else (scroll, horizontal carousel swipe) goes back to the browser. The `<PullToRefresh>` component wraps a page's content, translating it down and riding the ripple loader in the gap above (mobile/touch only — a mouse never fires it). It's wired on the home feed (`(protected)/page.jsx`); `onRefresh` should return the store's `refresh` promise.
+- **Navigate with `scroll: false`.** `<Link scroll={false}>` / `router.push(path, { scroll: false })`. The layout scrolls the container to top itself from `PageTransition`'s `onExitComplete` (via `scrollToTop` off `useScroll()`), once the cross-fade has played; Next's own scroll fires up front and yanks the outgoing page.
 
 ### Safe areas
 
@@ -1362,7 +1364,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider`, plus the global `<Toaster/>`. (There is no scroll provider — the document is the scroller, so scroll helpers are plain functions/hooks in `lib/hooks/useScroll.hook.js`.)
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

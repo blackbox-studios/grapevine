@@ -165,31 +165,17 @@
     @apply bg-background text-foreground text-sm antialiased;
   }
 
-  /* The document is the app's one and only scroller — there is no full-height inner
-     container. That is what lets a mobile browser collapse its own URL bar and toolbar
-     as you scroll (the svh -> lvh gain), and it is the only scroll model a Capacitor
-     WebView handles natively.
-     - overflow-x is clipped so a slide route can push the page a full viewport left
-       without opening a horizontal scrollbar.
-     - the gutter is reserved permanently so locking the scroll for an overlay doesn't
-       reflow the page by the scrollbar's width.
-     - overscroll is pinned so an inner scroller that hits its end can't chain out to
-       the document, and so the browser's own pull-to-refresh and rubber-band stay off —
-       the app draws its own pull-to-refresh instead (see usePullToRefresh), which needs
-       the native one out of the way to own the gesture in both a browser and Capacitor. */
+  /* The app doesn't scroll the document — a fixed, viewport-height container in the
+     protected shell is the one and only scroller (see (protected)/layout.jsx and
+     ScrollProvider). The document stays put, so overlays that cover the container are
+     separate fixed layers and never need a scroll lock, and a slide route can transform
+     the container a full viewport left without ever opening a document-level scrollbar.
+     overflow-x is clipped here as a backstop against that horizontal push; the container
+     itself carries the vertical scroll, the reserved gutter, and the pinned overscroll
+     (see the layout's overscroll-none) that lets usePullToRefresh own the top-of-list
+     pull in both a browser and the Capacitor WebView. */
   html {
     @apply font-sans overflow-x-hidden;
-    scrollbar-gutter: stable;
-    overscroll-behavior: none;
-  }
-
-  /* Applied while any overlay owns the screen (see useScrollLock). Freezes the document
-     at its current offset so the page behind a slide route or dialog can't be scrolled,
-     and so only one scrollbar is ever live. The reserved gutter above survives the
-     overflow change, so the page keeps its width and nothing shifts sideways as an
-     overlay opens — which is the whole reason the gutter is reserved unconditionally. */
-  html.scroll-locked {
-    overflow: hidden;
   }
 
   h1, h2, h3, h4, h5, h6 {

@@ -6,6 +6,65 @@ import { AppError, ERROR_CODES, ERROR_STATUS } from "@/lib/server/errors"
  * body so a client-side report can be matched to a server log line. */
 const newRequestId = () => `req_${Math.random().toString(36).slice(2, 10)}`
 
+/* Cross-origin access.
+ *
+ * The web app is same-origin with `/api`, so it needs no CORS at all. The *native* app is
+ * a different story: a Capacitor WebView loads the bundle from a `capacitor://` or
+ * `https://localhost` origin and calls the API by absolute URL (NEXT_PUBLIC_API_BASE_URL),
+ * which makes every request cross-origin. Those origins are allow-listed here.
+ *
+ * `lib/api.js` sends `credentials: "include"`, so the allow-origin header must echo the one
+ * requesting origin (never `*`) and be paired with allow-credentials. Extra origins (a LAN
+ * IP for a physical device, a tunnel host) can be added via `CORS_ALLOWED_ORIGINS`, a
+ * comma-separated list. */
+const ALLOWED_ORIGINS = new Set([
+    "capacitor://localhost", // iOS Capacitor WebView
+    "https://localhost", // Android Capacitor WebView (default scheme)
+    "http://localhost", // Android Capacitor WebView (cleartext)
+    "http://localhost:3000", // local web dev / a same-machine client
+    ...(process.env.CORS_ALLOWED_ORIGINS?.split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean) ?? []),
+])
+
+/* The requesting origin if it's allowed, else null. */
+const allowedOrigin = (request) => {
+    const origin = request.headers.get("origin")
+    return origin && ALLOWED_ORIGINS.has(origin) ? origin : null
+}
+
+/* Stamps the allow-origin/credentials pair onto a response for an allowed origin, and marks
+ * the response as varying by Origin so a cache never serves one origin's headers to
+ * another. A null origin (same-origin, or a disallowed one) is left untouched. */
+const applyCors = (response, origin) => {
+    if (!origin) return response
+    response.headers.set("Access-Control-Allow-Origin", origin)
+    response.headers.set("Access-Control-Allow-Credentials", "true")
+    response.headers.append("Vary", "Origin")
+    return response
+}
+
+/* Preflight (CORS `OPTIONS`) answer. Route handlers get no auto-CORS, so each collection or
+ * resource file that a cross-origin client hits must `export const OPTIONS = preflight`. */
+export const preflight = (request) => {
+    const origin = allowedOrigin(request)
+    const response = new Response(null, { status: 204 })
+    if (origin) {
+        applyCors(response, origin)
+        response.headers.set(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        )
+        response.headers.set(
+            "Access-Control-Allow-Headers",
+            request.headers.get("access-control-request-headers") ||
+                "Content-Type, X-Request-Id",
+        )
+        response.headers.set("Access-Control-Max-Age", "86400")
+    }
+    return response
+}
+
 /* Serializes any throw into the single documented failure shape:
  *
  *   { error: { code, message, fields?, requestId, retryAfter? } }
@@ -49,6 +108,7 @@ const toErrorResponse = (error, requestId) => {
  * the request-id and cache headers. */
 export const route = (handler) => async (request, context) => {
     const requestId = request.headers.get("x-request-id") || newRequestId()
+    const origin = allowedOrigin(request)
 
     let response
     try {
@@ -60,7 +120,7 @@ export const route = (handler) => async (request, context) => {
     response.headers.set("X-Request-Id", requestId)
     /* Everything here is per-viewer and mutable in-session; nothing may be cached. */
     response.headers.set("Cache-Control", "no-store")
-    return response
+    return applyCors(response, origin)
 }
 
 /* Reads and validates the pagination params shared by every collection endpoint.

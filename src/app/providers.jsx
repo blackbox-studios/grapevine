@@ -2,7 +2,7 @@
 
 import { Toaster } from "sonner"
 
-import { ThemeProvider, TooltipProvider } from "@/lib/providers"
+import { ThemeProvider, TooltipProvider, ScrollProvider } from "@/lib/providers"
 
 /* Context providers shared by the whole app. next-themes handles the theme class on
  * <html> and the no-flash script (requires suppressHydrationWarning on <html> in the
@@ -17,8 +17,10 @@ export default function Providers({ children }) {
             disableTransitionOnChange
         >
             <TooltipProvider>
-                <Toaster richColors toastOptions={{ classNames: { toast: "!rounded-2xl" } }} />
-                {children}
+                <ScrollProvider>
+                    <Toaster richColors toastOptions={{ classNames: { toast: "!rounded-2xl" } }} />
+                    {children}
+                </ScrollProvider>
             </TooltipProvider>
         </ThemeProvider>
     )

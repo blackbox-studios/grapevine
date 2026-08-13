@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/drawer"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
-import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { useComments } from "@/lib/store/comments/hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
@@ -207,11 +206,6 @@ const DrawerBody = ({ post }) => {
 }
 
 const CommentsDrawer = ({ post, open, onOpenChange }) => {
-    /* Vaul guards <body>, but the app scrolls the document itself — without this the
-     * feed keeps scrolling behind the sheet, taking the post you opened comments on
-     * with it. */
-    useScrollLock(open)
-
     /* This drawer is open/closed React state, not a URL, so Android's back gesture has
      * nothing to unwind and would close the whole app from on top of it. Claiming the
      * gesture while it's open makes back dismiss the drawer, the way it reads on a phone.

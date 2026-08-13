@@ -22,6 +22,19 @@ const native = process.env.NEXT_PUBLIC_NATIVE === "1"
 const nextConfig = {
     ...(rawBasePath ? { basePath: rawBasePath } : {}),
 
+    /* Which filenames Next treats as routes — and the seam that keeps the API out of the
+     * native bundle. Route handlers live in `route.api.js` files, so they are only routes
+     * when `api.js` is a recognized page extension, which is the Node build only.
+     *
+     * This is load-bearing, not stylistic. `output: "export"` cannot host route handlers:
+     * it fails the build with `export const dynamic = "force-static"/export const
+     * revalidate not configured on route "/api/..."`, and force-static is incompatible with
+     * reading query params or serving POST — i.e. with the API actually working. Dropping
+     * the extension makes the whole `src/app/api/**` tree invisible to that build instead,
+     * so the export stays clean and the native app talks to a deployed API by absolute URL
+     * (NEXT_PUBLIC_API_BASE_URL). See .claude/skills/develop/backend-architecture.md. */
+    pageExtensions: native ? ["jsx", "js"] : ["api.js", "jsx", "js"],
+
     ...(native
         ? {
               output: "export",

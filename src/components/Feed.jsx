@@ -11,9 +11,12 @@ import { Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
+import More from "@/assets/svg/icons/more.svg"
+import Ripple from "@/assets/svg/ripple.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { usePostLike } from "@/lib/store/post/hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
@@ -66,10 +69,14 @@ const Caption = ({ label, text }) => {
 
 /* A single Instagram-style feed card: header, media, action row, likes, caption. */
 const PostCard = ({ post }) => {
-    const [liked, setLiked] = useState(post.liked)
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
     const isDesktop = useIsDesktop()
+    /* The heart's state is the post's, not the card's: the same post can also be on screen
+     * in the open overlay, and both have to agree. The store applies the tap optimistically
+     * and reconciles against the server, so this still flips on the current frame. */
+    const { toggleLike } = usePostLike()
+    const { liked } = post
 
     const { handle, name, avatar, verified } = post.author
 
@@ -91,9 +98,6 @@ const PostCard = ({ post }) => {
         if (isDesktop) openPost()
         else setCommentsOpen(true)
     }, [isDesktop, openPost])
-
-    /* Optimistically reflect the viewer's own like in the count. */
-    const likeCount = post.likes + (liked && !post.liked ? 1 : 0)
 
     return (
         <article className="flex flex-col">
@@ -180,7 +184,7 @@ const PostCard = ({ post }) => {
                 <div className="flex items-center text-sm font-medium">
                     <button
                         type="button"
-                        onClick={() => setLiked((v) => !v)}
+                        onClick={() => toggleLike(post.id)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
                         className="p-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
@@ -202,8 +206,8 @@ const PostCard = ({ post }) => {
                             />
                         </span>
                     </button>
-                    {likeCount > 0 && (
-                        <span className="tracking-tight tabular-nums">{formatCompact(likeCount)}</span>
+                    {post.likes > 0 && (
+                        <span className="tracking-tight tabular-nums">{formatCompact(post.likes)}</span>
                     )}
                 </div>
                 <button
@@ -222,16 +226,16 @@ const PostCard = ({ post }) => {
             </div>
 
             {post.likedBy && (
-                <div className="flex items-center gap-2 pt-2 text-sm">
+                <div className="flex items-center gap-2 py-2 text-sm">
                     <Avatar name={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}
                         <span className="font-semibold">{post.likedBy}</span>
-                        {likeCount > 1 && (
+                        {post.likes > 1 && (
                             <>
                                 {" "}and{" "}
                                 <span className="font-semibold">
-                                    {(likeCount - 1).toLocaleString()} others
+                                    {(post.likes - 1).toLocaleString()} others
                                 </span>
                             </>
                         )}
@@ -252,14 +256,34 @@ const PostCard = ({ post }) => {
     )
 }
 
-/* The home feed: a centered, single-column stack of post cards. */
-const Feed = ({ posts = [] }) => (
+/* The home feed: a centered, single-column stack of post cards, one page at a time.
+ *
+ * The feed is paginated over the wire (`GET /api/feed?cursor=`), so this only ever holds
+ * the pages that have been asked for; `hasMore` comes from the server's cursor being
+ * non-null, never from a known total. */
+const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) => (
     <div className="flex flex-col">
         {posts.map((post) => (
             <div key={post.id} className="py-6 first:pt-0">
                 <PostCard post={post} />
             </div>
         ))}
+
+        {hasMore && (
+            <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                aria-label="Load more posts"
+                className="flex w-full cursor-pointer justify-center py-6 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
+            >
+                {loadingMore ? (
+                    <Ripple aria-label="Loading posts" className="size-8 [&_circle]:stroke-current" />
+                ) : (
+                    <More className="size-6" />
+                )}
+            </button>
+        )}
     </div>
 )
 

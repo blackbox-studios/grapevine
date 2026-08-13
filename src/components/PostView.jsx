@@ -8,6 +8,7 @@ import { motion } from "motion/react"
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
 import Icon from "@/components/Icon"
+import { CommentsSkeleton, PostMediaSkeleton } from "@/components/Skeleton"
 import { Close } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { ROUTES } from "@/lib/constants"
@@ -15,7 +16,7 @@ import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { closeSlide } from "@/lib/hooks/useSlideRoute.hook"
-import { usePost } from "@/lib/store/feed/hook"
+import { usePost } from "@/lib/store/post/hook"
 import { appPath, cn, SLIDE_TRANSITION } from "@/lib/utils"
 
 /* The post's media. Desktop is sized by a *definite* height so the box width derives
@@ -88,7 +89,11 @@ const PostView = ({ variant = "modal", postId }) => {
     const isDesktop = useIsDesktop()
     const mounted = useMounted()
 
-    const { post } = usePost(postId)
+    /* `skeleton` is false on the first frame for an in-app open — the store seeds the post
+     * from the feed's cached copy, so the photo is already decoded and paints immediately
+     * while the detail fetch runs silently behind it. It is only true on a cold load, where
+     * there is no feed to borrow from and the fetch is the first thing that can paint. */
+    const { post, skeleton } = usePost(postId)
 
     /* Unwinding the history entry openSlide pushed is what dismisses the overlay, so the
      * close button, Escape, and the hardware/browser back gesture are all one action.
@@ -147,7 +152,14 @@ const PostView = ({ variant = "modal", postId }) => {
                         className="absolute inset-0 cursor-default bg-black/80"
                     />
                     <div className="relative z-10 flex h-[90dvh] w-auto max-w-[95vw] overflow-hidden rounded-2xl bg-black lg:border">
-                        {post ? (
+                        {skeleton ? (
+                            <>
+                                <PostMediaSkeleton desktop />
+                                <aside className="flex h-full w-(--commentbar-width) shrink-0 flex-col border-l bg-popover">
+                                    <CommentsSkeleton />
+                                </aside>
+                            </>
+                        ) : post ? (
                             <>
                                 <div className="flex h-full shrink-0 items-center bg-black">
                                     <PostMedia post={post} desktop />
@@ -182,11 +194,17 @@ const PostView = ({ variant = "modal", postId }) => {
                         <span className="text-base font-semibold">Post</span>
                     </header>
 
-                    {/* The media is cached in the feed, so it paints immediately — no page
-                     * skeleton. Only the comment thread loads (its skeleton lives inside
-                     * CommentsPanel via useComments). */}
+                    {/* Opened in-app the media comes from the feed's cache and paints at
+                     * once, so only the comment thread loads visibly (its skeleton lives
+                     * inside CommentsPanel via useComments). The skeleton branch is the
+                     * cold-load path, where the post itself is still in flight. */}
                     <div className="flex min-h-0 flex-1 flex-col">
-                        {post ? (
+                        {skeleton ? (
+                            <>
+                                <PostMediaSkeleton />
+                                <CommentsSkeleton />
+                            </>
+                        ) : post ? (
                             <>
                                 <div className="shrink-0 bg-black">
                                     <PostMedia post={post} />

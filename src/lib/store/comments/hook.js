@@ -14,7 +14,7 @@ export const useComments = (postId) => {
             state.items,
             state.ready,
             state.hasMore,
-            state.loading.list,
+            state.loading.more,
             state.load,
             state.loadMore,
             state.toggleLike,

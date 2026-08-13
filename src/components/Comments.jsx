@@ -22,6 +22,7 @@ import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { useComments } from "@/lib/store/comments/hook"
+import { usePostLike } from "@/lib/store/post/hook"
 import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
 /* -------------------------------------------------------------------------- */
@@ -31,12 +32,14 @@ import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 /* A single comment: author + relative time, body, and the like meter (heart
  * toggle + tally) in the right column. */
 const CommentRow = ({ comment, now, onToggleLike }) => {
-    const { author, text, created_at, likes, liked } = comment
+    const { author, text, created_at, likes, liked, pending } = comment
     return (
-        <div className="flex items-start gap-3 px-4 py-2.5">
+        /* A comment the server hasn't confirmed yet reads as in-flight rather than settled,
+         * and can't be liked — it has no server id to like. */
+        <div className={cn("flex items-start gap-3 px-4 py-2.5", pending && "opacity-60")}>
             <Avatar name={author.name} src={author.avatar} className="size-9" />
-            <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug">
+            <div className="min-w-0 flex flex-col gap-1 flex-1">
+                <p className="text-xs leading-snug">
                     <span className="font-semibold">{author.handle}</span>{" "}
                     <span className="text-muted-foreground">
                         · {timeAgoCompact(now, new Date(created_at).getTime())}
@@ -48,9 +51,10 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                 <button
                     type="button"
                     onClick={onToggleLike}
+                    disabled={pending}
                     aria-pressed={liked}
                     aria-label={liked ? "Unlike comment" : "Like comment"}
-                    className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                    className="cursor-pointer transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none"
                 >
                     <span className="relative block size-3.5">
                         <HeartOutline
@@ -239,9 +243,11 @@ export const CommentsPanel = ({ post, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
         useComments(post.id)
     const now = useNow()
-    const [liked, setLiked] = useState(post.liked)
+    /* Same post, same heart as the feed card behind this surface — so the state is the
+     * post's, held in the store, not this panel's. */
+    const { toggleLike: togglePostLike } = usePostLike()
+    const { author, liked } = post
     const composerRef = useRef(null)
-    const { author } = post
 
     const caption = post.body ? (
         <div className="flex items-start gap-3 px-4 pb-2 pt-4">
@@ -288,7 +294,7 @@ export const CommentsPanel = ({ post, className }) => {
                 <div className="flex items-center gap-4">
                     <button
                         type="button"
-                        onClick={() => setLiked((v) => !v)}
+                        onClick={() => togglePostLike(post.id)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
                         className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
@@ -320,7 +326,7 @@ export const CommentsPanel = ({ post, className }) => {
                     </button>
                 </div>
                 <p className="pt-2 text-sm font-semibold">
-                    {formatCompact(post.likes + (liked && !post.liked ? 1 : 0))} likes
+                    {formatCompact(post.likes)} likes
                 </p>
                 <p className="text-xs font-medium text-muted-foreground pb-2">
                     {timeAgoMacro(now, new Date(post.created_at).getTime())}

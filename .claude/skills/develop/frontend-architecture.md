@@ -93,12 +93,21 @@ Reference files:
 │   │   ├── Widgets.jsx              # Reusable misc/branded widgets (e.g. <Close/>, <YayOrNay/>) — DRY home, never repeat misc components in pages
 │   │   └── Grain.jsx
 │   ├── lib/
-│   │   ├── constants.js             # ROUTES, SLIDE_ROUTES, NESTED_TRANSITION_ROUTES, MOCK_LATENCY_MS
-│   │   │                            #   (add API_ENDPOINTS/API_BASE when wiring a real API)
-│   │   ├── mock.js                  # mockDelay / mockId — swap for real fetch when a backend lands
+│   │   ├── api.js                   # API wrapper + ApiError — the only layer that fetches
+│   │   ├── constants.js             # ROUTES, SLIDE_ROUTES, NESTED_TRANSITION_ROUTES,
+│   │   │                            #   API_BASE / API_ENDPOINTS / PAGE_SIZE / ERROR_CODES, MOCK_*_MS
+│   │   ├── mock.js                  # mockDelay / mockId — used by the mock backend, not by stores
 │   │   ├── utils.js                 # Shared pure helpers (cn, formatDate, appPath/basePath,
-│   │   │                            #   route resolvers: slideRouteFor/baseRouteFor/…)
-│   │   ├── metadata.js              # Static / mock metadata used while APIs are stubbed
+│   │   │                            #   toErrorList, route resolvers: slideRouteFor/baseRouteFor/…)
+│   │   ├── metadata.js              # Client-visible seed still awaiting an endpoint (users, events)
+│   │   ├── db.js                    # Prisma client singleton — wired, unused
+│   │   ├── server/                  # server-only; see backend-architecture.md
+│   │   │   ├── errors.js            # ERROR_CODES/ERROR_STATUS registry + AppError
+│   │   │   ├── handler.js           # route() wrapper + pageParams()
+│   │   │   ├── respond.js           # sendResource / sendCreated / sendCollection / sendNoContent
+│   │   │   ├── cursor.js            # opaque cursor encode/decode + paginate
+│   │   │   ├── posts.service.js     # business logic — the seam Prisma replaces
+│   │   │   └── seed.js              # the mock backend's mutable "database"
 │   │   ├── hooks/                   # Cross-cutting React hooks (not Zustand hooks)
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
@@ -113,10 +122,14 @@ Reference files:
 │   │       ├── global.store.js      # Orchestrates init/reset/clearErrors across stores
 │   │       ├── global.hook.js       # useErrors() aggregator (+ useReady() when stores grow)
 │   │       ├── auth/                # { store.js, hook.js }
-│   │       └── app/                 # { store.js, hook.js }
+│   │       ├── app/                 # { store.js, hook.js }
+│   │       ├── feed/                # { store.js, hook.js } — the paginated list
+│   │       ├── post/                # { store.js, hook.js } — the one open post + all post writes
+│   │       └── comments/            # { store.js, hook.js } — the one open thread
+└── app/api/**/route.api.js          # the API. `.api.js`, NOT `route.js` — see backend-architecture.md
 ```
 
-> **Note:** entry wiring lives in `app/layout.jsx` + `app/providers.jsx`, and routing is the App Router `app/**` segments — there is no `main.jsx` or router config file. The `apps/nodes/events` domains referenced elsewhere in this doc are illustrative templates for the store/hook pattern — this repo currently ships only the `auth` and `app` stores.
+> **Note:** entry wiring lives in `app/layout.jsx` + `app/providers.jsx`, and routing is the App Router `app/**` segments — there is no `main.jsx` or router config file. The `apps/nodes/events` domains referenced elsewhere in this doc are illustrative templates for the store/hook pattern — the stores this repo actually ships are `auth`, `app`, `feed`, and `comments`.
 
 ---
 
@@ -142,62 +155,59 @@ Component / Page                              ← consumes the hook
 
 ## API Layer (`lib/api.js`, `lib/constants.js`)
 
-Single static class with `get` / `post` / `put` / `delete`. It throws on non-OK responses so stores can use `try/catch`.
+`lib/api.js` is a single static class with `get` / `post` / `put` / `delete`. Any failure —
+non-2xx or a request that never completed — is thrown as an **`ApiError`** carrying `code`,
+`message`, `fields`, `requestId`, `status`, so a store's `catch` never inspects `res.ok` or
+`res.status`. `204` resolves to `null`. Two options: `params` (an object serialized to a
+query string) and `raw` (resolve with the `Response` instead of parsed JSON); anything else
+is forwarded to `fetch`.
 
 ```javascript
-import { API_BASE, API_ENDPOINTS } from "@/lib/constants";
-
-class API {
-    static async grab(method, endpoint, body = {}, options = {}) {
-        const { params, raw, ...rest } = options
-        const url = API_BASE + endpoint + (params ? "?" + new URLSearchParams(params).toString() : "")
-
-        const res = await fetch(url, {
-            method: method.toUpperCase(),
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            ...rest,
-            ...(body ? { body: JSON.stringify({ ...body }) } : {})
-        })
-        if (raw) return res
-
-        const json = await res.json()
-        if (!res.ok || (json.success === false && json.errors?.length > 0)) {
-            throw json.errors || []
-        }
-        return json
-    }
-    static get(endpoint, options = {}) { return this.grab("get", endpoint, null, options) }
-    static post(endpoint, body = {}, options = {}) { return this.grab("post", endpoint, body, options) }
-    static put(endpoint, body = {}, options = {}) { return this.grab("put", endpoint, body, options) }
-    static delete(endpoint, options = {}) { return this.grab("delete", endpoint, null, options) }
-}
-
-export default API
+const { items, nextCursor } = await api.get(API_ENDPOINTS.FEED, { params: { limit, cursor } })
+const result = await api.post(API_ENDPOINTS.POST_LIKES(postId))
 ```
 
-All routes and endpoints live in `lib/constants.js`:
+**The server it talks to is real.** Route handlers live under `src/app/api/**/route.api.js`
+and the wire contract — success shapes, the single error shape, the error-code registry,
+cursor pagination — is specified in **`backend-architecture.md`**. Read that before adding
+an endpoint. Two things from it that bite here:
+
+- **Branch on `error.code`, never `error.message`.** The codes are the stable half of the
+  contract, and `ERROR_CODES` in `lib/constants.js` must stay in sync with its twin in
+  `lib/server/errors.js`.
+- **Latency is server-side now.** The mock backend awaits `MOCK_LATENCY_MS` inside its
+  service layer, so stores must **not** race a `mockDelay` floor of their own (see the store
+  template below).
+
+All routes and endpoints live in `lib/constants.js`. Parameterized paths are functions, so
+no caller ever builds a URL by hand:
 
 ```javascript
 export const ROUTES = {
     DEFAULT: "/",
-    APPS: "/apps",
-    APP: "/apps/:app",
-    NODES: "/nodes",
-    EVENTS: "/events",
-    PUBLIC: { LOGIN: "/login", SIGNUP: "/signup" }
+    INBOX: "/inbox",
+    POST: "/p",
+    PUBLIC: { LOGIN: "/login" },
 }
 
 export const API_ENDPOINTS = {
-    LOGIN: "/auth/login",
-    LOGOUT: "/auth/logout",
-    ME: "/users/me",
+    FEED: "/feed",
+    POST: (postId) => `/posts/${postId}`,
+    POST_COMMENTS: (postId) => `/posts/${postId}/comments`,
+    POST_LIKES: (postId) => `/posts/${postId}/likes`,
+    COMMENT_LIKES: (commentId) => `/comments/${commentId}/likes`,
 }
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/emc/api/v1"
+/* Same-origin /api in the Node build; the native app must be pointed at a deployed
+ * instance by absolute URL, because a static export has no server of its own. */
+export const API_BASE =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    `${(process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/$/, "")}/api`
+
+export const PAGE_SIZE = { FEED: 5, COMMENTS: 8 }
 ```
 
-> **Env vars:** under Next, anything read in browser/client code must be prefixed `NEXT_PUBLIC_` and accessed via `process.env.NEXT_PUBLIC_*` (there is no `import.meta.env`). Server-only route handlers may read unprefixed vars. When a real API lands it can be a Next **route handler** under `src/app/api/**/route.js` — that's the Node server this migration unlocks.
+> **Env vars:** under Next, anything read in browser/client code must be prefixed `NEXT_PUBLIC_` and accessed via `process.env.NEXT_PUBLIC_*` (there is no `import.meta.env`). Server-only route handlers may read unprefixed vars.
 
 Never hard-code URLs or paths in stores/components — extend these maps.
 
@@ -213,17 +223,16 @@ Every domain store lives at `lib/store/<domain>/store.js` and follows this exact
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import api from '@/lib/api'
-import { mockDelay } from '@/lib/mock'
-import { API_ENDPOINTS, MOCK_LATENCY_MS } from '@/lib/constants'
+import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
+import { toErrorList } from '@/lib/utils'
 
 const ERROR_INIT = {
     list: false,
-    detail: false,
 }
 
 const LOADING_INIT = {
     list: false,
-    detail: false,
+    more: false,
 }
 
 const INIT = {
@@ -231,8 +240,11 @@ const INIT = {
     error: ERROR_INIT,
     loading: LOADING_INIT,
 
+    /* Loaded pages, flattened. `cursor` is the opaque continuation token the server handed
+     * back for the next page; treat it as a string and never parse it. */
     items: [],
-    current: null,
+    cursor: null,
+    hasMore: true,
 }
 
 const useStore = create(immer((set, get) => ({
@@ -246,29 +258,61 @@ const useStore = create(immer((set, get) => ({
     },
 
     refresh: async () => {
+        set(state => { state.loading.list = true })
         try {
-            set(state => { state.loading.list = true })
-            // Race the fetch against a floor so the skeleton is always visible for at
-            // least MOCK_LATENCY_MS (see the hook-layer section). In the mock app the
-            // fetch is `Promise.resolve(SEED)`; both forms take the same shape.
-            const [res] = await Promise.all([
-                api.get(API_ENDPOINTS.ITEMS),
-                mockDelay(MOCK_LATENCY_MS),
-            ])
-            const items = res?.data || []
+            /* Collections come back as { items, nextCursor } — always an object, never a
+             * bare array, and `nextCursor === null` is the only end-of-collection signal.
+             * No `mockDelay` floor here: the mock backend already floors every read at
+             * MOCK_LATENCY_MS server-side, so racing one again would double the load. */
+            const { items, nextCursor } = await api.get(API_ENDPOINTS.ITEMS, {
+                params: { limit: PAGE_SIZE.ITEMS },
+            })
             set(state => {
                 state.items = items
+                state.cursor = nextCursor
+                state.hasMore = nextCursor !== null
                 state.ready = true
             })
         } catch (error) {
-            set(state => { state.error.list = error })
+            set(state => {
+                state.error.list = toErrorList(error, 'Could not load items.')
+            })
         } finally {
             set(state => { state.loading.list = false })
         }
     },
 
-    setCurrent: (slug) => set(state => {
-        state.current = state.items.find(i => i.slug === slug) ?? null
+    /* Appends the next page. Guarded so a double-tap or an overlapping refresh can't
+     * request the same cursor twice. See "Paginated collections" below. */
+    loadMore: async () => {
+        const { cursor, hasMore, loading } = get()
+        if (!hasMore || !cursor || loading.more || loading.list) return
+
+        set(state => { state.loading.more = true })
+        try {
+            const { items, nextCursor } = await api.get(API_ENDPOINTS.ITEMS, {
+                params: { limit: PAGE_SIZE.ITEMS, cursor },
+            })
+            set(state => {
+                const seen = new Set(state.items.map(item => item.id))
+                state.items.push(...items.filter(item => !seen.has(item.id)))
+                state.cursor = nextCursor
+                state.hasMore = nextCursor !== null
+            })
+        } catch (error) {
+            set(state => { state.error.list = toErrorList(error, 'Could not load more.') })
+        } finally {
+            set(state => { state.loading.more = false })
+        }
+    },
+
+    /* The list's whole surface area to the store that owns the open item: read one loaded
+     * row, or patch one. Nothing outside this store touches `items`. See "Detail as a
+     * runtime fetch, in its own store" below — the detail fetch itself does not live here. */
+    cachedItem: (id) => get().items.find(item => item.id === id) ?? null,
+    patchItem: (id, patch) => set(state => {
+        const row = state.items.find(item => item.id === id)
+        if (row) Object.assign(row, patch)
     }),
 
     reset: () => set(state => ({ ...state, ...INIT })),
@@ -284,7 +328,7 @@ Rules for stores:
 - **Always** expose `ready`, `loading`, `error`, plus `init`, `refresh`, `reset`, `clearErrors`. If you don't, the global aggregator and `useErrorListener` will silently drop you.
 - Use **Immer**: write mutations as `set(state => { state.x = y })` whenever you can. Plain object replacement (`set(state => ({ ...state, x: y }))`) is allowed for trivial cases and is what older stores use, but new code should prefer Immer.
 - When a domain has **multiple loading/error surfaces** (e.g. `nodes` and `installables`), make `loading` and `error` *objects* keyed by the sub-resource (see `lib/store/nodes/store.js`). `useErrorListener` walks them recursively. Even a store with a single primary fetch should keep `loading` (and `error`) as an object so additional resources slot in as `loading.<resource>` later without a refactor.
-- **One `ready` per store, not per resource.** `ready` exists solely to gate the store's `init()` (the primary boot fetch). Do **not** add parallel `xxxReady` flags for secondary resources. For a secondary resource's `skeleton`, gate on the *data being empty*: `skeleton = items.length === 0`. Because a loaded list is never empty, emptiness is a reliable "not loaded yet" signal, so the skeleton **paints on the very first frame** and clears once data arrives; a background refetch keeps the list populated, so it never re-flashes. Example: `auth` holds the primary `user` (gated by `ready`) plus a secondary `users` list whose hook (`useAdmin`) exposes `skeleton = users.length === 0`. (If a resource can legitimately be empty when loaded, add a small `xxxReady` boolean the fetch sets instead — see the `comments` thread's `commentsReady` in `lib/store/feed/store.js`.)
+- **One `ready` per store, not per resource.** `ready` tracks the store's *primary* resource — the boot fetch `init()` gates for a long-lived store, or the on-demand load for a transient one (`post`, `comments`, which have no `init` at all and are re-loaded per id). Do **not** add parallel `xxxReady` flags for secondary resources. A store that needs two independent readiness flags is usually two stores. For a secondary resource's `skeleton`, gate on the *data being empty*: `skeleton = items.length === 0`. Because a loaded list is never empty, emptiness is a reliable "not loaded yet" signal, so the skeleton **paints on the very first frame** and clears once data arrives; a background refetch keeps the list populated, so it never re-flashes. Example: `auth` holds the primary `user` (gated by `ready`) plus a secondary `users` list whose hook (`useAdmin`) exposes `skeleton = users.length === 0`. (If a resource can legitimately be empty when loaded — a post with no comments, a post that 404s — emptiness is not a readiness signal, so set `ready` on **both** the success and failure paths instead — see `lib/store/comments/store.js` and `lib/store/post/store.js`. Forget the failure path and the skeleton spins forever instead of resolving to an empty or not-found state.)
 - Use `persist(...)` from `zustand/middleware` **only** for state that must survive a page reload (currently: `auth`). Other stores are in-memory.
 
 ### Parallel API calls
@@ -315,6 +359,90 @@ Reference: `lib/store/apps/store.js` → `setCurrentVersion`.
 
 Do **not** force parallelization when calls are genuinely dependent (e.g. slug lookup before `application_id`-scoped endpoints). Do **not** parallelize writes that must happen in order unless the backend explicitly supports it.
 
+### Paginated collections
+
+Every collection endpoint returns `{ items, nextCursor }` (see `backend-architecture.md`
+§2). Three rules follow from that:
+
+1. **`hasMore` is derived from the cursor, never from a count.** `nextCursor === null` is
+   the only end-of-collection signal — there is no total, and asking for one would make the
+   server count rows it otherwise never touches.
+2. **Never parse the cursor.** It is opaque by contract, which is what lets the server
+   switch from offset to keyset pagination without a client change.
+3. **`refresh` replaces, `loadMore` appends.** Pull-to-refresh should show the newest page,
+   not reconcile against what the reader was already holding. `loadMore` filters ids it
+   already holds before pushing, because a refresh can land mid-append and otherwise
+   duplicates rows.
+
+Keep a `loading.more` separate from `loading.list`: the first drives a spinner at the foot
+of the list, the second drives the whole-surface skeleton. Sharing one flag re-flashes the
+skeleton on every page.
+
+### Detail as a runtime fetch, in its own store
+
+**A paginated list and the one open item are two stores, not one.** `feed` owns the list;
+`post` owns the open post *and* every write to a post. They have different lifetimes — the
+list is long-lived and refreshable, the open post is transient and addressed by id — and the
+open post exists in cases the list doesn't (a cold deep link has no feed behind it at all).
+
+The split is what makes the sharing explicit. What the list holds is a **projection** of a
+post: the row it paged in. Two actions on `feed` are its whole surface area to the `post`
+store, and nothing else may touch `items`:
+
+- **`cachedPost(id)`** — the loaded row, or null. The fast path the open post is seeded from.
+- **`patchPost(id, patch)`** — apply a partial to that row, if this page holds it. Every write
+  goes through it, because the same post is on screen twice and the copies must agree.
+
+`load` fetches by id — it is **not** a lookup in `items`. With pagination the list only holds
+the pages loaded so far, so a cached copy can only ever be a fast path. This is also what
+frees ids from build time (`native-architecture.md` → **Dynamic routes at scale**).
+
+The order in `lib/store/post/store.js` → `load` is the whole feature:
+
+1. **Promote the cached row synchronously.** It carries the image the reader just tapped,
+   already fetched and decoded by the browser, so the surface paints complete on the first
+   frame: no skeleton, no second image request, no flash.
+2. **Fetch detail in the background, silently.** There is a full surface on screen already,
+   so covering it with a skeleton would be a regression. Only the comment thread loads
+   visibly, because there is no cached copy of a thread and it's the part of a post a reader
+   expects to be live.
+3. **Discard late responses.** Track the requested id (`currentId`) separately from the
+   resource (`current`) and bail if they diverge, or a slow response for a post the reader
+   already left overwrites the one they're looking at.
+4. **Cold load takes the same path.** No cache means step 1 finds nothing, the readiness
+   flag stays false, and the surface shows its skeleton until the fetch lands. Same action,
+   same endpoint, both ways in.
+
+### Optimistic writes
+
+**Writes to an entity belong to the store that owns the entity, not to the surface that
+renders it.** A post's like is tapped from both the feed card and the open overlay, so it
+lives in `post` and both surfaces call the same `usePostLike()`. That co-location is what
+makes "keep every copy in agreement" enforceable in one place instead of two.
+
+Likes and new comments apply on the current frame and reconcile against the response. The
+shape, every time (`toggleLike` in `lib/store/post/store.js`, `add` in
+`lib/store/comments/store.js`):
+
+1. **Snapshot** the current values. Restore *those* on failure — don't assume the inverse of
+   what you just wrote, or two failed toggles leave the count drifting.
+2. **Apply the guess to every copy of the entity.** A post can be on screen twice, because
+   the open overlay sits on the live feed; move one copy and the two visibly disagree the
+   moment the overlay is dismissed.
+3. **Reconcile with the server's authoritative value** — `{ liked, likes }` for a toggle, the
+   created resource swapped in for the temporary row on a create. Don't leave the guess in
+   place.
+4. **Mark a not-yet-created row `pending`** so the UI can dim it and refuse to act on
+   something with no server id yet.
+5. **Don't let a slower read undo a faster write.** Writes settle faster than reads, so a
+   detail fetch issued *before* a tap can land afterwards carrying the pre-tap tally and
+   visibly revert it. `post` tracks the ids with a like in flight (`liking`) and keeps the
+   client's `liked`/`likes` when merging a response that raced one.
+
+Cross-store tallies (a new comment bumping the post's comment count) go through an action on
+the other store — `bumpCommentCount` — never by reaching into its state. Undo them on
+failure too.
+
 ### Cross-store reads
 
 Never use React contexts. If one store needs another, import the other store and read it imperatively:
@@ -332,6 +460,11 @@ deploy: async (nodes, navigate) => {
 }
 ```
 
+**Keep the dependencies one-directional.** Today they form a chain — `comments` → `post` →
+`feed` — and each arrow is a narrow, named action (`bumpCommentCount`, `patchPost`), not a
+reach into the other store's state. Two stores that import each other are a design smell,
+not just a bundler problem: it means neither owns the entity. Decide which one does.
+
 ### The hook layer
 
 Every store has a matching `hook.js` that components consume. Hooks are the **only** thing components touch.
@@ -340,16 +473,9 @@ Three non-negotiable patterns inside hooks:
 
 1. **`useShallow` for multi-selectors.** Pull every value you need in one selector so the component re-renders on shallow changes only.
 2. **Initial-load gate via `skeleton`, derived so it paints on the first frame.** Expose a `skeleton` flag derived straight from readiness — `skeleton = !ready` for a primary load, `skeleton = items.length === 0` for a secondary resource. Both are already truthy on the component's very first render (the store boots `ready: false` / `items: []`), so the skeleton is present on frame one rather than fading in a beat late. Once loaded, `ready`/data stays truthy, so refreshes never re-flash it. **Do not** derive it as `!ready && loading` — `loading` is false until the fetch effect runs *after* the first paint, which produces the no-skeleton → fade-in → fade-out flash.
-3. **Floor the load in the store, don't debounce in the hook.** A guaranteed-visible skeleton needs a minimum on-screen duration. Enforce it in the store action by racing the fetch against a floor delay with `Promise.all`, so the load never resolves faster than `MOCK_LATENCY_MS` (`lib/constants.js`, currently 1000ms):
+3. **Never debounce the flag.** A guaranteed-visible skeleton needs a minimum on-screen duration, and that floor lives **on the server**: the mock service layer awaits `MOCK_LATENCY_MS` (`lib/constants.js`, currently 1000ms) on every read, because that is where a real backend's latency would be. So no read can resolve fast enough to produce a sub-perceptual flash, and there is nothing to debounce away.
 
-   ```javascript
-   const [res] = await Promise.all([
-       api.get(API_ENDPOINTS.ITEMS),   // mock: Promise.resolve(SEED.slice(...))
-       mockDelay(MOCK_LATENCY_MS),
-   ])
-   ```
-
-   Because the skeleton is always on long enough to read, there is **no** sub-perceptual flash to debounce away — hooks must **not** wrap the flag in a delay/debounce. (The old `useDelay` wrapper is gone; deriving the flag per rule 2 plus this store-side floor replaces it.)
+   Two things follow. Hooks must **not** wrap the flag in a delay (the old `useDelay` wrapper is gone — rule 2 plus the server-side floor replaces it). And stores must **not** race a `Promise.all([api.get(...), mockDelay(...)])` floor of their own: the floor is already in the response, so racing it again just doubles every load. See `backend-architecture.md` → **Mocked latency**.
 
 ```javascript
 import { useShallow } from 'zustand/react/shallow'
@@ -363,24 +489,29 @@ export const useApps = () => {
 
     useEffect(() => { init() }, [init])
 
-    /* Painted on the first frame; cleared once ready. The store floors the load at
-     * MOCK_LATENCY_MS (Promise.all), so no debounce is needed to avoid a flash. */
+    /* Painted on the first frame; cleared once ready. The server floors every read at
+     * MOCK_LATENCY_MS, so no debounce is needed to avoid a flash. */
     const skeleton = !ready
 
     return useMemo(() => ({ items, skeleton }), [items, skeleton])
 }
 
-export const useApp = (slug) => {
-    const [current, setCurrent, ready, init] = useAppStore(
-        useShallow(state => [state.current, state.setCurrent, state.ready, state.init])
+/* Lives in the *item* store's hook (lib/store/post/hook.js), not the list's. */
+export const useApp = (id) => {
+    const [current, ready, load, reset] = useAppStore(
+        useShallow(state => [state.current, state.ready, state.load, state.reset])
     )
 
-    useEffect(() => { init() }, [init])
+    /* Fetch on id change, and clear on unmount so the next open doesn't flash the
+     * previous item. Note this does NOT wait on the list's `ready` — detail is fetched
+     * by id at runtime and never read out of `items`. */
     useEffect(() => {
-        if (ready && slug) setCurrent(slug)
-    }, [slug, ready, setCurrent])
+        if (!id) return
+        load(id)
+        return () => reset()
+    }, [id, load, reset])
 
-    return useMemo(() => ({ current }), [current])
+    return useMemo(() => ({ current, skeleton: !ready }), [current, ready])
 }
 ```
 
@@ -1136,7 +1267,8 @@ import { TableSkeleton } from '@/components/Skeleton'
 ```
 
 - The `skeleton` flag comes from the hook, derived from readiness (`!ready`, or `items.length === 0` for a secondary resource) so it paints on the **first** frame and is only true on the first load — refreshes update silently. See the hook-layer section.
-- Guaranteeing the skeleton stays on long enough to read is the **store's** job, not the hook's: the fetch is raced against a `mockDelay(MOCK_LATENCY_MS)` floor via `Promise.all`. There is no hook-side debounce (`useDelay` was removed) — with a floored load there is no sub-perceptual flash to suppress.
+- Guaranteeing the skeleton stays on long enough to read is the **server's** job: the mock service layer floors every read at `MOCK_LATENCY_MS`. Neither the store nor the hook adds a floor or a debounce (`useDelay` was removed) — with a floored response there is no sub-perceptual flash to suppress.
+- **A silent load has no skeleton at all.** When there is already a complete surface on screen — the post overlay, seeded from the feed's cached row — a background refresh must not cover it. Gate the skeleton on a readiness flag the cache can satisfy (`ready` in `lib/store/post/store.js`), not on the fetch being in flight.
 
 ### Page transitions
 
@@ -1252,13 +1384,15 @@ export default function App() {
 Use this whenever you add a new top-level entity (e.g. `installs`, `users`, `releases`).
 
 1. **API surface**
-   - [ ] Add endpoints to `lib/constants.js` under `API_ENDPOINTS`.
+   - [ ] Add endpoints to `lib/constants.js` under `API_ENDPOINTS` (and `PAGE_SIZE` for a collection).
    - [ ] Add route paths to `ROUTES` (if the entity has pages).
+   - [ ] Build the endpoints per `backend-architecture.md` (`route.api.js`, `{ items, nextCursor }`, `AppError`).
 2. **Store + Hook**
    - [ ] `lib/store/<domain>/store.js` matching the template (`INIT`, `ready/loading/error`, `init/refresh/reset/clearErrors`, Immer).
    - [ ] `lib/store/<domain>/hook.js` exposing one hook per page use-case, using `useShallow` and exposing `skeleton`.
+   - [ ] If the domain has both a **list** and an **open item**, that's two stores (`feed` + `post`), joined by a `cachedX`/`patchX` pair. Writes live with the item, not the list.
 3. **Global wiring**
-   - [ ] Import in `lib/store/global.store.js` and update `initAuthorizedStores`, `reset`, `clearErrors`.
+   - [ ] Import in `lib/store/global.store.js` and update `initAuthorizedStores` (skip it for a transient store), `reset`, `clearErrors`.
    - [ ] Import in `lib/store/global.hook.js` and update `useReady` and `useErrors`.
 4. **Routing**
    - [ ] Add the route folder under `app/(protected)/<domain>/` with a `page.jsx` (and `[param]/page.jsx` for dynamic routes). No router config file to edit — the folder *is* the route.

@@ -134,6 +134,23 @@ export function FeedSkeleton({ count = 3 }) {
     )
 }
 
+/* Skeleton for a single post's media block (see components/PostView.jsx).
+ *
+ * This only ever shows on a **cold load** of `/p/:id` — a shared link or a refresh, where
+ * there is no feed behind the surface to borrow the already-decoded photo from. Opened from
+ * inside the app the post paints whole on the first frame instead (see post/store.js →
+ * load), so reaching this branch in normal use means that cache path broke. */
+export function PostMediaSkeleton({ desktop = false }) {
+    return (
+        <Skeleton
+            className={cn(
+                "w-full",
+                desktop ? "h-[90dvh] w-[min(70vw,40rem)] rounded-none" : "aspect-square rounded-none",
+            )}
+        />
+    )
+}
+
 /* Skeleton for the comments surface (see components/Comments.jsx): a stack of
  * comment rows — avatar, a short meta line and a body line, plus the like column
  * (heart + count) on the right. */

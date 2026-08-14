@@ -6,5 +6,6 @@
         <domain includeSubdomains="false">10.0.2.2</domain>       <!-- host machine from the Android emulator -->
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">192.168.1.135</domain>  <!-- this Mac's LAN IP -->
+        <domain includeSubdomains="false">10.5.50.9</domain>      <!-- Letizia's IP -->
     </domain-config>
 </network-security-config>

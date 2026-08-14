@@ -7,8 +7,7 @@ import { SplashScreen } from "@capacitor/splash-screen"
 import { StatusBar, Style } from "@capacitor/status-bar"
 
 import { useTheme } from "@/lib/providers/Theme"
-import { ROUTES } from "@/lib/constants"
-import { isNative, platform, pushBackHandler, runBackHandler } from "@/lib/native"
+import { goBack, haptic, isNative, platform, pushBackHandler } from "@/lib/native"
 
 /* The native shell's side effects, mounted once by App.jsx alongside the other app-wide
  * effects. Every one is a no-op in a browser, so the same tree runs in both places.
@@ -69,32 +68,136 @@ const useSplashScreen = () => {
 }
 
 /* Wires Android's hardware/gesture back button. It has no browser equivalent, so without
- * this the gesture closes the whole app from anywhere in it.
- *
- * Precedence, innermost first:
- *   1. An open non-URL overlay dismisses itself (see useBackHandler).
- *   2. Anywhere that isn't home walks back through history — which is also what dismisses
- *      a slide route, since that is a real history entry.
- *   3. Back from home exits, the convention on Android.
- *
- * Home is the exit test rather than `history.length`, which cannot tell "nothing before
- * this" from "we already walked back to the start" and so strands the user on a back press
- * that appears to do nothing. */
+ * this the gesture closes the whole app from anywhere in it. The precedence (overlay →
+ * history → exit-at-home) and the double-dispatch guard both live in `goBack`, which the
+ * edge-swipe gesture shares. */
 const useHardwareBack = () => {
     useEffect(() => {
         if (!isNative() || platform() !== "android") return
 
-        const listener = CapacitorApp.addListener("backButton", () => {
-            if (runBackHandler()) return
-            if (window.location.pathname === ROUTES.DEFAULT) {
-                CapacitorApp.exitApp()
-                return
-            }
-            window.history.back()
-        })
+        const listener = CapacitorApp.addListener("backButton", () => goBack())
 
         return () => {
             listener.then((handle) => handle.remove()).catch(() => {})
+        }
+    }, [])
+}
+
+/* ------------------------------------------------------------------------- */
+/* Edge-swipe back                                                           */
+/* ------------------------------------------------------------------------- */
+
+/* How close to the left edge a touch must begin to be a candidate. */
+const EDGE_WIDTH = 28
+/* Ignore the first few pixels so a tap or a near-vertical scroll isn't claimed as a swipe. */
+const EDGE_SLOP = 10
+/* Horizontal travel that commits the gesture on release. */
+const COMMIT_DISTANCE = 72
+/* …or a quick flick: this much travel at this speed (px/ms) also commits. */
+const FLICK_DISTANCE = 24
+const FLICK_VELOCITY = 0.5
+
+/* The native "swipe from the left edge to go back" gesture, built by hand rather than left
+ * to the platform — for the same reason usePullToRefresh is (see useScroll.hook.js). The app
+ * navigates by `history.pushState` inside one WebView, and neither shell gives that back for
+ * free: iOS' WKWebView back-swipe only tracks real page loads, not in-app history, and
+ * Android's full-bleed WebView swallows the horizontal edge swipe before the system reads it
+ * as a back gesture. So nothing here worked once the app moved off document scrolling onto a
+ * fixed scroll container — this restores it identically on both platforms.
+ *
+ * Listeners hang off the window in the capture phase, not off any one node: the gesture has
+ * to be caught over whatever is on top — the feed, an open post slide, a carousel — so it
+ * can't live on the scroll container the way the pull gesture does. `touchmove` is non-passive
+ * so it can preventDefault and take the drag away from the scroller or a horizontal carousel
+ * the instant it's identified as an edge swipe; up to that point every touch is handed
+ * straight back. A candidate is only a swipe if it starts within EDGE_WIDTH of the left edge
+ * and then moves clearly rightward and more horizontally than vertically — so vertical
+ * scrolling, taps, and mid-screen carousel swipes are all left alone.
+ *
+ * Native only. A mobile browser already has its own edge-swipe-back, and firing ours on top
+ * would double-navigate; off-device there's no gesture surface at all. Commit routes through
+ * `goBack`, the same debounced action the hardware back uses. */
+const useEdgeSwipeBack = () => {
+    useEffect(() => {
+        if (!isNative()) return
+
+        let startX = 0
+        let startY = 0
+        let startT = 0
+        let dx = 0
+        let tracking = false /* a touch began at the edge, direction not yet decided */
+        let active = false /* committed to owning a rightward horizontal drag */
+
+        const reset = () => {
+            tracking = false
+            active = false
+            dx = 0
+        }
+
+        const onStart = (e) => {
+            if (e.touches.length !== 1 || e.touches[0].clientX > EDGE_WIDTH) return
+            startX = e.touches[0].clientX
+            startY = e.touches[0].clientY
+            startT = e.timeStamp
+            tracking = true
+            active = false
+            dx = 0
+        }
+
+        const onMove = (e) => {
+            if (!tracking) return
+            dx = e.touches[0].clientX - startX
+            const dy = e.touches[0].clientY - startY
+
+            if (!active) {
+                if (Math.abs(dx) < EDGE_SLOP && Math.abs(dy) < EDGE_SLOP) return
+                /* Only a clear rightward, mostly-horizontal drag is ours; a leftward drag, a
+                 * vertical scroll, or an ambiguous diagonal all go back to the browser. */
+                if (dx <= 0 || Math.abs(dx) < Math.abs(dy)) {
+                    reset()
+                    return
+                }
+                active = true
+            }
+
+            /* Own the drag so the scroller/carousel underneath can't also move on it. */
+            e.preventDefault()
+        }
+
+        const onEnd = (e) => {
+            if (!tracking) return
+            /* Snapshot the drag before reset() clears it — the commit test reads these. */
+            const committed = active
+            const travelled = dx
+            const elapsed = e.timeStamp - startT
+            reset()
+            if (!committed) return
+
+            const flick = travelled >= FLICK_DISTANCE && travelled / elapsed >= FLICK_VELOCITY
+            if (travelled >= COMMIT_DISTANCE || flick) {
+                /* A tap the instant the swipe commits, so the back registers in the hand the
+                 * same way iOS' own edge-swipe does. Fired here rather than in goBack so it
+                 * stays tied to the gesture and doesn't also buzz the hardware back button. */
+                haptic()
+                goBack()
+            }
+        }
+
+        /* A cancelled sequence never commits. On Android an edge swipe the system claims as
+         * its own back arrives here (it cancels the WebView's touch stream) — dropping it lets
+         * the hardware `backButton` path own that case, so the two never double-fire. */
+        const onCancel = () => reset()
+
+        const opts = { capture: true, passive: false }
+        window.addEventListener("touchstart", onStart, opts)
+        window.addEventListener("touchmove", onMove, opts)
+        window.addEventListener("touchend", onEnd, opts)
+        window.addEventListener("touchcancel", onCancel, opts)
+        return () => {
+            window.removeEventListener("touchstart", onStart, opts)
+            window.removeEventListener("touchmove", onMove, opts)
+            window.removeEventListener("touchend", onEnd, opts)
+            window.removeEventListener("touchcancel", onCancel, opts)
         }
     }, [])
 }
@@ -155,6 +258,7 @@ export const useNative = () => {
     useStatusBarTheme()
     useSplashScreen()
     useHardwareBack()
+    useEdgeSwipeBack()
     useKeyboardDismiss()
     useKeyboardInset()
 }

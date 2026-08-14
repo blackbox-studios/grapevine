@@ -1,40 +1,44 @@
 "use client"
 
 import { cloneElement } from "react"
+import { usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 
 import PostView from "@/components/PostView"
 import { ROUTES } from "@/lib/constants"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
-import { SLIDE_TRANSITION } from "@/lib/utils"
+import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
 
 /* The surface each registered slide route renders, keyed by its prefix. This is the
  * only place that maps a slide route to a component — adding one is a single entry
- * here plus the SLIDE_ROUTES entry in constants.js and the standalone page that serves
- * the same URL when it's opened cold.
+ * here plus the SLIDE_ROUTES entry in constants.js. There is no per-route page file:
+ * <SlideRouter/> draws the in-app overlay and <SlidePage/> serves the same URL when
+ * it's opened cold, both off this one map.
  *
- * A surface receives the route's dynamic param and is responsible for its own
- * presentation *and* its own enter/exit animation (so it can differ by breakpoint —
- * PostView swipes on mobile and fades as a dialog on desktop). Animate horizontally
- * with SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
+ * A surface receives the route's dynamic param and the presentation it should take
+ * (`modal` in-app, `page` for a cold load) and is responsible for its own presentation
+ * *and* its own enter/exit animation (so it can differ by breakpoint — PostView swipes
+ * on mobile and fades as a dialog on desktop). Animate horizontally with
+ * SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
 const SURFACES = {
-    [ROUTES.POST]: (param) => <PostView variant="modal" postId={param} />,
+    [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
 }
 
-/* The base surface a slide route pushes: the shell's page wrapper, holding the route
+/* The base surface a slide route pushes: the shell's scroll container, holding the route
  * that stays mounted underneath. Slides a full viewport left — the same distance,
  * curve, and timing as the incoming surface, so the two move as one coupled unit
  * rather than one outrunning the other. Untouched by non-slide navigation.
  *
- * It is a flow element, not a viewport-sized box: the document is the scroller, so the
- * base is as tall as its content and the push is a pure horizontal transform that
- * leaves the scroll offset exactly where the reader left it. The document is frozen for
- * the duration (see SlideRouter), so nothing moves underneath while it's off-screen. */
-export const SlideBase = ({ className, children }) => {
+ * The push is a pure horizontal transform on the container, so it leaves the scroll
+ * offset exactly where the reader left it: the offset lives on this node, and nothing
+ * underneath moves while it's off-screen because there's no separate document scroll to
+ * drift. The layout attaches the shared scroll ref here (see ScrollProvider). */
+export const SlideBase = ({ ref, className, children }) => {
     const { pushed } = useActiveSlide()
 
     return (
         <motion.div
+            ref={ref}
             className={className}
             animate={{ x: pushed ? "-100%" : 0 }}
             transition={SLIDE_TRANSITION}
@@ -54,10 +58,9 @@ export const SlideBase = ({ className, children }) => {
  * param is read at render time rather than during the exit — the retained element
  * keeps the value it opened with, so the surface never blanks mid-animation.
  *
- * That retention is also what scopes the document scroll lock correctly: a surface
- * freezes the page from its own mount (see PostView), and AnimatePresence keeps it
- * mounted until the exit finishes — so scrolling comes back exactly when the base has
- * finished sliding home, not the instant the route changed. */
+ * No scroll lock is needed while it's up: the surface is a separate fixed layer over the
+ * scroll container, so the container behind it can't be reached and scrolled. It keeps
+ * its offset untouched and the reader lands right where they left off on dismiss. */
 export const SlideRouter = () => {
     const { route, open } = useActiveSlide()
     const surface = route ? SURFACES[route.prefix] : null
@@ -65,10 +68,28 @@ export const SlideRouter = () => {
     return (
         <AnimatePresence>
             {open && surface
-                ? cloneElement(surface(route.param), { key: route.prefix })
+                ? cloneElement(surface(route.param, "modal"), { key: route.prefix })
                 : null}
         </AnimatePresence>
     )
+}
+
+/* The cold-load half: a slide route reached by a hard navigation, a refresh, or a
+ * shared link, where nothing is mounted behind it to overlay. It renders the same
+ * registered surface in its `page` presentation, which portals to <body> and covers
+ * the viewport instead of sliding.
+ *
+ * This resolves the *pathname*, not a route segment, which is the whole point: a slide
+ * route needs no page file of its own, so no dynamic segment exists for the static
+ * export to enumerate and no post id has to be known at build time. It is mounted from
+ * the protected shell's catch-all, so every registered slide route gets cold-load
+ * handling for free — `fallback` is what that catch-all renders otherwise (the 404). */
+export const SlidePage = ({ fallback = null }) => {
+    const pathname = usePathname()
+    const route = slideRouteFor(pathname)
+    const surface = route ? SURFACES[route.prefix] : null
+
+    return surface ? surface(route.param, "page") : fallback
 }
 
 export default SlideRouter

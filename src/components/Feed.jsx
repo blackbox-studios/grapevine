@@ -1,19 +1,24 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
+import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
+import More from "@/assets/svg/icons/more.svg"
+import Ripple from "@/assets/svg/ripple.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { usePostLike } from "@/lib/store/post/hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
@@ -66,15 +71,30 @@ const Caption = ({ label, text }) => {
 
 /* A single Instagram-style feed card: header, media, action row, likes, caption. */
 const PostCard = ({ post }) => {
-    const [liked, setLiked] = useState(post.liked)
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
     const isDesktop = useIsDesktop()
+    /* The heart's state is the post's, not the card's: the same post can also be on screen
+     * in the open overlay, and both have to agree. The store applies the tap optimistically
+     * and reconciles against the server, so this still flips on the current frame. */
+    const { toggleLike } = usePostLike()
+    const { liked } = post
 
     const { handle, name, avatar, verified } = post.author
 
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
+
+    /* Pinch-to-peek the single-image card in place (touch only): a two-finger gesture lifts a
+     * clone of the photo above the feed and springs it back on release. The tap that opens the
+     * post is untouched — a pinch is multi-touch, so it never fires a click. Carousels handle
+     * their own pinch via the `zoomable` prop below. */
+    const singleMediaRef = useRef(null)
+    const mediaPinch = usePinchZoom(singleMediaRef, () => {
+        const img = singleMediaRef.current?.querySelector("img")
+        if (!img) return null
+        return { src: img.currentSrc || img.src, rect: img.getBoundingClientRect() }
+    })
 
     /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
      * than router.push: the surface overlays the *live* feed (the adaptive PostView: a
@@ -91,9 +111,6 @@ const PostCard = ({ post }) => {
         if (isDesktop) openPost()
         else setCommentsOpen(true)
     }, [isDesktop, openPost])
-
-    /* Optimistically reflect the viewer's own like in the count. */
-    const likeCount = post.likes + (liked && !post.liked ? 1 : 0)
 
     return (
         <article className="flex flex-col">
@@ -132,15 +149,22 @@ const PostCard = ({ post }) => {
                 <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
             )}
 
+            {/* On mobile the media breaks out of the feed's gutter to sit edge-to-edge (the
+             * `-mx-4` cancels the shell's `px-4`, and it's a stretched flex item so the
+             * negative margins widen it rather than just shifting it); from md it rejoins the
+             * padded, rounded column. The surrounding text keeps the gutter either way. */}
             {images.length > 1 ? (
-                <Carousel images={images} onImageClick={openPost} />
+                <div className="-mx-4 md:mx-0">
+                    <Carousel images={images} onImageClick={openPost} zoomable />
+                </div>
             ) : (
                 images.length === 1 && (
                     <button
+                        ref={singleMediaRef}
                         type="button"
                         onClick={openPost}
                         aria-label="Open post"
-                        className="block w-full cursor-pointer overflow-hidden rounded-lg bg-muted"
+                        className="-mx-4 block cursor-pointer overflow-hidden rounded-none bg-muted md:mx-0 md:rounded-lg"
                     >
                         <img
                             src={appPath(images[0])}
@@ -149,6 +173,7 @@ const PostCard = ({ post }) => {
                             height={post.height}
                             className="h-auto w-full"
                         />
+                        {mediaPinch}
                     </button>
                 )
             )}
@@ -180,7 +205,7 @@ const PostCard = ({ post }) => {
                 <div className="flex items-center text-sm font-medium">
                     <button
                         type="button"
-                        onClick={() => setLiked((v) => !v)}
+                        onClick={() => toggleLike(post.id)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
                         className="p-2 cursor-pointer transition-transform hover:scale-105 active:scale-95"
@@ -202,8 +227,8 @@ const PostCard = ({ post }) => {
                             />
                         </span>
                     </button>
-                    {likeCount > 0 && (
-                        <span className="tracking-tight tabular-nums">{formatCompact(likeCount)}</span>
+                    {post.likes > 0 && (
+                        <span className="tracking-tight tabular-nums">{formatCompact(post.likes)}</span>
                     )}
                 </div>
                 <button
@@ -222,16 +247,16 @@ const PostCard = ({ post }) => {
             </div>
 
             {post.likedBy && (
-                <div className="flex items-center gap-2 pt-2 text-sm">
+                <div className="flex items-center gap-2 py-2 text-sm">
                     <Avatar name={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}
                         <span className="font-semibold">{post.likedBy}</span>
-                        {likeCount > 1 && (
+                        {post.likes > 1 && (
                             <>
                                 {" "}and{" "}
                                 <span className="font-semibold">
-                                    {(likeCount - 1).toLocaleString()} others
+                                    {(post.likes - 1).toLocaleString()} others
                                 </span>
                             </>
                         )}
@@ -252,15 +277,52 @@ const PostCard = ({ post }) => {
     )
 }
 
-/* The home feed: a centered, single-column stack of post cards. */
-const Feed = ({ posts = [] }) => (
-    <div className="flex flex-col">
-        {posts.map((post) => (
-            <div key={post.id} className="py-6 first:pt-0">
-                <PostCard post={post} />
-            </div>
-        ))}
-    </div>
-)
+/* The home feed: a centered, single-column stack of post cards, one page at a time.
+ *
+ * The feed is paginated over the wire (`GET /api/feed?cursor=`), so this only ever holds
+ * the pages that have been asked for; `hasMore` comes from the server's cursor being
+ * non-null, never from a known total. */
+const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) => {
+    /* Auto-load the next page as the reader nears the end, driven off the scroll container's
+     * position — only armed while there's more to fetch. The button below stays as a manual
+     * fallback (and its spinner is the visible "loading" state) for the rare case the content
+     * is too short to scroll into the trigger zone. */
+    useInfiniteScroll(onLoadMore, { enabled: hasMore })
+
+    return (
+        <div className="flex flex-col">
+            {posts.map((post) => (
+                /* `initial`/`animate` only run when a node first mounts, so appended pages fade
+                 * in while the rows already on screen stay put — React keeps their motion state
+                 * across the re-render. The whole first page mounts together and fades in as one. */
+                <motion.div
+                    key={post.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="py-6 first:pt-0"
+                >
+                    <PostCard post={post} />
+                </motion.div>
+            ))}
+
+            {hasMore && (
+                <button
+                    type="button"
+                    onClick={onLoadMore}
+                    disabled={loadingMore}
+                    aria-label="Load more posts"
+                    className="flex w-full cursor-pointer justify-center py-6 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
+                >
+                    {loadingMore ? (
+                        <Ripple aria-label="Loading posts" className="size-8 [&_circle]:stroke-current" />
+                    ) : (
+                        <More className="size-6" />
+                    )}
+                </button>
+            )}
+        </div>
+    )
+}
 
 export default Feed

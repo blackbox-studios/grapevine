@@ -1,14 +1,18 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
-import { mockDelay } from '@/lib/mock'
-import { MOCK_LATENCY_MS } from '@/lib/constants'
-import { FEED } from '@/lib/metadata'
+import api from '@/lib/api'
+import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
+import { toErrorList } from '@/lib/utils'
 
-/* How many posts a single page pulls. `refresh` loads the first page; `loadMore`
- * appends the next one — the scaffolding for infinite scroll / a "load more"
- * button once a real paginated backend lands. */
-const PAGE_SIZE = 5
+/* The dashboard feed: one paginated list of posts, and nothing else.
+ *
+ * The open post lives in the `post` store, not here. The split matters because the two have
+ * different lifetimes and different owners — the feed is a long-lived list the reader scrolls
+ * and refreshes, while the open post is transient and addressed by id (including on a cold
+ * deep link, where there is no feed at all). What this store keeps of a post is a
+ * *projection*: the row it paged in. `cachedPost` / `patchPost` are how the `post` store
+ * reads and writes that projection. */
 
 const ERROR_INIT = {
     list: false,
@@ -16,6 +20,7 @@ const ERROR_INIT = {
 
 const LOADING_INIT = {
     list: false,
+    more: false,
 }
 
 const INIT = {
@@ -23,8 +28,10 @@ const INIT = {
     error: ERROR_INIT,
     loading: LOADING_INIT,
 
+    /* The loaded pages of the feed, flattened. `cursor` is the opaque continuation token
+     * the server handed back for the next page; treat it as a string and never parse it. */
     items: [],
-    page: 0,
+    cursor: null,
     hasMore: true,
 }
 
@@ -38,57 +45,75 @@ const useStore = create(immer((set, get) => ({
         }
     },
 
+    /* (Re)loads the first page. Also what pull-to-refresh calls, which is why it replaces
+     * `items` outright rather than merging: a refresh should show the newest page, not
+     * reconcile against what the reader was already holding. */
     refresh: async () => {
         set(state => { state.loading.list = true })
         try {
-            /* Race the fetch against a floor so the skeleton is always visible for at
-             * least MOCK_LATENCY_MS — whichever finishes last wins. Swap the
-             * Promise.resolve for `api.get(...)` when a backend lands. */
-            const [page] = await Promise.all([
-                Promise.resolve(FEED.slice(0, PAGE_SIZE)),
-                mockDelay(MOCK_LATENCY_MS),
-            ])
+            const { items, nextCursor } = await api.get(API_ENDPOINTS.FEED, {
+                params: { limit: PAGE_SIZE.FEED },
+            })
             set(state => {
-                state.items = page
-                state.page = 1
-                state.hasMore = FEED.length > page.length
+                state.items = items
+                state.cursor = nextCursor
+                state.hasMore = nextCursor !== null
                 state.ready = true
             })
-        } catch {
-            set(state => { state.error.list = ['Could not load the feed. Please try again.'] })
-        } finally {
-            set(state => { state.loading.list = false })
-        }
-    },
-
-    /* Pagination scaffold — appends the next slice of FEED to `items`. Wired for a
-     * future infinite-scroll / "load more" affordance; swap the slice for a real
-     * `?page=` fetch when a backend arrives. */
-    loadMore: async () => {
-        if (get().loading.list || get().hasMore === false) return
-        set(state => { state.loading.list = true })
-        try {
-            await mockDelay()
-            const next = get().page
-            const slice = FEED.slice(next * PAGE_SIZE, (next + 1) * PAGE_SIZE)
+        } catch (error) {
             set(state => {
-                state.items.push(...slice)
-                state.page = next + 1
-                state.hasMore = state.items.length < FEED.length
+                state.error.list = toErrorList(error, 'Could not load the feed. Please try again.')
             })
-        } catch {
-            set(state => { state.error.list = ['Could not load more posts.'] })
         } finally {
             set(state => { state.loading.list = false })
         }
     },
 
-    /* Nudge a post's comment tally — called cross-store by the comments store when
-     * the viewer posts (or would remove) a comment. The detail page reads the same
-     * `items` entry, so bumping it here keeps the count in sync there too. */
-    bumpCommentCount: (postId, delta = 1) => set(state => {
-        const post = state.items.find(p => p.id === postId)
-        if (post) post.comments += delta
+    /* Appends the next page. `nextCursor === null` is the only end-of-collection signal
+     * the server gives, so `hasMore` is derived from it rather than from a total count. */
+    loadMore: async () => {
+        const { cursor, hasMore, loading } = get()
+        if (!hasMore || !cursor || loading.more || loading.list) return
+
+        set(state => { state.loading.more = true })
+        try {
+            const { items, nextCursor } = await api.get(API_ENDPOINTS.FEED, {
+                params: { limit: PAGE_SIZE.FEED, cursor },
+            })
+            set(state => {
+                /* A refresh can land mid-append and reset the list. Dropping ids we
+                 * already hold keeps that from duplicating rows. */
+                const seen = new Set(state.items.map(post => post.id))
+                state.items.push(...items.filter(post => !seen.has(post.id)))
+                state.cursor = nextCursor
+                state.hasMore = nextCursor !== null
+            })
+        } catch (error) {
+            set(state => {
+                state.error.list = toErrorList(error, 'Could not load more posts.')
+            })
+        } finally {
+            set(state => { state.loading.more = false })
+        }
+    },
+
+    /* The loaded row for a post, or null if this page of the feed doesn't hold it.
+     *
+     * Read by the `post` store when a post opens: that row carries the photo the reader just
+     * tapped, already fetched and decoded by the browser, so promoting it lets the post
+     * surface paint whole on the first frame. It is a fast path and never a precondition —
+     * a cold deep link gets null here and loads from the endpoint. */
+    cachedPost: (postId) => get().items.find(post => post.id === postId) ?? null,
+
+    /* Applies a partial update to a loaded row, if this page of the feed holds it.
+     *
+     * Every write to a post goes through the `post` store, which calls this so the feed's
+     * copy moves with it. Without that the same post visibly disagrees with itself: the
+     * overlay sits on the live feed, so a heart filled in the overlay would empty again the
+     * moment it was dismissed. */
+    patchPost: (postId, patch) => set(state => {
+        const row = state.items.find(post => post.id === postId)
+        if (row) Object.assign(row, patch)
     }),
 
     reset: () => set(() => ({ ...INIT })),

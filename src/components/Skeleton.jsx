@@ -120,7 +120,9 @@ export function FeedSkeleton({ count = 3 }) {
                             <Skeleton className="h-3 w-24" />
                         </div>
                     </div>
-                    <Skeleton className="aspect-4/5 w-full rounded-lg" />
+                    {/* Full-bleed on mobile to match the feed's edge-to-edge media (see
+                     * Feed.jsx's `-mx-4` breakout); a rounded card from md. */}
+                    <Skeleton className="-mx-4 aspect-4/5 rounded-none md:mx-0 md:rounded-lg" />
                     <div className="flex items-center gap-4 pt-1">
                         <Skeleton className="size-6 rounded-full" />
                         <Skeleton className="size-6 rounded-full" />
@@ -131,6 +133,23 @@ export function FeedSkeleton({ count = 3 }) {
                 </div>
             ))}
         </div>
+    )
+}
+
+/* Skeleton for a single post's media block (see components/PostView.jsx).
+ *
+ * This only ever shows on a **cold load** of `/p/:id` — a shared link or a refresh, where
+ * there is no feed behind the surface to borrow the already-decoded photo from. Opened from
+ * inside the app the post paints whole on the first frame instead (see post/store.js →
+ * load), so reaching this branch in normal use means that cache path broke. */
+export function PostMediaSkeleton({ desktop = false }) {
+    return (
+        <Skeleton
+            className={cn(
+                "w-full",
+                desktop ? "h-[90dvh] w-[min(70vw,40rem)] rounded-none" : "aspect-square rounded-none",
+            )}
+        />
     )
 }
 

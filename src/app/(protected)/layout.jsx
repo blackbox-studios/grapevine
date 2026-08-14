@@ -18,7 +18,8 @@ import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
 import PageTransition from "@/components/PageTransition";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
-import { scrollToTop, useVibing } from "@/lib/hooks/useScroll.hook";
+import { useVibing } from "@/lib/hooks/useScroll.hook";
+import { useScroll } from "@/lib/providers/Scroll";
 import Grain from "@/components/Grain";
 
 
@@ -99,16 +100,17 @@ const NavSlot = ({ children }) => (
 const ProtectedLayout = ({ children }) => {
     const pathname = usePathname()
     const [navOpen, setNavOpen] = useState(false)
+    const { scrollRef, scrollToTop } = useScroll()
     const vibing = useVibing()
 
     return (
         <ProtectedGate>
             <Grain />
 
-            {/* Every layer here is a sibling in the document's own stacking context, in
-                z order: backdrop (0), the page (1), the rail (2), grain (10), the mobile
-                bar (20), overlays (50). Nothing wraps the page in a full-height box —
-                the document scrolls, so the fixed layers simply stay put while it does. */}
+            {/* Every layer here is a sibling stacked in one context, in z order: backdrop
+                (0), the scroll container (1), the rail (2), grain (10), the mobile bar
+                (20), overlays (50). Only the container scrolls; every other layer is
+                fixed and stays put while it does. */}
             <div className="fixed inset-0 z-0 overflow-hidden bg-background pointer-events-none">
                 <div className="hidden lg:dark:block absolute -bottom-90 -right-100 w-250 h-250 bg-[#ffffff0d] rounded-full blur-3xl" />
             </div>
@@ -147,13 +149,24 @@ const ProtectedLayout = ({ children }) => {
                 </div>
             </nav>
 
-            {/* The page itself: ordinary document flow, inset past the rail rather than
-                sized against the viewport, so its height is its content's height and the
-                document is what scrolls. Also the base surface a slide route pushes
-                off-screen as it swipes in (SlideBase owns that motion). */}
-            <SlideBase className="relative z-1 w-full md:pl-(--nav-width)">
-                <div className="w-full px-4 md:px-8 lg:px-18 pt-(--safe-top)">
-                    <main className="flex flex-col w-full mx-auto max-w-8xl pt-8 md:pt-12 pb-[calc(var(--bottombar)+1.5rem)] md:pb-0">
+            {/* The shell's scroll container: a fixed box inset past the rail, and the app's
+                one and only scroller. It's also the base surface a slide route pushes
+                off-screen as it swipes in (SlideBase owns that motion). `overscroll-none`
+                keeps a pull at either end from chaining out and hands the top-of-list pull
+                to usePullToRefresh instead.
+
+                On mobile it's bounded to the usable viewport — top at the status-bar inset,
+                bottom at the mobile rail (--bottombar already folds in the home-indicator
+                inset) — so the scrollbar starts below the notch and stops above the rail
+                rather than running edge-to-edge under the system chrome, which is where an
+                edge-to-edge Capacitor WebView draws it. Both insets are 0 / reset on md, so
+                desktop keeps a full-height scroller past the rail. */}
+            <SlideBase
+                ref={scrollRef}
+                className="fixed inset-x-0 top-(--safe-top) bottom-(--bottombar) md:top-0 md:bottom-0 z-1 md:left-(--nav-width) overflow-y-auto overflow-x-hidden overscroll-none"
+            >
+                <div className="w-full px-4 md:px-8 lg:px-18">
+                    <main className="flex flex-col w-full mx-auto max-w-8xl pt-8 md:pt-12 pb-6 md:pb-0">
                         {/* Which routes are exempt from this cross-fade is decided by
                             pageTransitionKey off the route registries — nested trees
                             that fade their own sub-routes, and slide routes that must

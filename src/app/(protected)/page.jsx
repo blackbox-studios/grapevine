@@ -9,7 +9,7 @@ import { FeedSkeleton } from "@/components/Skeleton"
 import { useFeed } from "@/lib/store/feed/hook"
 
 const HomePage = () => {
-    const { posts, skeleton, refresh } = useFeed()
+    const { posts, skeleton, hasMore, loadingMore, refresh, loadMore } = useFeed()
 
     return (
         <PullToRefresh onRefresh={refresh}>
@@ -21,7 +21,12 @@ const HomePage = () => {
                         </Transition>
                     ) : (
                         <Transition fast key="content">
-                            <Feed posts={posts} />
+                            <Feed
+                                posts={posts}
+                                hasMore={hasMore}
+                                loadingMore={loadingMore}
+                                onLoadMore={loadMore}
+                            />
                         </Transition>
                     )}
                 </AnimatePresence>

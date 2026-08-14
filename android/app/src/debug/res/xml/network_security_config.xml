@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Permits cleartext (http://) only to local dev hosts. Everything else stays
+     https-only, so release builds keep Android's default cleartext block. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>       <!-- host machine from the Android emulator -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">192.168.1.135</domain>  <!-- this Mac's LAN IP -->
+        <domain includeSubdomains="false">10.5.50.9</domain>      <!-- Letizia's IP -->
+    </domain-config>
+</network-security-config>

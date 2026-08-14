@@ -1,4 +1,8 @@
+import { App as CapacitorApp } from "@capacitor/app"
 import { Capacitor } from "@capacitor/core"
+import { Haptics, ImpactStyle } from "@capacitor/haptics"
+
+import { ROUTES } from "@/lib/constants"
 
 /* Native-shell facts and the back-gesture registry. Plain module, no React — the hook that
  * drives it all is lib/hooks/useNative.hook.js. See native-architecture.md.
@@ -13,6 +17,19 @@ export const isNative = () => Capacitor.isNativePlatform()
 
 /* "ios" | "android" | "web". */
 export const platform = () => Capacitor.getPlatform()
+
+/* ------------------------------------------------------------------------- */
+/* Haptics                                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* A tactile tap for a confirmed user action — the like gesture uses it (on the like, not the
+ * unlike). Fire-and-forget and safe to call from anywhere (a store action, an event handler):
+ * it's a no-op off-device, so callers never branch on the platform, and any plugin rejection
+ * (a device without a taptic engine, an OS that declines) is swallowed rather than surfaced. */
+export const haptic = () => {
+    if (!isNative()) return
+    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {})
+}
 
 /* ------------------------------------------------------------------------- */
 /* Back gesture                                                              */
@@ -46,4 +63,36 @@ export const runBackHandler = () => {
     if (!handler) return false
     handler()
     return true
+}
+
+/* The one back action for the whole native shell, shared by every way "back" can be asked
+ * for: Android's hardware/gesture back (see useHardwareBack) and the left-edge swipe (see
+ * useEdgeSwipeBack). Centralised so those two can't both act on the same physical gesture —
+ * on Android a system edge swipe can surface as *both* a `backButton` event and the touch
+ * stream the swipe hook watches — and so the precedence lives in exactly one place.
+ *
+ * Precedence, innermost first:
+ *   1. An open non-URL overlay dismisses itself (a drawer/dialog/sheet's pushed handler).
+ *   2. Anywhere that isn't home walks back through history — which is also what dismisses a
+ *      slide route, since that is a real history entry.
+ *   3. Back from home exits on Android (the platform convention); a no-op on iOS, which has
+ *      no exit and whose history is already at the root.
+ *
+ * The debounce collapses a double-dispatch (both back sources firing for one gesture) into a
+ * single action. The window is short enough that a deliberate rapid double-back still lands
+ * its second press. */
+const BACK_DEBOUNCE_MS = 350
+let lastBackAt = 0
+
+export const goBack = () => {
+    const now = Date.now()
+    if (now - lastBackAt < BACK_DEBOUNCE_MS) return
+    lastBackAt = now
+
+    if (runBackHandler()) return
+    if (window.location.pathname === ROUTES.DEFAULT) {
+        if (platform() === "android") CapacitorApp.exitApp()
+        return
+    }
+    window.history.back()
 }

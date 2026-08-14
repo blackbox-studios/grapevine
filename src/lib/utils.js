@@ -19,6 +19,21 @@ export function cn(...inputs) {
     return twMerge(clsx(inputs))
 }
 
+/* Normalizes anything a store action can catch into the string list `useErrorListener`
+ * expects (see frontend-architecture.md → Error Handling).
+ *
+ * Only an `ApiError` contributes its own `message`, because the API contract guarantees that
+ * message is a single sentence written to be shown to a user. Anything else reaching here is
+ * a bug in our own code — a TypeError, a non-Error throw — and its message is an internal
+ * string, so the caller's copy is used instead.
+ *
+ * Stores should still branch on `error.code` when the *behaviour* differs — a 404 the UI
+ * already renders as an empty state shouldn't also toast. This only formats the message. */
+export const toErrorList = (error, fallback) => {
+    const trusted = error?.name === "ApiError" && typeof error.message === "string"
+    return [trusted && error.message.length > 0 ? error.message : fallback]
+}
+
 export function statusDotClasses(tone) {
     const STATUS_DOT_TONES = {
         success: "bg-success border border-success",

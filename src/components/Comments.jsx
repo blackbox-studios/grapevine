@@ -5,6 +5,7 @@ import { AnimatePresence } from "motion/react"
 
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
+import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Avatar } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
@@ -20,8 +21,8 @@ import {
 } from "@/components/ui/drawer"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
-import { useScrollLock } from "@/lib/hooks/useScroll.hook"
 import { useComments } from "@/lib/store/comments/hook"
+import { usePostLike } from "@/lib/store/post/hook"
 import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
 /* -------------------------------------------------------------------------- */
@@ -31,12 +32,14 @@ import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 /* A single comment: author + relative time, body, and the like meter (heart
  * toggle + tally) in the right column. */
 const CommentRow = ({ comment, now, onToggleLike }) => {
-    const { author, text, created_at, likes, liked } = comment
+    const { author, text, created_at, likes, liked, pending } = comment
     return (
-        <div className="flex items-start gap-3 px-4 py-2.5">
+        /* A comment the server hasn't confirmed yet reads as in-flight rather than settled,
+         * and can't be liked — it has no server id to like. */
+        <div className={cn("flex items-start gap-3 px-4 py-2.5", pending && "opacity-60")}>
             <Avatar name={author.name} src={author.avatar} className="size-9" />
-            <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug">
+            <div className="min-w-0 flex flex-col gap-1 flex-1">
+                <p className="text-xs leading-snug">
                     <span className="font-semibold">{author.handle}</span>{" "}
                     <span className="text-muted-foreground">
                         · {timeAgoCompact(now, new Date(created_at).getTime())}
@@ -48,9 +51,10 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                 <button
                     type="button"
                     onClick={onToggleLike}
+                    disabled={pending}
                     aria-pressed={liked}
                     aria-label={liked ? "Unlike comment" : "Like comment"}
-                    className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
+                    className="cursor-pointer transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none"
                 >
                     <span className="relative block size-3.5">
                         <HeartOutline
@@ -148,6 +152,10 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
                 e.preventDefault()
                 submit()
             }}
+            /* Vaul treats the whole drawer as a drag handle, so without this a touch that
+             * starts anywhere in the composer — reaching for the field, or dragging to
+             * select text in a half-typed reply — swipes the drawer shut instead. */
+            data-vaul-no-drag
             className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
             <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
@@ -180,7 +188,9 @@ const DrawerBody = ({ post }) => {
     const now = useNow()
 
     return (
-        <>
+        /* KeyboardAwareColumn keeps the composer on top of the on-screen keyboard: the
+         * thread (the scroll region) yields the room, the composer rides up. */
+        <KeyboardAwareColumn>
             <DrawerHeader className="shrink-0 border-b py-3.5">
                 <DrawerTitle className="text-center text-base font-semibold">
                     Comments
@@ -198,16 +208,11 @@ const DrawerBody = ({ post }) => {
                 />
             </div>
             <CommentComposer viewer={viewer} onSubmit={add} />
-        </>
+        </KeyboardAwareColumn>
     )
 }
 
 const CommentsDrawer = ({ post, open, onOpenChange }) => {
-    /* Vaul guards <body>, but the app scrolls the document itself — without this the
-     * feed keeps scrolling behind the sheet, taking the post you opened comments on
-     * with it. */
-    useScrollLock(open)
-
     /* This drawer is open/closed React state, not a URL, so Android's back gesture has
      * nothing to unwind and would close the whole app from on top of it. Claiming the
      * gesture while it's open makes back dismiss the drawer, the way it reads on a phone.
@@ -215,10 +220,18 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => {
     useBackHandler(open, () => onOpenChange(false))
 
     return (
-        <Drawer open={open} onOpenChange={onOpenChange}>
+        /* repositionInputs is off because Vaul's implementation of it is unusable inside a
+         * WebView, and not in a way you'd guess from the name: it keeps react-aria's
+         * mobile-Safari scroll lock installed, which calls preventDefault on every touchend
+         * over an input and then focuses the field itself, having first shoved it 2000px up
+         * to stop Safari scrolling to it. That hand-rolled focus doesn't take in the
+         * Capacitor WebView, so tapping the composer did nothing at all — no caret, no
+         * keyboard, and no way to type even on a hardware one. Turning it off restores plain
+         * tap-to-focus; keeping the composer above the keyboard is DrawerBody's job instead. */
+        <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
             {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the composer
                 at the foot of the drawer would sit under the browser's own toolbar. */}
-            <DrawerContent className="h-[85dvh] max-h-[85dvh] pb-(--safe-bottom)">
+            <DrawerContent className="h-[85dvh] max-h-[85dvh]">
                 {open && <DrawerBody post={post} />}
             </DrawerContent>
         </Drawer>
@@ -239,9 +252,11 @@ export const CommentsPanel = ({ post, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
         useComments(post.id)
     const now = useNow()
-    const [liked, setLiked] = useState(post.liked)
+    /* Same post, same heart as the feed card behind this surface — so the state is the
+     * post's, held in the store, not this panel's. */
+    const { toggleLike: togglePostLike } = usePostLike()
+    const { author, liked } = post
     const composerRef = useRef(null)
-    const { author } = post
 
     const caption = post.body ? (
         <div className="flex items-start gap-3 px-4 pb-2 pt-4">
@@ -288,7 +303,7 @@ export const CommentsPanel = ({ post, className }) => {
                 <div className="flex items-center gap-4">
                     <button
                         type="button"
-                        onClick={() => setLiked((v) => !v)}
+                        onClick={() => togglePostLike(post.id)}
                         aria-pressed={liked}
                         aria-label={liked ? "Unlike" : "Like"}
                         className="cursor-pointer transition-transform hover:scale-105 active:scale-95"
@@ -320,7 +335,7 @@ export const CommentsPanel = ({ post, className }) => {
                     </button>
                 </div>
                 <p className="pt-2 text-sm font-semibold">
-                    {formatCompact(post.likes + (liked && !post.liked ? 1 : 0))} likes
+                    {formatCompact(post.likes)} likes
                 </p>
                 <p className="text-xs font-medium text-muted-foreground pb-2">
                     {timeAgoMacro(now, new Date(post.created_at).getTime())}
@@ -328,6 +343,60 @@ export const CommentsPanel = ({ post, className }) => {
             </div>
 
             <CommentComposer viewer={viewer} onSubmit={add} inputRef={composerRef} />
+        </div>
+    )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Mobile — Reels-style sheet (PostSlide)                                     */
+/* -------------------------------------------------------------------------- */
+
+/* The comment thread as it reads inside <PostSlide/>'s raised sheet: a drag grabber, the
+ * post's caption pinned to the top of the thread, the scrolling comment rows, and the
+ * composer. There is no like/comment action row here — those live on the Reels rail over the
+ * media instead — which is what sets this apart from the desktop <CommentsPanel/>.
+ *
+ * The composer needs no keyboard padding of its own: PostSlide lifts the whole surface above
+ * the keyboard, so the composer (pinned at the sheet's — and thus the surface's — bottom
+ * edge) is already clear of it. */
+export const PostCommentsThread = ({ post }) => {
+    const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
+        useComments(post.id)
+    const now = useNow()
+    const { author } = post
+
+    const caption = post.body ? (
+        <div className="flex items-start gap-3 px-4 pb-3 pt-1">
+            <Avatar name={author.name} src={author.avatar} className="mt-0.5 size-9" />
+            <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-sm leading-snug">
+                    <span className="font-semibold">{author.handle}</span> {post.body}
+                </p>
+                <span className="text-xs text-muted-foreground">
+                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                </span>
+            </div>
+        </div>
+    ) : null
+
+    return (
+        <div className="flex h-full flex-col">
+            <div className="flex shrink-0 justify-center pb-1 pt-2">
+                <span className="h-1 w-9 rounded-full bg-muted-foreground/40" />
+            </div>
+            <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-gutter-stable">
+                <CommentsList
+                    comments={comments}
+                    now={now}
+                    skeleton={skeleton}
+                    hasMore={hasMore}
+                    loadMore={loadMore}
+                    loadingMore={loadingMore}
+                    toggleLike={toggleLike}
+                    header={caption}
+                />
+            </div>
+            <CommentComposer viewer={viewer} onSubmit={add} />
         </div>
     )
 }

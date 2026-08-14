@@ -1,28 +1,46 @@
-/* Catch-all inside the protected shell so unknown routes render the 404 with the
- * full nav/breadcrumb chrome, matching the old `path: '*'` behaviour. */
+import { SlidePage } from "@/components/SlideRouter"
 
-/* A catch-all matches infinitely many paths, so there is nothing to enumerate for the
- * static native build — an empty list means "prerender none of them", which is what lets
- * `output: "export"` accept the segment at all. The route still works normally in the
- * Node build (npm run build), where the server matches it at request time.
+/* Catch-all inside the protected shell. It serves two jobs, both keyed off the pathname
+ * rather than a route segment:
  *
- * In the native app the 404 is therefore unreachable, and harmlessly so: there is no
- * address bar to mistype into, and Capacitor answers any path it has no file for with
- * index.html (see native-architecture.md → "Why there is no 404 in the app"), so a bad
- * link lands on the feed rather than a blank screen. */
+ *  - A cold load of a registered slide route (`/p/:id` opened from a shared link, a
+ *    refresh, or a hard nav) renders that route's surface as a full-viewport page.
+ *    <SlidePage/> resolves it off the SLIDE_ROUTES registry.
+ *  - Anything else is an unknown route, and renders the 404 with the full shell chrome
+ *    (matching the old `path: '*'` behaviour).
+ *
+ * Slide routes deliberately have *no page file of their own*. That is what keeps post ids
+ * out of the build: a `/p/[postId]` segment would force `generateStaticParams` under
+ * `output: "export"`, so every openable id would have to be enumerated ahead of time.
+ * Resolving the path here instead means ids are only ever known at runtime, which is what
+ * lets the feed be genuinely live/paginated. Interception (`@modal/(.)p/[postId]`) is not
+ * an option either — the export rejects it outright ("Intercepting routes are not
+ * supported with static export"). See native-architecture.md.
+ *
+ * A catch-all matches infinitely many paths, so there is nothing to enumerate here
+ * either — the single sentinel below is the minimum `output: "export"` accepts for the
+ * segment to exist at all (an empty list is rejected). The route still matches normally
+ * in the Node build (npm run build), where the server resolves it at request time, so web
+ * deep links into any post keep working.
+ *
+ * In the native app both paths are unreachable, and harmlessly so: the boot guard rewrites
+ * any non-root URL to `/` before hydration, and Capacitor answers a path it has no file
+ * for with index.html anyway (see native-architecture.md). */
 export const generateStaticParams = () => [{ "not-found": ["not-found"] }]
 
-const NotFoundPage = () => {
-    return (
-        <div className="flex w-full pt-[33vh]">
-            <div className="flex items-center mx-auto select-none ">
-                <h1 className="text-2xl leading-12 mr-5 pr-6 border-r border-foreground/30">404</h1>
-                <div>
-                    <h2>Page not yet implemented</h2>
+const NotFoundPage = () => (
+    <SlidePage
+        fallback={
+            <div className="flex w-full pt-[33vh]">
+                <div className="flex items-center mx-auto select-none ">
+                    <h1 className="text-2xl leading-12 mr-5 pr-6 border-r border-foreground/30">404</h1>
+                    <div>
+                        <h2>Page not yet implemented</h2>
+                    </div>
                 </div>
             </div>
-        </div>
-    )
-}
+        }
+    />
+)
 
 export default NotFoundPage

@@ -120,7 +120,9 @@ export function FeedSkeleton({ count = 3 }) {
                             <Skeleton className="h-3 w-24" />
                         </div>
                     </div>
-                    <Skeleton className="aspect-4/5 w-full rounded-lg" />
+                    {/* Full-bleed on mobile to match the feed's edge-to-edge media (see
+                     * Feed.jsx's `-mx-4` breakout); a rounded card from md. */}
+                    <Skeleton className="-mx-4 aspect-4/5 rounded-none md:mx-0 md:rounded-lg" />
                     <div className="flex items-center gap-4 pt-1">
                         <Skeleton className="size-6 rounded-full" />
                         <Skeleton className="size-6 rounded-full" />

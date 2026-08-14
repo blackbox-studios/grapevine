@@ -193,7 +193,9 @@ const Carousel = ({ images, bare = false, onImageClick }) => {
                 ref={containerRef}
                 className={cn(
                     "group relative cursor-grab overflow-hidden bg-black active:cursor-grabbing",
-                    bare ? "h-full" : "rounded-lg border",
+                    /* Feed card: flush edge-to-edge on mobile, a rounded/bordered card from md
+                     * (see Feed's media breakout). `bare` fills its parent in the post modal. */
+                    bare ? "h-full" : "rounded-none border-0 md:rounded-lg md:border",
                 )}
             >
                 <motion.div

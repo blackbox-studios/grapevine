@@ -6,6 +6,7 @@ import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
 import { VIEWER } from '@/lib/metadata'
 import usePostStore from '@/lib/store/post/store'
+import { haptic } from '@/lib/native'
 import { toErrorList } from '@/lib/utils'
 
 const ERROR_INIT = {
@@ -114,6 +115,8 @@ const useStore = create(immer((set, get) => ({
 
         const { liked: wasLiked, likes: wasLikes } = source
         const liked = !wasLiked
+
+        if (liked) haptic()
 
         const write = (state, next) => {
             const comment = state.items.find(item => item.id === commentId)

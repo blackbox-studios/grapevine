@@ -348,6 +348,60 @@ export const CommentsPanel = ({ post, className }) => {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Mobile — Reels-style sheet (PostSlide)                                     */
+/* -------------------------------------------------------------------------- */
+
+/* The comment thread as it reads inside <PostSlide/>'s raised sheet: a drag grabber, the
+ * post's caption pinned to the top of the thread, the scrolling comment rows, and the
+ * composer. There is no like/comment action row here — those live on the Reels rail over the
+ * media instead — which is what sets this apart from the desktop <CommentsPanel/>.
+ *
+ * The composer needs no keyboard padding of its own: PostSlide lifts the whole surface above
+ * the keyboard, so the composer (pinned at the sheet's — and thus the surface's — bottom
+ * edge) is already clear of it. */
+export const PostCommentsThread = ({ post }) => {
+    const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, viewer } =
+        useComments(post.id)
+    const now = useNow()
+    const { author } = post
+
+    const caption = post.body ? (
+        <div className="flex items-start gap-3 px-4 pb-3 pt-1">
+            <Avatar name={author.name} src={author.avatar} className="mt-0.5 size-9" />
+            <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-sm leading-snug">
+                    <span className="font-semibold">{author.handle}</span> {post.body}
+                </p>
+                <span className="text-xs text-muted-foreground">
+                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                </span>
+            </div>
+        </div>
+    ) : null
+
+    return (
+        <div className="flex h-full flex-col">
+            <div className="flex shrink-0 justify-center pb-1 pt-2">
+                <span className="h-1 w-9 rounded-full bg-muted-foreground/40" />
+            </div>
+            <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-gutter-stable">
+                <CommentsList
+                    comments={comments}
+                    now={now}
+                    skeleton={skeleton}
+                    hasMore={hasMore}
+                    loadMore={loadMore}
+                    loadingMore={loadingMore}
+                    toggleLike={toggleLike}
+                    header={caption}
+                />
+            </div>
+            <CommentComposer viewer={viewer} onSubmit={add} />
+        </div>
+    )
+}
+
+/* -------------------------------------------------------------------------- */
 /* Public entry                                                               */
 /* -------------------------------------------------------------------------- */
 

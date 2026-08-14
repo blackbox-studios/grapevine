@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core"
+import { Haptics, ImpactStyle } from "@capacitor/haptics"
 
 /* Native-shell facts and the back-gesture registry. Plain module, no React — the hook that
  * drives it all is lib/hooks/useNative.hook.js. See native-architecture.md.
@@ -13,6 +14,19 @@ export const isNative = () => Capacitor.isNativePlatform()
 
 /* "ios" | "android" | "web". */
 export const platform = () => Capacitor.getPlatform()
+
+/* ------------------------------------------------------------------------- */
+/* Haptics                                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* A tactile tap for a confirmed user action — the like gesture uses it (on the like, not the
+ * unlike). Fire-and-forget and safe to call from anywhere (a store action, an event handler):
+ * it's a no-op off-device, so callers never branch on the platform, and any plugin rejection
+ * (a device without a taptic engine, an OS that declines) is swallowed rather than surfaced. */
+export const haptic = () => {
+    if (!isNative()) return
+    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {})
+}
 
 /* ------------------------------------------------------------------------- */
 /* Back gesture                                                              */

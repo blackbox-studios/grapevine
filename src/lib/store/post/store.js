@@ -4,6 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import api from '@/lib/api'
 import { API_ENDPOINTS, ERROR_CODES } from '@/lib/constants'
 import useFeedStore from '@/lib/store/feed/store'
+import { haptic } from '@/lib/native'
 import { toErrorList } from '@/lib/utils'
 
 /* The one open post (`/p/:id`) — and the owner of every write to a post.
@@ -148,6 +149,7 @@ const useStore = create(immer((set, get) => {
             const { liked: wasLiked, likes: wasLikes } = post
             const liked = !wasLiked
 
+            if (liked) haptic()
             set(state => { state.liking[postId] = true })
             patch(postId, { liked, likes: wasLikes + (liked ? 1 : -1) })
 

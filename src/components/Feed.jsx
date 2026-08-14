@@ -136,15 +136,21 @@ const PostCard = ({ post }) => {
                 <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
             )}
 
+            {/* On mobile the media breaks out of the feed's gutter to sit edge-to-edge (the
+             * `-mx-4` cancels the shell's `px-4`, and it's a stretched flex item so the
+             * negative margins widen it rather than just shifting it); from md it rejoins the
+             * padded, rounded column. The surrounding text keeps the gutter either way. */}
             {images.length > 1 ? (
-                <Carousel images={images} onImageClick={openPost} />
+                <div className="-mx-4 md:mx-0">
+                    <Carousel images={images} onImageClick={openPost} />
+                </div>
             ) : (
                 images.length === 1 && (
                     <button
                         type="button"
                         onClick={openPost}
                         aria-label="Open post"
-                        className="block w-full cursor-pointer overflow-hidden rounded-lg bg-muted"
+                        className="-mx-4 block cursor-pointer overflow-hidden rounded-none bg-muted md:mx-0 md:rounded-lg"
                     >
                         <img
                             src={appPath(images[0])}

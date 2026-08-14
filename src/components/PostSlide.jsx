@@ -33,7 +33,7 @@ const SlideMedia = ({ post }) => {
     if (images.length > 1) {
         return (
             <div className="aspect-square w-full">
-                <Carousel images={images} bare />
+                <Carousel images={images} bare zoomable />
             </div>
         )
     }

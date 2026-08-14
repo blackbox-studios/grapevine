@@ -9,6 +9,7 @@ import {
     useMotionValueEvent,
 } from "motion/react"
 
+import { usePinchZoom } from "@/components/PinchZoom"
 import CycleLeft from "@/assets/svg/icons/cycle-left.svg"
 import CycleRight from "@/assets/svg/icons/cycle-right.svg"
 import { appPath, cn } from "@/lib/utils"
@@ -127,7 +128,7 @@ const Arrow = ({ dir, onClick, visible }) => {
  * or paged. Framer suppresses the click that follows a drag, and the arrows are
  * siblings of the track (their clicks don't bubble here), so this only runs on a
  * genuine tap — used to open the post (modal on desktop, `/p/:id` on mobile). */
-const Carousel = ({ images, bare = false, onImageClick }) => {
+const Carousel = ({ images, bare = false, zoomable = false, onImageClick }) => {
     const n = images.length
 
     const [index, setIndex] = useState(0)
@@ -138,6 +139,24 @@ const Carousel = ({ images, bare = false, onImageClick }) => {
     const containerRef = useRef(null)
     const hideTimer = useRef(null)
     const x = useMotionValue(0)
+
+    /* Pinch-to-peek on the *current* slide (touch only). A two-finger gesture co-opts the same
+     * fingers the swipe uses, so `pinching` tells onDragEnd to snap back to this slide instead
+     * of paging when the gesture unwinds. `active` is read live, so the lifted image is always
+     * the one on screen. */
+    const pinching = useRef(false)
+    const pinchOverlay = usePinchZoom(
+        containerRef,
+        () => {
+            if (!zoomable) return null
+            const img = containerRef.current?.querySelectorAll("img")?.[active]
+            if (!img) return null
+            return { src: img.currentSrc || img.src, rect: img.getBoundingClientRect() }
+        },
+        (on) => {
+            if (on) pinching.current = true
+        },
+    )
 
     /* Track the container width so drag distances/constraints stay in px. */
     useEffect(() => {
@@ -178,6 +197,13 @@ const Carousel = ({ images, bare = false, onImageClick }) => {
     }
 
     const onDragEnd = (_e, info) => {
+        /* A pinch owned these fingers — don't let the tail of it page the carousel. */
+        if (pinching.current) {
+            pinching.current = false
+            animate(x, -index * width, SPRING)
+            hidePillSoon()
+            return
+        }
         const offset = info.offset.x
         const velocity = info.velocity.x
         const threshold = width * 0.2
@@ -261,6 +287,8 @@ const Carousel = ({ images, bare = false, onImageClick }) => {
             ) : (
                 <CarouselDots count={n} active={active} />
             )}
+
+            {pinchOverlay}
         </div>
     )
 }

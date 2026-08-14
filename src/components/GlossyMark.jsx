@@ -128,16 +128,36 @@ const MARK_PATH = typeof Path2D === "undefined" ? null : MARK_PATHS.reduce((path
     return path
 }, new Path2D())
 
-/* Safari only shipped canvas filters in 17. Without them the gloss still paints —
- * the rim light and glints just land harder. */
-const supportsFilter = (ctx) => typeof ctx.filter === "string"
+/* The soft passes (rim light, counter-edge, glints) are blurred with the canvas
+ * *shadow*, not `ctx.filter`. WKWebView and the Android WebView expose `ctx.filter`
+ * as a string — so a naive feature-detect passes — but silently paint nothing
+ * through a `blur()` filter, which is why the gloss "landed hard" and read as
+ * cartoonish on device. `shadowBlur` is honoured everywhere. The trick: draw the
+ * real geometry far outside the clip and offset only its blurred shadow back into
+ * place, so nothing but the soft shadow shows. shadowBlur/shadowOffset live in
+ * output pixels (the CTM doesn't touch them), so both go through `blur()`; the
+ * escape translate is in the mark's own viewBox units. The drawn shape is painted
+ * opaque — its coverage is all the shadow needs; the tint and alpha come from
+ * `color`. */
+const BLUR_ESCAPE = 1000
+
+const paintBlurred = (ctx, blur, { color, radius, dx = 0, dy = 0 }, draw) => {
+    ctx.save()
+    ctx.shadowColor = color
+    ctx.shadowBlur = blur(radius)
+    ctx.shadowOffsetX = blur(BLUR_ESCAPE + dx)
+    ctx.shadowOffsetY = blur(BLUR_ESCAPE + dy)
+    ctx.translate(-BLUR_ESCAPE, -BLUR_ESCAPE)
+    draw(ctx)
+    ctx.restore()
+}
 
 const easeOut = (t) => 1 - Math.pow(1 - t, 3)
 
 /* Paints the mark as a single blown-glass body lit from the top-left: a base ramp
  * along the light axis, a specular bloom over each lobe, a bright rim on the
  * shaded edges, and a pair of hard glints. Coordinates are in the mark's own
- * viewBox units; `blur` converts those to the device pixels ctx.filter wants. */
+ * viewBox units; `blur` converts those to the output pixels the shadow wants. */
 const paintMark = (ctx, palette, blur) => {
     ctx.save()
     ctx.clip(MARK_PATH, "evenodd")
@@ -167,34 +187,28 @@ const paintMark = (ctx, palette, blur) => {
     /* Offsetting a blurred stroke up-left leaves its ring inside the clip only
      * along the opposite edges — so the glow lands on the bottom-right, and the
      * dark counter-stroke on the top-left. */
-    const filtered = supportsFilter(ctx)
-    ctx.save()
-    if (filtered) ctx.filter = `blur(${blur(5)}px)`
-    ctx.lineWidth = 10
-    ctx.strokeStyle = withAlpha(palette.rim, 0.85)
-    ctx.translate(-3.5, -3.5)
-    ctx.stroke(MARK_PATH)
-    ctx.restore()
+    paintBlurred(ctx, blur, { color: withAlpha(palette.rim, 0.85), radius: 5, dx: -3.5, dy: -3.5 }, (c) => {
+        c.lineWidth = 10
+        c.strokeStyle = "#000"
+        c.stroke(MARK_PATH)
+    })
 
-    ctx.save()
-    if (filtered) ctx.filter = `blur(${blur(7)}px)`
-    ctx.lineWidth = 12
-    ctx.strokeStyle = withAlpha("#000000", 0.22)
-    ctx.translate(4, 4)
-    ctx.stroke(MARK_PATH)
-    ctx.restore()
+    paintBlurred(ctx, blur, { color: withAlpha("#000000", 0.22), radius: 7, dx: 4, dy: 4 }, (c) => {
+        c.lineWidth = 12
+        c.strokeStyle = "#000"
+        c.stroke(MARK_PATH)
+    })
 
     MARK_LOBES.forEach((lobe) => {
         const r = lobe.r * W
-        ctx.save()
-        if (filtered) ctx.filter = `blur(${blur(1.6)}px)`
-        ctx.fillStyle = withAlpha(palette.glint, 0.9)
-        ctx.translate(lobe.x * W - 0.58 * r, lobe.y * H - 0.58 * r)
-        ctx.rotate(-Math.PI / 4)
-        ctx.beginPath()
-        ctx.ellipse(0, 0, 0.19 * r, 0.075 * r, 0, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.restore()
+        paintBlurred(ctx, blur, { color: withAlpha(palette.glint, 0.9), radius: 1.6 }, (c) => {
+            c.fillStyle = "#000"
+            c.translate(lobe.x * W - 0.58 * r, lobe.y * H - 0.58 * r)
+            c.rotate(-Math.PI / 4)
+            c.beginPath()
+            c.ellipse(0, 0, 0.19 * r, 0.075 * r, 0, 0, Math.PI * 2)
+            c.fill()
+        })
     })
 
     ctx.restore()

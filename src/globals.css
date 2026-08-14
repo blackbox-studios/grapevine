@@ -65,11 +65,20 @@
     /* Native display cutouts. Zero in a plain browser; real values once the page opts
        into viewport-fit=cover (notched phones, and the Capacitor WebView, which draws
        edge-to-edge under the status bar and home indicator). Everything that hugs a
-       screen edge pads by these rather than assuming the edge is safe. */
-    --safe-top: env(safe-area-inset-top, 0px);
-    --safe-right: env(safe-area-inset-right, 0px);
-    --safe-bottom: env(safe-area-inset-bottom, 0px);
-    --safe-left: env(safe-area-inset-left, 0px);
+       screen edge pads by these rather than assuming the edge is safe.
+
+       Two sources, in that order, because the platforms disagree. iOS and mobile browsers
+       answer env(safe-area-inset-*). Android's WebView does not report those reliably, so
+       Capacitor measures the real window insets natively and sets --safe-area-inset-* on
+       <html> instead (its SystemBars `insetsHandling: "css"`, on by default) — which is
+       the only source that works there, and matters because the app targets an Android
+       version where edge-to-edge is enforced and cannot be opted out of. The var() comes
+       first so the measured value wins wherever it exists and env() covers everywhere
+       else; both fall back to 0 in a desktop browser. */
+    --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+    --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
     /* The mobile rail's real footprint: its own height plus the home-indicator inset it
        sits on top of. Use this — not --bottombar-height — to clear or align to the rail. */
     --bottombar: calc(var(--bottombar-height) + var(--safe-bottom));
@@ -191,6 +200,50 @@
   }
   p{
     @apply tracking-[-0.015em]
+  }
+
+  /* Google Material Symbols, self-hosted rather than pulled from fonts.googleapis.com.
+     The icon set is the app's entire UI vocabulary (see components/Icon.jsx), and a
+     hosted stylesheet makes it a network dependency: offline — which for a packaged
+     native app means "in a tunnel", not "never" — the font never arrives and every
+     <Icon> falls back to rendering its ligature name as literal text ("arrow_back",
+     "more_horiz") all over the interface. Bundling it removes that failure mode and the
+     request. This is the same static instance the CDN was serving for the axis tuple the
+     app asks for (opsz 24, wght 300, FILL 0, GRAD 0), so nothing changes visually.
+
+     The .material-symbols-rounded rules below came with that stylesheet and are what
+     turn a name into a glyph, so they have to be restated here — `liga` is the whole
+     mechanism (the ligature that maps "arrow_back" to the icon), and the element must
+     stay non-wrapping and LTR or a multi-word name breaks apart. font-size is the
+     font's own 24px default; <Icon>'s size variants override it.
+
+     `font-display: block` rather than the `swap` the text faces use: swapping would
+     paint the ligature name in the fallback face for the first frames, so the UI would
+     flash the words "arrow_back" before settling into the glyph. Blocking shows nothing
+     until the face is ready, which for a bundled font is immediate. */
+  @font-face {
+    font-family: 'Material Symbols Rounded';
+    font-style: normal;
+    font-weight: 300;
+    font-display: block;
+    src: url('./assets/fonts/MaterialSymbols/MaterialSymbolsRounded.woff2') format('woff2');
+  }
+
+  .material-symbols-rounded {
+    font-family: 'Material Symbols Rounded';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
   }
 
   @font-face {

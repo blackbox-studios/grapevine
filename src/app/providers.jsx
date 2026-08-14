@@ -11,7 +11,7 @@ export default function Providers({ children }) {
     return (
         <ThemeProvider
             attribute="class"
-            defaultTheme="dark"
+            defaultTheme="system"
             enableSystem
             storageKey="synaxis-ui-theme"
             disableTransitionOnChange

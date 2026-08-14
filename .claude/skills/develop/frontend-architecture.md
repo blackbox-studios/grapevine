@@ -17,7 +17,8 @@ This document describes the frontend architecture and the patterns ALL agents mu
 | Styling | **Tailwind CSS v4** (via `@tailwindcss/postcss`) |
 | Animation | `motion` (Framer Motion) |
 | Theming | **`next-themes`** (class strategy, `storageKey` `synaxis-ui-theme`) |
-| Auth gate | **`middleware.js`** reading the `synaxis-auth` cookie (mock auth) |
+| Auth gate | **`components/AuthGate.jsx`** reading the persisted store (mock auth) |
+| Native shell | **Capacitor 8** (iOS + Android) over a static export — see `native-architecture.md` |
 | Component Library | **shadcn/ui** (radix-ui primitives) — `components.json` at the repo root |
 | Icons | **Google Material Symbols** via the local `<Icon>` component |
 | SVG | **`@svgr/webpack`** (configured in `next.config.mjs`) — SVGs are imported as React components |
@@ -28,7 +29,8 @@ This document describes the frontend architecture and the patterns ALL agents mu
 Reference files:
 
 - `package.json` — dependency list
-- `next.config.mjs` — Next config (SVGR via `@svgr/webpack` for both webpack and Turbopack; optional `basePath` from `NEXT_PUBLIC_BASE_PATH`)
+- `next.config.mjs` — Next config (SVGR via `@svgr/webpack` for both webpack and Turbopack; optional `basePath` from `NEXT_PUBLIC_BASE_PATH`; `output: "export"` when `NEXT_PUBLIC_NATIVE=1`)
+- `capacitor.config.json` — native app id/name, `webDir: "out"`, plugin options
 - `postcss.config.mjs` — Tailwind v4 via `@tailwindcss/postcss`
 - `jsconfig.json` — `@/*` → `./src/*` alias (Next reads this for path resolution)
 - `components.json` — shadcn config
@@ -48,14 +50,13 @@ Reference files:
 
 ```
 ├── src/
-│   ├── middleware.js                # Server-side auth gate (reads the synaxis-auth cookie)
 │   ├── app/                         # Next.js App Router — routes are folders
-│   │   ├── layout.jsx               # Root layout: <html>/<body>, globals.css, Material Symbols <link>,
-│   │   │                            #   metadata; renders <Providers> + <App/>
+│   │   ├── layout.jsx               # Root layout: <html>/<body>, globals.css, viewport/metadata,
+│   │   │                            #   the native boot guard; renders <Providers> + <App/>
 │   │   ├── providers.jsx            # "use client": next-themes ThemeProvider + Tooltip/Scroll + <Toaster/>
 │   │   ├── App.jsx                  # "use client", renders null: initAuthorizedStores + useErrorListener
 │   │   ├── (public)/                # Route group (no URL segment) — unauthenticated
-│   │   │   ├── layout.jsx           # <Grain/> + <PageTransition/> (auth handled by middleware)
+│   │   │   ├── layout.jsx           # <PublicGate> + <Grain/> + <PageTransition/>
 │   │   │   └── login/page.jsx       # /login
 │   │   └── (protected)/             # Route group — authenticated shell
 │   │       ├── layout.jsx           # Nav + topbar + top-level <PageTransition/> around {children}
@@ -404,7 +405,7 @@ Hook rules:
 
   // lib/store/auth/store.js
   login: async (_email, _password, router) => {
-      // ...set loggedIn + synaxis-auth cookie...
+      // ...set loggedIn + user...
       router.replace(ROUTES.DEFAULT)
   }
   ```
@@ -568,7 +569,7 @@ Routing is **Next.js App Router** file convention under `src/app/`. A folder is 
 - `app/(public)/` — unauthenticated (`/login`).
 - `app/(protected)/` — the authenticated shell (nav + topbar). Its `[...not-found]/page.jsx` catch-all renders the 404 **inside** the shell (replacing the old `path: '*'`).
 
-Both groups are gated by `middleware.js` (see Route guards below), not by wrapper components.
+Both groups are gated by the wrapper components in `components/AuthGate.jsx` (see Route guards below).
 
 To add a route: create the folder + `page.jsx`. Navigate with `next/link`'s `<Link href>` and `next/navigation`'s `useRouter()` / `usePathname()` — never `react-router`. Route constants still live in `ROUTES` (`lib/constants.js`); keep using them for `href`s.
 
@@ -632,31 +633,35 @@ A **slide route** is a real, shareable URL that, when reached by a soft nav from
 
 Three properties make it more than a modal:
 
-- **The surface behind stays mounted** — the feed keeps its scroll position and never refetches, because the route is *intercepted* (`@modal/(.)p/[postId]`).
+- **The surface behind stays mounted** — the feed keeps its scroll position and never refetches, because opening one changes the URL *without* changing the rendered route.
 - **The push is coupled** — the incoming surface and the base are both a full viewport wide and both translate a full viewport on the same `SLIDE_TRANSITION` curve, so their touching edges stay locked together for the whole gesture. Same distance is what makes it read as one movement; different distances on the same curve visibly decouple.
 - **It animates out before unmounting** — dismissal plays the exit to completion, with content intact, then unmounts.
 
-#### The one non-obvious constraint (read before changing anything)
+#### How the URL changes without the route changing
 
-**Next tears down a parallel-route slot's subtree the instant the route changes.** A surface rendered *inside* the `@modal` slot is therefore destroyed before `AnimatePresence` can retain it — you get no exit animation at all, just a blank. Wrapping `{modal}` in `AnimatePresence` does not help; the router, not your reconciliation, owns that subtree.
+Next gives exactly one primitive for "new URL, same route": **`history.pushState`**, which the App Router treats as a URL sync and reflects through `usePathname` without touching the segment tree. So `openSlide(path)` is a `pushState` and `closeSlide()` is a `history.back()` — which is also why Android's hardware back button dismisses a slide route for free, with no handler registered.
 
-So the responsibilities are split:
+Two rules follow:
 
-- The **interceptor page renders `null`.** Its only jobs are (a) existing, which is what keeps the page underneath mounted, and (b) calling `useSlideRoute(prefix)` to declare itself. Its mount/unmount is also the only reliable **soft- vs hard-nav signal**: on a cold load the slot falls back to `default.jsx` and never mounts.
-- The **shell owns the surface.** `<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) renders it inside the layout's own `AnimatePresence`. That instance lives in the persistent layout, so it survives the slot teardown, and `AnimatePresence` retains the element — props and all — through the exit. That retention is also why the surface never blanks mid-animation: it keeps the param it opened with even though the route has already changed.
+- **Open with `openSlide(path)`, never `router.push`.** A real navigation unmounts the surface underneath, which is the one thing a slide route can't survive.
+- **Dismiss with `closeSlide()`**, which unwinds the entry it pushed. It returns `false` when there is no entry to unwind (a cold deep link) — then navigate to the base route instead. See `PostView`'s `dismiss`.
+
+The tradeoff to know about: while a slide route is open, the router's segment tree says the app is on the base route while the URL says otherwise. The next real navigation is computed from the tree and lands correctly, so this resolves itself.
+
+> **History note.** This replaced an `@modal/(.)p/[postId]` intercepting route, which held the base mounted by asking Next to intercept. `output: "export"` — the native build, see `native-architecture.md` — rejects intercepting routes outright. The shallow version is also simpler: no parallel slot, no `default.jsx`, no interceptor page, and none of the slot-teardown hazards those carried.
 
 `<SlideBase/>` is the other half: it wraps the shell's page (an ordinary flow element — see **Scrolling** below) and drives the coupled push. It slides only on mobile — desktop presents slide routes as a centered dialog over a still base. Because the document keeps its scroll offset through a pure horizontal transform, and the surface freezes the document while it's up, the base is exactly where the reader left it on dismiss.
 
-Navigate to a slide route with `router.push(path, { scroll: false })`. Without it Next rewinds the base to the top the moment the URL changes.
+`<SlideRouter/>` (mounted last in `app/(protected)/layout.jsx`) owns the surface, inside the layout's own `AnimatePresence`. Living in the persistent layout is what lets `AnimatePresence` retain the element — props and all — through the exit, so the surface keeps the param it opened with and never blanks mid-animation.
 
 #### Open/close gating
 
 `useActiveSlide()` reports `open` only when **both** are true:
 
 - the **pathname** matches a registered slide route, and
-- an **interceptor is mounted** for that route.
+- that exact path is the one **the app itself opened** (`openedPath`, module-level state in `useSlideRoute.hook.js`).
 
-Both halves are load-bearing. The interceptor gate keeps hard-nav deep links out of the overlay (the standalone page handles those). The pathname gate closes the overlay the moment you navigate anywhere else — necessary because **Next does not reset a parallel slot on a soft nav to a non-matching route** (`default.jsx` only applies on a hard load), so the interceptor can linger with a stale prefix after you tap another nav tab.
+Both halves are load-bearing. The `openedPath` half is the **soft- vs cold-load signal**: a cold load of `/p/:id` (a shared link, or the standalone page) has a matching pathname but nothing mounted behind it, so it must render as an ordinary page rather than an overlay. The pathname half closes the surface the moment the URL moves anywhere else — dismissal or a tap on another nav tab — with nothing to reset, which is why `openedPath` stores the path rather than a boolean.
 
 #### Adding a new slide route
 
@@ -686,60 +691,52 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
    }
    ```
 
-4. **Add the two route files** — the interceptor and the standalone page:
+4. **Add the standalone page** that serves the same URL when it's opened cold. Because the app is statically exported, a dynamic segment **must** enumerate its paths, which means this file is a Server Component (no `"use client"`) so it can export `generateStaticParams`:
 
    ```jsx
-   // app/(protected)/@modal/(.)u/[handle]/page.jsx — renders nothing on purpose
-   "use client"
-   const UserModal = () => {
-       useSlideRoute(ROUTES.USER)
-       return null
-   }
-
    // app/(protected)/u/[handle]/page.jsx — the cold deep link
-   "use client"
-   const UserPage = () => {
-       const { handle } = useParams()
+   import UserView from "@/components/UserView"
+   import { userHandles } from "@/lib/metadata"
+
+   export const generateStaticParams = () => userHandles().map((handle) => ({ handle }))
+
+   const UserPage = async ({ params }) => {
+       const { handle } = await params
        return <UserView variant="page" handle={handle} />
    }
    ```
 
    The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` page wrapper — which a slide route may be mid-transform on — and covers the viewport.
 
-Nothing in `app/(protected)/layout.jsx` changes — it already renders `{modal}` and `<SlideRouter/>` generically.
+5. **Open it with `openSlide`** from the trigger (see `Feed.jsx`'s `openPost`), not `router.push`.
 
-> **Dev gotcha:** adding a new parallel-slot segment usually requires restarting `next dev` before the route manifest picks it up.
+Nothing in `app/(protected)/layout.jsx` changes — it already renders `<SlideRouter/>` generically.
 
 #### Rules
 
 - **Never** re-derive slide-route behaviour inline (`pathname.startsWith("/p/")`) in a component. Use the resolvers, or add to the registry.
-- **Never** move the surface back into the `@modal` slot to "simplify" — that's the teardown trap above, and it silently removes the exit animation.
+- **Never** open one with `router.push` — that unmounts the base and the push has nothing to slide.
 - Keep the surface and `<SlideBase/>` on the **same distance, curve, and trigger**. If you change one, change the other; if they diverge, the push decouples.
 - Give the surface a stable key across open→dismiss (handled for you by `SlideRouter`, which keys off the route prefix) so `AnimatePresence` tracks a single instance rather than remounting it.
 
-### Route guards — `middleware.js` (the out-of-the-box way)
+### Route guards — `components/AuthGate.jsx`
 
-There are **no client guard components** (no `ProtectedRoute`/`PublicRoute`). Auth redirects are done server-side by `src/middleware.js`, the idiomatic Next.js approach — it runs on every matched request (including client-side navigations) before the page renders, so there's no flash and no `mounted` gate.
+Auth redirects are done by two client wrapper components, each applied once at the top of its route group's layout:
 
-Because the mock auth is client state, middleware needs something server-readable: the auth store writes an **`synaxis-auth` cookie** on login and clears it on logout (`lib/store/auth/store.js`), and middleware gates on that cookie.
-
-```js
-// src/middleware.js (essence)
-export function middleware(request) {
-    const authed = request.cookies.has("synaxis-auth")
-    const onLogin = request.nextUrl.pathname === "/login"
-    if (!authed && !onLogin) return NextResponse.redirect(new URL("/login", request.url))
-    if (authed && onLogin)  return NextResponse.redirect(new URL("/", request.url))
-    return NextResponse.next()
-}
-export const config = { matcher: ["/((?!api|_next/static|_next/image|.*\\.).*)"] }
+```jsx
+// app/(protected)/layout.jsx        // app/(public)/layout.jsx
+<ProtectedGate>{/* shell */}</ProtectedGate>   <PublicGate>{children}</PublicGate>
 ```
 
-So the cookie is the **server-side gate** and the Zustand store (`loggedIn`/`user`, persisted to localStorage) is the **client UI state** — both written together on login, cleared together on logout. When wiring a real backend, replace the cookie write with an HTTP-only session cookie set by the login response and this middleware keeps working unchanged.
+Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so the `localStorage` value has rehydrated, then redirects on a mismatch and renders `null` until it is satisfied — so protected content is never painted for a signed-out visitor.
+
+**This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `synaxis-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
+
+Full detail, and how to attach a real session, is in `auth-architecture.md`.
 
 ### Role-gated visibility (`<Privileged/>`, `<PrivilegedRoute/>`)
 
-> **Forward-looking:** role gating (`Privileged`, `PrivilegedRoute`, `ROLES`, `ROLE_LEVEL`) is not yet built in this slimmed repo — `components/Auth.jsx` was removed with the route guards (auth is now `middleware.js`). When you add roles, recreate `components/Auth.jsx` as the home for these client-side visibility helpers (route-level protection still belongs in `middleware.js`). The pattern below is the intended convention.
+> **Forward-looking:** role gating (`Privileged`, `PrivilegedRoute`, `ROLES`, `ROLE_LEVEL`) is not yet built in this slimmed repo. When you add roles, recreate `components/Auth.jsx` as the home for these client-side visibility helpers; route-level protection belongs alongside the gates in `components/AuthGate.jsx`. The pattern below is the intended convention.
 
 Roles are hierarchical (`BASIC` < `ADMIN` < `PROVISIONER`; compare via `ROLE_LEVEL` in `lib/constants.js`). Use the helpers in `components/Auth.jsx`:
 

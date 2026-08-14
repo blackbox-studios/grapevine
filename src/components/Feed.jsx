@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { useRouter } from "next/navigation"
 import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
@@ -14,6 +13,7 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
@@ -70,23 +70,20 @@ const PostCard = ({ post }) => {
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
     const isDesktop = useIsDesktop()
-    const router = useRouter()
 
     const { handle, name, avatar, verified } = post.author
 
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
 
-    /* Opening a post always routes to `/p/:id` — soft-navigation interception overlays
-     * it on the live feed (the adaptive PostView: a centered dialog on desktop, a
-     * swipe-in sheet on mobile) without unmounting the feed, and the URL is shareable.
-     *
-     * `scroll: false` is load-bearing here: the feed is the document, so Next's default
-     * scroll-to-top would rewind it to the first post behind the overlay and drop the
-     * reader back at the top on dismiss. */
+    /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
+     * than router.push: the surface overlays the *live* feed (the adaptive PostView: a
+     * centered dialog on desktop, a swipe-in sheet on mobile), so the feed has to stay
+     * mounted with its scroll offset untouched. A real navigation would unmount it and
+     * drop the reader back at the top on dismiss. See useSlideRoute.hook.js. */
     const openPost = useCallback(() => {
-        router.push(postPath(post.id), { scroll: false })
-    }, [router, post.id])
+        openSlide(postPath(post.id))
+    }, [post.id])
 
     /* The comment icon opens that same post surface on desktop; on mobile it keeps the
      * lightweight bottom drawer (comments only, feed stays put behind it). */

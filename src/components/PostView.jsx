@@ -14,6 +14,7 @@ import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useScrollLock } from "@/lib/hooks/useScroll.hook"
+import { closeSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePost } from "@/lib/store/feed/hook"
 import { appPath, cn, SLIDE_TRANSITION } from "@/lib/utils"
 
@@ -75,10 +76,10 @@ const NotFound = () => (
  *    comment thread, with a back header. It swipes in from the right (the layout
  *    slides the feed left behind it) and back out on dismiss.
  *
- * `variant="modal"` is the intercepted soft-nav overlay — this component is the
- * registered surface for the `/p` slide route, rendered by <SlideRouter/> in the shell
- * (not by the `@modal` slot) so the instance outlives the slot teardown and can animate
- * out with its `postId` intact. `variant="page"` is the hard-nav / deep-link fallback
+ * `variant="modal"` is the in-app overlay — this component is the registered surface for
+ * the `/p` slide route, rendered by <SlideRouter/> in the shell so the instance outlives
+ * the URL change that opened it and can animate out with its `postId` intact.
+ * `variant="page"` is the hard-nav / deep-link fallback
  * (portaled to <body> so it escapes the shell's page wrapper and covers the viewport);
  * it passes the id from the route params. */
 const PostView = ({ variant = "modal", postId }) => {
@@ -88,9 +89,12 @@ const PostView = ({ variant = "modal", postId }) => {
 
     const { post } = usePost(postId)
 
+    /* Unwinding the history entry openSlide pushed is what dismisses the overlay, so the
+     * close button, Escape, and the hardware/browser back gesture are all one action.
+     * A cold deep link has no such entry (this is the `page` variant, opened straight from
+     * a shared URL), so there is nothing to unwind and the base route is the way out. */
     const dismiss = useCallback(() => {
-        if (window.history.length > 1) router.back()
-        else router.push(ROUTES.DEFAULT)
+        if (!closeSlide()) router.push(ROUTES.DEFAULT)
     }, [router])
 
     /* Escape closes the surface — the dialog affordance Radix used to give us. */

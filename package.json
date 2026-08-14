@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/patch-route-manifests.mjs",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "build:native": "NEXT_PUBLIC_NATIVE=1 next build",

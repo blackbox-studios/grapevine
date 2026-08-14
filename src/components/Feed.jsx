@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
+import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { Avatar } from "@/components/Widgets"
@@ -84,6 +85,17 @@ const PostCard = ({ post }) => {
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
 
+    /* Pinch-to-peek the single-image card in place (touch only): a two-finger gesture lifts a
+     * clone of the photo above the feed and springs it back on release. The tap that opens the
+     * post is untouched — a pinch is multi-touch, so it never fires a click. Carousels handle
+     * their own pinch via the `zoomable` prop below. */
+    const singleMediaRef = useRef(null)
+    const mediaPinch = usePinchZoom(singleMediaRef, () => {
+        const img = singleMediaRef.current?.querySelector("img")
+        if (!img) return null
+        return { src: img.currentSrc || img.src, rect: img.getBoundingClientRect() }
+    })
+
     /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
      * than router.push: the surface overlays the *live* feed (the adaptive PostView: a
      * centered dialog on desktop, a swipe-in sheet on mobile), so the feed has to stay
@@ -143,11 +155,12 @@ const PostCard = ({ post }) => {
              * padded, rounded column. The surrounding text keeps the gutter either way. */}
             {images.length > 1 ? (
                 <div className="-mx-4 md:mx-0">
-                    <Carousel images={images} onImageClick={openPost} />
+                    <Carousel images={images} onImageClick={openPost} zoomable />
                 </div>
             ) : (
                 images.length === 1 && (
                     <button
+                        ref={singleMediaRef}
                         type="button"
                         onClick={openPost}
                         aria-label="Open post"
@@ -160,6 +173,7 @@ const PostCard = ({ post }) => {
                             height={post.height}
                             className="h-auto w-full"
                         />
+                        {mediaPinch}
                     </button>
                 )
             )}

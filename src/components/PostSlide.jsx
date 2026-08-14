@@ -5,6 +5,7 @@ import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
+import PinchZoom from "@/components/PinchZoom"
 import { PostCommentsThread } from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMediaSkeleton } from "@/components/Skeleton"
@@ -37,7 +38,9 @@ const SlideMedia = ({ post }) => {
         )
     }
 
-    return <img src={appPath(images[0])} alt="" className="w-full" />
+    /* A single photo can be pinched to peek closer (touch only); the carousel above keeps its
+     * swipe gesture and is left as-is. */
+    return <PinchZoom src={appPath(images[0])} className="w-full" imgClassName="block w-full" />
 }
 
 /* One action in the Reels-style rail: a big icon over a compact tally. White with a drop

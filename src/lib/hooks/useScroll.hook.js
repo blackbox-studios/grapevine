@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { animate, useMotionValue, useMotionValueEvent, useScroll as useMotionScroll, useTransform } from "motion/react"
 
 import { useScroll } from "@/lib/providers/Scroll"
+import { haptic } from "@/lib/native"
 
 /* Everything scroll-related, in one place. The app scrolls a fixed, viewport-height
  * container in the shell (see ScrollProvider) rather than the document, so these all
@@ -96,10 +97,12 @@ export const usePullToRefresh = (onRefresh) => {
         let startY = 0
         let tracking = false /* a touch began at the top, gesture not yet decided */
         let active = false /* we've committed to owning a downward pull */
+        let armed = false /* pulled past the threshold — a release now would refresh */
 
         const reset = () => {
             tracking = false
             active = false
+            armed = false
         }
 
         const onStart = (e) => {
@@ -131,7 +134,18 @@ export const usePullToRefresh = (onRefresh) => {
 
             /* Own the drag: hold the container still and rubber-band the content down instead. */
             e.preventDefault()
-            y.set(Math.min(dy * PULL_RESISTANCE, PULL_MAX))
+            const pulled = Math.min(dy * PULL_RESISTANCE, PULL_MAX)
+            y.set(pulled)
+
+            /* A single tap the instant the pull crosses the trigger point — so the reader feels
+             * that letting go now will refresh, the same notch iOS gives. Latches on `armed` so
+             * it fires once per crossing, not on every touchmove past the threshold. */
+            if (!armed && pulled >= PULL_THRESHOLD) {
+                armed = true
+                haptic()
+            } else if (armed && pulled < PULL_THRESHOLD) {
+                armed = false
+            }
         }
 
         const onEnd = () => {
@@ -170,4 +184,30 @@ export const usePullToRefresh = (onRefresh) => {
     }, [y, scrollRef])
 
     return { y, progress, refreshing }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Infinite scroll                                                            */
+/* -------------------------------------------------------------------------- */
+
+/* Fetch the next page before the reader hits the end. Rides framer-motion's scroll
+ * position on the shell's scroll container (the same container everything else here reads):
+ * `scrollYProgress` runs 0→1 over the scrollable range, so crossing `threshold` means the
+ * reader is within the last stretch of what's loaded, and it's time to page in more.
+ *
+ * `onLoadMore` is expected to be a no-op when there's nothing to fetch or a fetch is
+ * already in flight (the feed store guards both), so this can fire freely while scrolling
+ * through the trigger zone. Pass `enabled: false` to stop paging once the list is exhausted. */
+export const useInfiniteScroll = (onLoadMore, { enabled = true, threshold = 0.8 } = {}) => {
+    const { scrollRef } = useScroll()
+    const { scrollYProgress } = useMotionScroll({ container: scrollRef })
+
+    /* Ref so the event handler always sees the latest callback and `enabled` without
+     * re-subscribing; the guard lives in the store, so firing repeatedly here is cheap. */
+    const onLoadMoreRef = useRef(onLoadMore)
+    onLoadMoreRef.current = onLoadMore
+
+    useMotionValueEvent(scrollYProgress, "change", (progress) => {
+        if (enabled && progress >= threshold) onLoadMoreRef.current?.()
+    })
 }

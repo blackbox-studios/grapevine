@@ -15,6 +15,7 @@ import More from "@/assets/svg/icons/more.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
@@ -267,30 +268,47 @@ const PostCard = ({ post }) => {
  * The feed is paginated over the wire (`GET /api/feed?cursor=`), so this only ever holds
  * the pages that have been asked for; `hasMore` comes from the server's cursor being
  * non-null, never from a known total. */
-const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) => (
-    <div className="flex flex-col">
-        {posts.map((post) => (
-            <div key={post.id} className="py-6 first:pt-0">
-                <PostCard post={post} />
-            </div>
-        ))}
+const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) => {
+    /* Auto-load the next page as the reader nears the end, driven off the scroll container's
+     * position — only armed while there's more to fetch. The button below stays as a manual
+     * fallback (and its spinner is the visible "loading" state) for the rare case the content
+     * is too short to scroll into the trigger zone. */
+    useInfiniteScroll(onLoadMore, { enabled: hasMore })
 
-        {hasMore && (
-            <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={loadingMore}
-                aria-label="Load more posts"
-                className="flex w-full cursor-pointer justify-center py-6 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
-            >
-                {loadingMore ? (
-                    <Ripple aria-label="Loading posts" className="size-8 [&_circle]:stroke-current" />
-                ) : (
-                    <More className="size-6" />
-                )}
-            </button>
-        )}
-    </div>
-)
+    return (
+        <div className="flex flex-col">
+            {posts.map((post) => (
+                /* `initial`/`animate` only run when a node first mounts, so appended pages fade
+                 * in while the rows already on screen stay put — React keeps their motion state
+                 * across the re-render. The whole first page mounts together and fades in as one. */
+                <motion.div
+                    key={post.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="py-6 first:pt-0"
+                >
+                    <PostCard post={post} />
+                </motion.div>
+            ))}
+
+            {hasMore && (
+                <button
+                    type="button"
+                    onClick={onLoadMore}
+                    disabled={loadingMore}
+                    aria-label="Load more posts"
+                    className="flex w-full cursor-pointer justify-center py-6 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
+                >
+                    {loadingMore ? (
+                        <Ripple aria-label="Loading posts" className="size-8 [&_circle]:stroke-current" />
+                    ) : (
+                        <More className="size-6" />
+                    )}
+                </button>
+            )}
+        </div>
+    )
+}
 
 export default Feed

@@ -3,6 +3,8 @@ import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
+import { mockId } from '@/lib/mock'
+import useAuthStore from '@/lib/store/auth/store'
 import { toErrorList } from '@/lib/utils'
 
 /* The dashboard feed: one paginated list of posts, and nothing else.
@@ -16,11 +18,13 @@ import { toErrorList } from '@/lib/utils'
 
 const ERROR_INIT = {
     list: false,
+    publish: false,
 }
 
 const LOADING_INIT = {
     list: false,
     more: false,
+    publish: false,
 }
 
 const INIT = {
@@ -94,6 +98,80 @@ const useStore = create(immer((set, get) => ({
             })
         } finally {
             set(state => { state.loading.more = false })
+        }
+    },
+
+    /* Publishes a post into a group and puts it at the top of the feed.
+     *
+     * **Creation lives here, not in the `post` store.** That store owns writes to a post
+     * that already exists, because the same post can be on screen twice and both copies
+     * have to move together. A post being created has no copies — it is an insertion into
+     * this list, and this list owns its own contents.
+     *
+     * Admin-only, and the real check is the server's: `requireMembership(..., { role:
+     * "ADMIN" })` runs before anything is written. The composer is hidden from members as
+     * a courtesy, not as a control.
+     *
+     * Optimistic in the same shape as a new comment: the row appears immediately under a
+     * temporary id and marked `pending`, then is swapped for the created resource — which
+     * carries the real id, the server's timestamp, and the author it stamped. A failure
+     * removes the row and parks the error. */
+    publish: async ({ orgId, title, body, media = [] }) => {
+        if (!orgId || !body?.trim()) return null
+
+        const user = useAuthStore.getState().user
+        const tempId = mockId('pending')
+        /* The group's display name, resolved from the viewer's own memberships rather than
+         * borrowed from whatever happens to be at the top of the feed — which is null on
+         * an empty feed and wrong the moment a viewer belongs to more than one group. */
+        const groupName = user?.orgs?.find(org => org.id === orgId)?.name ?? null
+
+        set(state => {
+            state.loading.publish = true
+            state.error.publish = false
+            state.items.unshift({
+                id: tempId,
+                author: user
+                    ? {
+                          handle: user.handle,
+                          name: user.fullName,
+                          avatar: user.avatar,
+                          verified: user.verified,
+                      }
+                    : null,
+                group: groupName,
+                createdAt: new Date().toISOString(),
+                title: title ?? null,
+                body,
+                /* Mirror the media shape the server will send back, so the card doesn't
+                 * reflow when the optimistic row is replaced. */
+                ...(media.length === 1
+                    ? { image: media[0].url, width: media[0].width, height: media[0].height }
+                    : {}),
+                ...(media.length > 1 ? { images: media.map(item => item.url) } : {}),
+                likes: 0,
+                likedBy: null,
+                comments: 0,
+                liked: false,
+                pending: true,
+            })
+        })
+
+        try {
+            const post = await api.post(API_ENDPOINTS.POSTS, { orgId, title, body, media })
+            set(state => {
+                const index = state.items.findIndex(item => item.id === tempId)
+                if (index !== -1) state.items[index] = post
+            })
+            return post
+        } catch (error) {
+            set(state => {
+                state.items = state.items.filter(item => item.id !== tempId)
+                state.error.publish = toErrorList(error, 'Could not publish your post.')
+            })
+            return null
+        } finally {
+            set(state => { state.loading.publish = false })
         }
     },
 

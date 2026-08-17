@@ -1,4 +1,5 @@
 import { API_BASE, ERROR_CODES } from "@/lib/constants"
+import { accessToken } from "@/lib/supabase"
 
 /* The one error type every failed request throws, success or network fault alike, so a
  * store's `catch` never has to inspect `res.ok`, `res.status`, or a response body.
@@ -32,11 +33,27 @@ class API {
         const query = params ? `?${new URLSearchParams(params).toString()}` : ""
         const url = `${API_BASE}${endpoint}${query}`
 
+        /* The Supabase access token, as a bearer header.
+         *
+         * A header rather than a cookie, because the native app is cross-origin against a
+         * deployed API (`capacitor://localhost` → `https://synaxis.chat/api`) and a
+         * third-party cookie is not something to build a session on. The token is read
+         * fresh per request — `accessToken()` refreshes it if it has expired — so it must
+         * never be hoisted or cached, or a long session starts 401ing when the token
+         * behind it rotates.
+         *
+         * Absent when signed out, which is correct: the request goes out anonymous and the
+         * server answers 401. */
+        const token = await accessToken().catch(() => null)
+
         let res
         try {
             res = await fetch(url, {
                 method: method.toUpperCase(),
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 credentials: "include",
                 ...rest,
                 ...(body ? { body: JSON.stringify({ ...body }) } : {}),
@@ -59,11 +76,18 @@ class API {
         const json = await res.json().catch(() => null)
 
         if (!res.ok) {
-            /* TODO: once a real session exists, a 401 on anything other than the login /
-             * session endpoints means the session expired, and the app should sign out
-             * rather than toast. Do it by importing the auth store lazily here (a
-             * top-level import would make api.js ↔ auth/store.js circular). Mock auth
-             * never issues a 401, so there is nothing to trigger it yet. */
+            /* A 401 means the session is over — the token expired past refresh, was
+             * revoked, or the account was removed. Toasting "sign in to continue" while
+             * leaving a signed-in shell on screen would be a dead end, so the app signs
+             * out and the route gates take the viewer to /login.
+             *
+             * The auth store is imported lazily, inside the branch: a top-level import
+             * would make api.js ↔ auth/store.js circular, since the store imports this
+             * file to fetch the profile. */
+            if (res.status === 401) {
+                const { default: useAuthStore } = await import("@/lib/store/auth/store")
+                useAuthStore.getState().expire()
+            }
             throw new ApiError({ ...(json?.error ?? {}), status: res.status })
         }
 

@@ -127,7 +127,7 @@ const PostCard = ({ post }) => {
                             </Icon>
                         )}
                         <span className="whitespace-nowrap text-sm text-muted-foreground">
-                            • {timeAgoCompact(now, new Date(post.created_at).getTime())}
+                            • {timeAgoCompact(now, new Date(post.createdAt).getTime())}
                         </span>
                     </div>
                     {post.group && (
@@ -252,11 +252,14 @@ const PostCard = ({ post }) => {
                     <span>
                         Liked by{" "}
                         <span className="font-semibold">{post.likedBy}</span>
+                        {/* "and 1 others" was reachable the moment like counts became real
+                          * rather than seeded prose — a post with exactly two likes hits it. */}
                         {post.likes > 1 && (
                             <>
                                 {" "}and{" "}
                                 <span className="font-semibold">
-                                    {(post.likes - 1).toLocaleString()} others
+                                    {(post.likes - 1).toLocaleString()}{" "}
+                                    {post.likes === 2 ? "other" : "others"}
                                 </span>
                             </>
                         )}
@@ -298,9 +301,13 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
                 <motion.div
                     key={post.id}
                     initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    /* A just-published post is on screen before the server has confirmed
+                     * it, so it renders dimmed and inert until the created resource
+                     * replaces it — nothing should be likeable or openable while it still
+                     * has a temporary id. */
+                    animate={{ opacity: post.pending ? 0.5 : 1 }}
                     transition={{ duration: 0.35, ease: "easeOut" }}
-                    className="py-6 first:pt-0"
+                    className={cn("py-6 first:pt-0", post.pending && "pointer-events-none")}
                 >
                     <PostCard post={post} />
                 </motion.div>

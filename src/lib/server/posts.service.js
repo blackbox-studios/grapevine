@@ -1,100 +1,369 @@
 import "server-only"
 
-import { MOCK_LATENCY_MS, MOCK_WRITE_LATENCY_MS } from "@/lib/constants"
-import { mockDelay, mockId } from "@/lib/mock"
-import { paginate } from "@/lib/server/cursor"
-import { notFound, invalid } from "@/lib/server/errors"
-import { COMMENTS, FEED, VIEWER } from "@/lib/server/seed"
+import { Prisma } from "@prisma/client"
 
-/* Business logic for posts and comments. Services own the data access and throw AppError
- * on failure — they never see a Request or a Response, which is what keeps them
- * transport-agnostic and lets the route handlers stay three lines long.
+import { prisma } from "@/lib/db"
+import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
+import { invalid, notFound } from "@/lib/server/errors"
+import { requireMembership, readableOrgIds } from "@/lib/server/auth"
+import { projectComment, projectPost } from "@/lib/server/projections"
+
+/* Posts and comments: all business logic and all data access.
  *
- * Every read awaits `mockDelay(MOCK_LATENCY_MS)` so the latency a real backend would have
- * lives here, on the server, rather than being faked in the client store. That is what
- * guarantees a loading skeleton is on screen long enough to read (see
- * `backend-architecture.md` → Mocked latency), and it is why stores must not add a floor of
- * their own. Writes settle faster so an optimistic mutation reconciles promptly.
+ * Services never see a `Request` or a `Response` — they take a viewer and plain
+ * arguments, and throw `AppError` on failure. That is what keeps the route handlers three
+ * lines long, and it is also what would let a GraphQL resolver layer (or a job, or a test)
+ * call exactly these functions without going through HTTP.
  *
- * These are the seams to replace with Prisma queries. Nothing above this file — no route
- * handler, store, hook, or component — should need to change when they are. */
+ * **Every read is scoped to the viewer.** There is no "list all posts" here, and there
+ * must never be one: a post is only visible through an APPROVED membership in the
+ * organization that owns it. The scoping is applied in the query's `where`, not filtered
+ * out afterwards, so an unauthorized row is never loaded in the first place. */
 
-const findPost = (postId) => FEED.find((post) => post.id === postId)
+/* The relations every post projection needs. Declared once so the feed, the detail
+ * fetch, and a freshly-created post cannot drift into returning different shapes for the
+ * same entity — which is exactly the bug that makes a card change as you open it. */
+const postInclude = (viewerId) => ({
+    org: { select: { name: true } },
+    author: { select: { handle: true, fullName: true, avatarUrl: true, verified: true } },
+    media: { orderBy: { position: "asc" } },
+    /* The viewer's own like, as a 0-or-1 row. A filtered relation include is one join,
+     * where asking per post would be one query per card. */
+    likes: { where: { profileId: viewerId }, select: { profileId: true }, take: 1 },
+})
 
-/* One page of the feed, newest first. */
-export const listFeed = async ({ limit, cursor }) => {
-    await mockDelay(MOCK_LATENCY_MS)
-    return paginate(FEED, { limit, cursor })
+const commentInclude = (viewerId) => ({
+    author: { select: { handle: true, fullName: true, avatarUrl: true, verified: true } },
+    likes: { where: { profileId: viewerId }, select: { profileId: true }, take: 1 },
+})
+
+/* The social-proof name on a card — "<name> and 17 others" — for a whole page of posts in
+ * one query.
+ *
+ * `DISTINCT ON` is Postgres-specific and has no Prisma Client equivalent, which is why
+ * this drops to raw SQL. The alternative shapes are both worse: a nested `take: 1` include
+ * cannot be used, because the viewer's own like already occupies the one `likes` include
+ * Prisma allows per query, and loading the likes and reducing in JS would pull every like
+ * row of a popular post to name one person.
+ *
+ * Identifiers are unquoted because the schema maps every model and field to snake_case
+ * (see the Naming note in prisma/schema.prisma). If a column here stops resolving, check
+ * that its `@map` still matches — the Prisma-side camelCase name is not what Postgres
+ * knows it as.
+ *
+ * Returns a Map of postId → name. Posts liked only by the viewer are simply absent. */
+const likedByNames = async (postIds, viewerId) => {
+    if (postIds.length === 0) return new Map()
+
+    const rows = await prisma.$queryRaw`
+        SELECT DISTINCT ON (l.post_id) l.post_id AS "postId", p.full_name AS "name"
+        FROM post_like l
+        JOIN profile p ON p.id = l.profile_id
+        WHERE l.post_id IN (${Prisma.join(postIds)})
+          AND l.profile_id <> ${viewerId}::uuid
+        ORDER BY l.post_id, l.created_at DESC
+    `
+
+    return new Map(rows.map((row) => [row.postId, row.name]))
 }
 
-/* One post's full detail. This is what the app fetches when a post is opened, so it is the
- * endpoint that lets post ids stay unknown until runtime. It returns the same shape the
- * feed does today; a real implementation would add the things a detail view needs and the
- * feed card doesn't (full comment counts, related posts, permissions). */
-export const getPost = async (postId) => {
-    await mockDelay(MOCK_LATENCY_MS)
-    const post = findPost(postId)
+/* Loads a post the viewer is allowed to see, or throws.
+ *
+ * The membership check is what makes this safe to call with an arbitrary id from the URL.
+ * A post in an organization the viewer has no APPROVED membership in reports 404 rather
+ * than 403 — the same reasoning as `requireMembership`: confirming the post exists would
+ * leak the contents of a parish the viewer was never admitted to. */
+const loadReadablePost = async (viewerId, postId, { include } = {}) => {
+    const post = await prisma.post.findFirst({
+        where: { id: postId, deletedAt: null },
+        ...(include ? { include } : {}),
+    })
     if (!post) throw notFound("Post not found.")
+
+    const membership = await prisma.membership.findUnique({
+        where: { profileId_orgId: { profileId: viewerId, orgId: post.orgId } },
+        select: { status: true, role: true },
+    })
+    if (membership?.status !== "APPROVED") throw notFound("Post not found.")
+
     return post
 }
 
-/* One page of a post's comments, oldest first. 404s on an unknown post rather than
- * returning an empty page, so a bad id is distinguishable from a post with no comments. */
-export const listComments = async (postId, { limit, cursor }) => {
-    await mockDelay(MOCK_LATENCY_MS)
-    if (!findPost(postId)) throw notFound("Post not found.")
-    return paginate(COMMENTS[postId] ?? [], { limit, cursor })
+/* ---------------------------------------------------------------------------
+ * Reads
+ * ------------------------------------------------------------------------- */
+
+/* One page of the viewer's feed, newest first.
+ *
+ * The feed is the union of every organization the viewer has an APPROVED membership in —
+ * which today is one parish, and is written as a set because it is about to be more than
+ * one (a diocese contributing its parishes, and the planned follow feature contributing
+ * people). A viewer with no approved memberships gets an empty page, not an error: they
+ * are signed in and waiting on an admin, and the surface says so. */
+export const listFeed = async (viewer, { limit, cursor }) => {
+    const orgIds = await readableOrgIds(viewer.id)
+    if (orgIds.length === 0) return { items: [], nextCursor: null }
+
+    const rows = await prisma.post.findMany({
+        where: { orgId: { in: orgIds }, deletedAt: null, ...keysetWhere(cursor, "desc") },
+        orderBy: keysetOrder("desc"),
+        take: limit + 1,
+        include: postInclude(viewer.id),
+    })
+
+    /* Resolve social proof for the page only — after the slice, so the extra
+     * over-fetched row never costs a lookup. */
+    const page = rows.slice(0, limit)
+    const likedBy = await likedByNames(
+        page.map((post) => post.id),
+        viewer.id,
+    )
+
+    return keysetPage(rows, limit, (post) =>
+        projectPost(post, {
+            liked: post.likes.length > 0,
+            likedBy: likedBy.get(post.id) ?? null,
+        }),
+    )
 }
 
-/* Toggles the viewer's like on a post and returns the resulting state. Returning the
- * authoritative `{ liked, likes }` rather than 204 is what lets the client reconcile its
- * optimistic guess instead of having to re-fetch the post. */
-export const togglePostLike = async (postId) => {
-    await mockDelay(MOCK_WRITE_LATENCY_MS)
-    const post = findPost(postId)
-    if (!post) throw notFound("Post not found.")
+/* One post's full detail, by id.
+ *
+ * This endpoint is what frees post ids from build time — detail is fetched at runtime, so
+ * there is no `/p/[postId]` route and no `generateStaticParams` anywhere near posts, which
+ * is what the static export requires. See native-architecture.md → Dynamic routes at
+ * scale. */
+export const getPost = async (viewer, postId) => {
+    const post = await loadReadablePost(viewer.id, postId, {
+        include: postInclude(viewer.id),
+    })
 
-    post.liked = !post.liked
-    post.likes += post.liked ? 1 : -1
-    return { liked: post.liked, likes: post.likes }
+    const likedBy = await likedByNames([post.id], viewer.id)
+
+    return projectPost(post, {
+        liked: post.likes.length > 0,
+        likedBy: likedBy.get(post.id) ?? null,
+    })
 }
 
-export const toggleCommentLike = async (commentId) => {
-    await mockDelay(MOCK_WRITE_LATENCY_MS)
-    const comment = Object.values(COMMENTS)
-        .flat()
-        .find((c) => c.id === commentId)
+/* One page of a post's comments, oldest first.
+ *
+ * Oldest-first is why the direction is "asc" here and "desc" in the feed; the cursor
+ * helpers take it explicitly because getting it wrong silently repeats the first page
+ * rather than failing. */
+export const listComments = async (viewer, postId, { limit, cursor }) => {
+    await loadReadablePost(viewer.id, postId)
+
+    const rows = await prisma.comment.findMany({
+        where: { postId, deletedAt: null, ...keysetWhere(cursor, "asc") },
+        orderBy: keysetOrder("asc"),
+        take: limit + 1,
+        include: commentInclude(viewer.id),
+    })
+
+    return keysetPage(rows, limit, (comment) =>
+        projectComment(comment, { liked: comment.likes.length > 0 }),
+    )
+}
+
+/* ---------------------------------------------------------------------------
+ * Writes
+ * ------------------------------------------------------------------------- */
+
+/* Creates a post in an organization the viewer administers.
+ *
+ * **This is the app's central permission rule**: only an ADMIN of the target organization
+ * may post. `requireMembership` with a role is the whole enforcement, and it runs before
+ * anything is written. Note it is per-organization — being an admin of one parish grants
+ * nothing in another.
+ *
+ * Media is written in the same call so a post is never briefly visible without its
+ * photos. `position` is assigned from array order, which is the carousel's order. */
+export const createPost = async (viewer, { orgId, title, body, media = [] }) => {
+    await requireMembership(viewer.id, orgId, { role: "ADMIN" })
+
+    const text = String(body ?? "").trim()
+    if (!text) throw invalid("Post body is required.", { body: "Required" })
+
+    const post = await prisma.post.create({
+        data: {
+            orgId,
+            authorId: viewer.id,
+            title: title?.trim() || null,
+            body: text,
+            media: {
+                create: media.map((item, index) => ({
+                    kind: item.kind ?? "IMAGE",
+                    url: item.url,
+                    width: item.width ?? null,
+                    height: item.height ?? null,
+                    mimeType: item.mimeType ?? null,
+                    fileName: item.fileName ?? null,
+                    sizeBytes: item.sizeBytes ?? null,
+                    position: index,
+                })),
+            },
+        },
+        include: postInclude(viewer.id),
+    })
+
+    /* Freshly created: the author cannot have liked it, and nobody else has seen it. */
+    return projectPost(post, { liked: false, likedBy: null })
+}
+
+/* Toggles the viewer's like on a post and returns the resulting state.
+ *
+ * Returning `{ liked, likes }` rather than 204 is what lets the optimistic client
+ * reconcile instead of re-fetching the post — see backend-architecture.md §5.
+ *
+ * The like row and the denormalized tally move inside one transaction, so the count can
+ * never disagree with the rows that justify it. The unique constraint on
+ * `(profileId, postId)` is the backstop: two taps racing each other cannot produce two
+ * rows, and the loser surfaces as P2002, which is not an error here — it means the like
+ * already exists, so the tally must not be incremented again.
+ *
+ * **A sequential (array) transaction, not an interactive one.** Which way the toggle goes
+ * is known before the transaction opens — `existing` decides it — so nothing inside needs
+ * to read a previous statement's result. That matters through Supabase's transaction
+ * pooler: an interactive transaction holds a pooled connection across several
+ * client-server round trips, while the array form is dispatched as one. Reach for
+ * `$transaction(async tx => ...)` only when a later statement genuinely depends on an
+ * earlier one's return value. */
+export const togglePostLike = async (viewer, postId) => {
+    await loadReadablePost(viewer.id, postId)
+
+    const key = { profileId_postId: { profileId: viewer.id, postId } }
+    const existing = await prisma.postLike.findUnique({ where: key })
+
+    try {
+        const [, post] = await prisma.$transaction(
+            existing
+                ? [
+                      prisma.postLike.delete({ where: key }),
+                      prisma.post.update({
+                          where: { id: postId },
+                          data: { likeCount: { decrement: 1 } },
+                          select: { likeCount: true },
+                      }),
+                  ]
+                : [
+                      prisma.postLike.create({ data: { profileId: viewer.id, postId } }),
+                      prisma.post.update({
+                          where: { id: postId },
+                          data: { likeCount: { increment: 1 } },
+                          select: { likeCount: true },
+                      }),
+                  ],
+        )
+
+        return { liked: !existing, likes: post.likeCount }
+    } catch (error) {
+        /* A concurrent duplicate (P2002) or a row already gone (P2025) means the other
+         * request applied the same toggle first. Report the settled truth rather than
+         * failing a write the viewer perceives as having succeeded. */
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            (error.code === "P2002" || error.code === "P2025")
+        ) {
+            const [row, liked] = await Promise.all([
+                prisma.post.findUnique({ where: { id: postId }, select: { likeCount: true } }),
+                prisma.postLike.findUnique({
+                    where: { profileId_postId: { profileId: viewer.id, postId } },
+                }),
+            ])
+            return { liked: liked !== null, likes: row?.likeCount ?? 0 }
+        }
+        throw error
+    }
+}
+
+/* The same toggle for a comment. Readability is inherited from the parent post, so the
+ * check is on the post rather than on the comment. */
+export const toggleCommentLike = async (viewer, commentId) => {
+    const comment = await prisma.comment.findFirst({
+        where: { id: commentId, deletedAt: null },
+        select: { id: true, postId: true },
+    })
     if (!comment) throw notFound("Comment not found.")
 
-    comment.liked = !comment.liked
-    comment.likes += comment.liked ? 1 : -1
-    return { liked: comment.liked, likes: comment.likes }
+    await loadReadablePost(viewer.id, comment.postId)
+
+    const key = { profileId_commentId: { profileId: viewer.id, commentId } }
+    const existing = await prisma.commentLike.findUnique({ where: key })
+
+    try {
+        const [, row] = await prisma.$transaction(
+            existing
+                ? [
+                      prisma.commentLike.delete({ where: key }),
+                      prisma.comment.update({
+                          where: { id: commentId },
+                          data: { likeCount: { decrement: 1 } },
+                          select: { likeCount: true },
+                      }),
+                  ]
+                : [
+                      prisma.commentLike.create({
+                          data: { profileId: viewer.id, commentId },
+                      }),
+                      prisma.comment.update({
+                          where: { id: commentId },
+                          data: { likeCount: { increment: 1 } },
+                          select: { likeCount: true },
+                      }),
+                  ],
+        )
+
+        return { liked: !existing, likes: row.likeCount }
+    } catch (error) {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            (error.code === "P2002" || error.code === "P2025")
+        ) {
+            const [row, liked] = await Promise.all([
+                prisma.comment.findUnique({
+                    where: { id: commentId },
+                    select: { likeCount: true },
+                }),
+                prisma.commentLike.findUnique({
+                    where: { profileId_commentId: { profileId: viewer.id, commentId } },
+                }),
+            ])
+            return { liked: liked !== null, likes: row?.likeCount ?? 0 }
+        }
+        throw error
+    }
 }
 
-/* Posts a comment as the current viewer. The server assigns the id, the author, and the
- * timestamp — never the client — so the created resource it returns is the authoritative
- * one the client swaps its optimistic row for. Also bumps the post's tally, keeping the
- * count the feed renders consistent with the thread's length. */
-export const addComment = async (postId, text) => {
-    await mockDelay(MOCK_WRITE_LATENCY_MS)
-
-    const post = findPost(postId)
-    if (!post) throw notFound("Post not found.")
+/* Posts a comment as the viewer.
+ *
+ * Any APPROVED member may comment — this is the one write a non-admin can perform, and it
+ * is the reason `loadReadablePost` (membership) is the check here rather than
+ * `requireMembership(..., { role: "ADMIN" })`.
+ *
+ * The server assigns the id, the author, and the timestamp — never the client — so the
+ * created resource returned here is the authoritative row the client swaps its optimistic
+ * one for. The post's tally moves in the same transaction as the insert. */
+export const addComment = async (viewer, postId, text) => {
+    await loadReadablePost(viewer.id, postId)
 
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
 
-    const comment = {
-        id: mockId("cmt"),
-        author: VIEWER,
-        text: body,
-        created_at: new Date().toISOString(),
-        likes: 0,
-        liked: false,
-    }
+    /* Sequential, for the same reason as the like toggles: the tally bump does not read
+     * anything the insert returns, so there is nothing to hold a pooled connection open
+     * for. */
+    const [comment] = await prisma.$transaction([
+        prisma.comment.create({
+            data: { postId, authorId: viewer.id, body },
+            include: commentInclude(viewer.id),
+        }),
+        prisma.post.update({
+            where: { id: postId },
+            data: { commentCount: { increment: 1 } },
+            select: { id: true },
+        }),
+    ])
 
-    COMMENTS[postId] = [comment, ...(COMMENTS[postId] ?? [])]
-    post.comments += 1
-
-    return comment
+    return projectComment(comment, { liked: false })
 }

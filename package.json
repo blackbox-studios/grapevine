@@ -15,7 +15,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "prisma:seed": "prisma db seed",
+    "db:secure": "node scripts/apply-policies.mjs",
+    "db:reset": "prisma migrate reset --force --skip-seed && npm run db:secure && npm run prisma:seed",
+    "postinstall": "prisma generate",
+    "dev:login": "node scripts/dev-login.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
@@ -28,12 +32,14 @@
     "@capacitor/status-bar": "^8.0.3",
     "@hookform/resolvers": "^5.4.0",
     "@prisma/client": "^6.2.1",
+    "@supabase/supabase-js": "2.112.3",
     "@svgr/webpack": "^8.1.0",
     "@tailwindcss/postcss": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "copy-to-clipboard": "^4.0.2",
     "immer": "^11.1.9",
+    "input-otp": "^1.4.2",
     "lucide-react": "^1.23.0",
     "motion": "^12.42.2",
     "next": "^15.5.22",

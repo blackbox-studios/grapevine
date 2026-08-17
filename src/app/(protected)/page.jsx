@@ -3,6 +3,7 @@
 import { AnimatePresence } from "motion/react"
 
 import Transition from "@/components/Transition"
+import Composer from "@/components/Composer"
 import Feed from "@/components/Feed"
 import PullToRefresh from "@/components/PullToRefresh"
 import { FeedSkeleton } from "@/components/Skeleton"
@@ -21,6 +22,8 @@ const HomePage = () => {
                         </Transition>
                     ) : (
                         <Transition fast key="content">
+                            {/* Admin-only; renders nothing for a member. */}
+                            <Composer />
                             <Feed
                                 posts={posts}
                                 hasMore={hasMore}

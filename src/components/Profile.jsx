@@ -41,7 +41,7 @@ export default function ProfilePopover() {
                     className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-current outline-hidden"
                 >
                     <p className="font-semibold uppercase">
-                        {user?.full_name ? user.full_name.trim()?.[0]?.toUpperCase() : "X"}
+                        {user?.fullName ? user.fullName.trim()?.[0]?.toUpperCase() : "X"}
                     </p>
                 </button>
             </PopoverTrigger>
@@ -58,7 +58,7 @@ export default function ProfilePopover() {
 
                 <div className="mt-5 flex items-baseline justify-center gap-2">
                     <h3 className="text-2xl font-semibold tracking-tight text-foreground">
-                        {user?.full_name ?? "—"}
+                        {user?.fullName ?? "—"}
                     </h3>
 
                     <VerifiedIcon

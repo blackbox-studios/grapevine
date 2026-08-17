@@ -1,0 +1,152 @@
+import "server-only"
+
+/* Database rows → wire shapes.
+ *
+ * This file is the boundary between the schema and the API contract, and keeping it
+ * explicit is deliberate: a Prisma model handed straight to `Response.json` would publish
+ * every column ever added to it, including the ones added later by someone who never
+ * looked at this file. Everything the client receives is listed here, by hand.
+ *
+ * It also absorbs the differences between the two, so neither has to bend to the other:
+ * `likeCount`/`commentCount` are storage names but the client has always read
+ * `likes`/`comments`; media is normalized rows in the database but the feed card wants
+ * `image` + `width`/`height`, or `images`, or `document`. Renaming a column is a change
+ * here and nowhere else. */
+
+/* Bytes → the short string the document card renders. Formatted at the edge rather than
+ * stored, so the underlying number stays sortable and re-formattable. */
+const formatBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return null
+    if (bytes < 1024) return `${bytes} B`
+    const units = ["KB", "MB", "GB"]
+    let value = bytes / 1024
+    let unit = 0
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024
+        unit += 1
+    }
+    return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
+
+/* A document's short type label ("pdf", "docx"), from the filename then the MIME type. */
+const documentType = (media) => {
+    const fromName = media.fileName?.split(".").pop()?.toLowerCase()
+    if (fromName && fromName !== media.fileName?.toLowerCase()) return fromName
+    return media.mimeType?.split("/").pop()?.toLowerCase() ?? "file"
+}
+
+/* The author block every post and comment carries. `name` is the display name and
+ * `handle` the @mention; both are needed, because the card shows one and the caption
+ * byline shows the other. */
+export const projectAuthor = (profile) => ({
+    handle: profile.handle,
+    name: profile.fullName,
+    avatar: profile.avatarUrl,
+    verified: profile.verified,
+})
+
+/* Media rows → the three shapes the feed card understands. A post has exactly one of
+ * these, or none at all (a text-only announcement):
+ *
+ *   image + width + height   one photo; the dimensions let the card reserve the correct
+ *                            aspect-ratio box before the image decodes, without which it
+ *                            collapses to zero height on a cold cache and shifts the
+ *                            layout as it loads
+ *   images                   several photos, as the swipeable carousel
+ *   document                 a file attachment
+ */
+const projectMedia = (media = []) => {
+    const images = media.filter((item) => item.kind === "IMAGE")
+    const document = media.find((item) => item.kind === "DOCUMENT")
+
+    return {
+        ...(images.length === 1
+            ? {
+                  image: images[0].url,
+                  width: images[0].width,
+                  height: images[0].height,
+              }
+            : {}),
+        ...(images.length > 1 ? { images: images.map((item) => item.url) } : {}),
+        ...(document
+            ? {
+                  document: {
+                      name: document.fileName ?? "Attachment",
+                      size: formatBytes(document.sizeBytes) ?? "",
+                      type: documentType(document),
+                      url: document.url,
+                  },
+              }
+            : {}),
+    }
+}
+
+/* A post, as the feed card and the detail surface read it.
+ *
+ * `liked` is per-viewer, so it cannot come off the row — the caller resolves it and passes
+ * it in. `likedBy` is the social-proof name ("Mat. Carly and 17 others"), likewise
+ * resolved by the caller because it is a different person for every viewer. Both default
+ * to the unauthenticated-ish answer if omitted, which keeps a partial projection safe
+ * rather than accidentally claiming the viewer liked something. */
+export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
+    id: post.id,
+    author: projectAuthor(post.author),
+    group: post.org?.name ?? null,
+    createdAt: post.createdAt.toISOString(),
+    title: post.title,
+    body: post.body,
+    ...projectMedia(post.media),
+    likes: post.likeCount,
+    comments: post.commentCount,
+    liked,
+    likedBy,
+})
+
+/* A comment in an open thread. `text`, not `body` — the client has always called it that,
+ * and the rename belongs here rather than in every component that renders one. */
+export const projectComment = (comment, { liked = false } = {}) => ({
+    id: comment.id,
+    author: projectAuthor(comment.author),
+    text: comment.body,
+    createdAt: comment.createdAt.toISOString(),
+    likes: comment.likeCount,
+    liked,
+})
+
+/* An organization, as the Groups surface and the viewer's profile read it. `role` and
+ * `status` come from the viewer's membership, so this is always a viewer-relative view of
+ * a group rather than a public one. */
+export const projectOrg = (org, membership) => ({
+    id: org.id,
+    slug: org.slug,
+    name: org.name,
+    kind: org.kind,
+    avatar: org.avatarUrl,
+    bio: org.bio,
+    role: membership?.role ?? null,
+    status: membership?.status ?? null,
+})
+
+/* The signed-in viewer. `role` and `vocation` are the two axes the UI gates on — see the
+ * header of `prisma/schema.prisma` for why they are separate — and `orgs` carries every
+ * group the viewer belongs to, with their role in each.
+ *
+ * `role` at the top level is the viewer's role in their *primary* group, which is what a
+ * single-organization app renders in the profile menu. It is a convenience over `orgs`,
+ * not a second source of truth. */
+export const projectViewer = (profile, memberships = []) => {
+    const primary = memberships.find((m) => m.status === "APPROVED") ?? memberships[0] ?? null
+
+    return {
+        id: profile.id,
+        email: profile.email,
+        handle: profile.handle,
+        fullName: profile.fullName,
+        avatar: profile.avatarUrl,
+        vocation: profile.vocation,
+        verified: profile.verified,
+        createdAt: profile.createdAt.toISOString(),
+        role: primary?.role ?? null,
+        orgs: memberships.map((membership) => projectOrg(membership.org, membership)),
+    }
+}

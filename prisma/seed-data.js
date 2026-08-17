@@ -1,32 +1,18 @@
-import "server-only"
-
-import { VIEWER } from "@/lib/metadata"
-
-/* The mock backend's data.
+/* The corpus the database is seeded from.
  *
- * This is the API's "database": the corpus the endpoints under `src/app/api/**` read and
- * mutate. It lives here, behind `server-only`, rather than in `lib/metadata.js` — which is
- * client-visible seed — for two reasons:
+ * This was the mock backend's in-memory "database" (formerly src/lib/server/seed.js). Now
+ * that Postgres is behind the API it has exactly one consumer, `prisma/seed.js`, which
+ * maps these objects onto Post / PostMedia / Comment rows so a fresh database opens with
+ * something to read instead of an empty feed.
  *
- *  1. Posts and comments are no longer client data. The feed is fetched and paginated over
- *     the wire, so shipping the whole corpus in the JS bundle would defeat the exercise
- *     (and, at any real size, the bundle). `server-only` makes that a build error rather
- *     than a silent regression: import this from a Client Component and the build fails.
- *  2. It is mutable server state. Likes, comment likes, and new comments mutate these
- *     objects in place, so there has to be exactly one copy and the client can't hold it.
+ * It is kept in the wire shape it always had rather than being rewritten as Prisma input,
+ * because that shape is what the fixtures and the public/img/mock assets were authored
+ * against; the mapping to columns lives in the seed script, which is the place that has to
+ * change when the schema does.
  *
- * **State lives for the life of the Node process.** It is module-level, so every request in
- * a process shares it and a restart resets it — good enough for a mock, and deliberately
- * shaped like the thing that replaces it. When Prisma lands, the services in
- * `posts.service.js` swap these array operations for queries and this file goes away (or
- * becomes a `prisma/seed.js`). Note it is also per-process: behind more than one instance,
- * two readers would see different like counts.
- *
- * `VIEWER` is imported from `lib/metadata.js` instead of being redefined here, so the
- * identity the server stamps on a new comment is the same one the client renders
- * optimistically. Once real auth exists, that comes off the session instead. */
-export { VIEWER }
-
+ * `created_at` is still snake_case here. That is deliberate: this is a frozen fixture, and
+ * the seed script translates it. The live API emits `createdAt` everywhere.
+ */
 
 /* Seed social feed — a BuddyBoss-style parish activity stream (modeled on the
  * Our Diocese "Activity" feed). Each post is authored by a person (the poster)

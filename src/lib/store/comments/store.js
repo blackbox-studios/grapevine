@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
-import { VIEWER } from '@/lib/metadata'
+import useAuthStore from '@/lib/store/auth/store'
 import usePostStore from '@/lib/store/post/store'
 import { haptic } from '@/lib/native'
 import { toErrorList } from '@/lib/utils'
@@ -148,13 +148,21 @@ const useStore = create(immer((set, get) => ({
         const body = (text ?? '').trim()
         if (!postId || !body) return
 
+        /* Stamp the row with the real signed-in viewer. The server assigns the
+         * authoritative author anyway, but showing the right person for the half-second
+         * before it replies is the whole point of an optimistic row. */
+        const user = useAuthStore.getState().user
+        const author = user
+            ? { handle: user.handle, name: user.fullName, avatar: user.avatar, verified: user.verified }
+            : null
+
         const tempId = mockId('pending')
         set(state => {
             state.items.unshift({
                 id: tempId,
-                author: VIEWER,
+                author,
                 text: body,
-                created_at: new Date().toISOString(),
+                createdAt: new Date().toISOString(),
                 likes: 0,
                 liked: false,
                 pending: true,

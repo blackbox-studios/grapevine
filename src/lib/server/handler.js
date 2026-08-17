@@ -55,10 +55,14 @@ export const preflight = (request) => {
             "Access-Control-Allow-Methods",
             "GET, POST, PUT, DELETE, OPTIONS",
         )
+        /* Echo what the browser asked for; the fallback lists what this API actually
+         * reads. `Authorization` is on it because every endpoint is authenticated by a
+         * bearer token — omit it and the native app's preflight passes while the real
+         * request is stripped of its credentials and 401s. */
         response.headers.set(
             "Access-Control-Allow-Headers",
             request.headers.get("access-control-request-headers") ||
-                "Content-Type, X-Request-Id",
+                "Authorization, Content-Type, X-Request-Id",
         )
         response.headers.set("Access-Control-Max-Age", "86400")
     }

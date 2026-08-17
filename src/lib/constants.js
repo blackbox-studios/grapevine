@@ -32,19 +32,19 @@ export const SLIDE_ROUTES = [
  * this the shell would cross-fade the whole pane on every sub-tab change. */
 export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS]
 
-/* Simulated network latency. Now applied **server-side**, inside the mock service layer
- * (`lib/server/posts.service.js`), because that is where the latency of a real backend
- * would live. It doubles as the minimum first-load skeleton duration: no read resolves
- * faster than this, so a skeleton is always on screen long enough to read and there is no
- * sub-perceptual flash to debounce away.
+/* Simulated network latency for what is *still* mocked.
  *
- * Stores must therefore NOT add their own `Promise.all([fetch, mockDelay()])` floor any
- * more — the floor is already in the response, and racing it again just doubles every
- * load. See `.claude/skills/develop/backend-architecture.md`. */
+ * This used to be the API's floor, applied server-side so every read took at least a
+ * second and a skeleton was guaranteed to be readable. Posts, comments, and the viewer now
+ * come from Postgres, and real latency replaced it — the awaits are gone from the service
+ * layer along with the mock corpus.
+ *
+ * What is left is the `app` store, whose dashboard surface has no endpoint yet and would
+ * otherwise resolve in zero milliseconds and flash its skeleton. When that domain gets one,
+ * this constant and `lib/mock.js` go with it.
+ *
+ * Stores that talk to the API must NOT add a floor of their own. */
 export const MOCK_LATENCY_MS = 1000
-
-/* Writes settle faster than reads so an optimistic mutation reconciles promptly. */
-export const MOCK_WRITE_LATENCY_MS = 300
 
 /* ---------------------------------------------------------------------------
  * API
@@ -66,7 +66,13 @@ export const API_BASE =
 /* Every endpoint the client calls, relative to API_BASE. Parameterized paths are
  * functions so no caller ever builds a URL by hand. */
 export const API_ENDPOINTS = {
+    /* The session probe: who the viewer is and which groups they belong to. */
+    ME: "/me",
+    ORGS: "/orgs",
+    ORG_MEMBERS: (orgId) => `/orgs/${orgId}/members`,
     FEED: "/feed",
+    /* Collection root — POST here to publish (admin only). */
+    POSTS: "/posts",
     POST: (postId) => `/posts/${postId}`,
     POST_COMMENTS: (postId) => `/posts/${postId}/comments`,
     POST_LIKES: (postId) => `/posts/${postId}/likes`,
@@ -77,6 +83,64 @@ export const API_ENDPOINTS = {
 export const PAGE_SIZE = {
     FEED: 5,
     COMMENTS: 8,
+}
+
+/* How many digits the emailed sign-in code has.
+ *
+ * **This is a project setting, not a constant of nature.** Supabase exposes it under
+ * Authentication → Sign In / Providers → Email → Email OTP Length, and the current default
+ * is 8 — despite a lot of documentation (and every tutorial) saying six. Hardcoding 6 here
+ * is what made the login form silently unusable: `maxLength` truncated the real code and
+ * validation then rejected what was left.
+ *
+ * Used for the placeholder and the on-screen copy. Validation is deliberately looser (see
+ * the login page) so changing the dashboard setting cannot lock anyone out before someone
+ * remembers to change this. */
+export const OTP_LENGTH = 8
+
+/* How long Supabase makes a user wait between OTP requests for the same address. Its
+ * `/auth/v1/otp` endpoint enforces a 60-second window and rejects anything inside it, so
+ * the login screen's resend affordance counts this down rather than firing into a
+ * guaranteed error. Configurable in the dashboard under Authentication → Rate Limits; if
+ * you change it there, change it here. */
+export const OTP_RESEND_SECONDS = 60
+
+/* ---------------------------------------------------------------------------
+ * Roles and vocations
+ *
+ * Two different axes, and conflating them is the mistake this split exists to prevent —
+ * see the header of `prisma/schema.prisma`.
+ * ------------------------------------------------------------------------- */
+
+/* What a viewer may DO, scoped to one group. Mirrors the `OrgRole` enum. Only an ADMIN of
+ * a group may publish into it; a MEMBER may read, like, and comment. */
+export const ROLES = {
+    ADMIN: "ADMIN",
+    MEMBER: "MEMBER",
+}
+
+/* Hierarchical comparison for `<Privileged/>`: a control requiring MEMBER is visible to an
+ * ADMIN, but not the other way round. Keep the numbers spaced so a tier can be inserted
+ * between two existing ones without renumbering. */
+export const ROLE_LEVEL = {
+    [ROLES.MEMBER]: 10,
+    [ROLES.ADMIN]: 20,
+}
+
+/* Who a person IS. Presentational only — a vocation never grants a permission. A priest is
+ * usually their parish's admin but need not be, and an admin need not be a priest. */
+export const VOCATIONS = {
+    PRIEST: "PRIEST",
+    FAITHFUL: "FAITHFUL",
+}
+
+/* Membership approval states. APPROVED is the only one that puts a group's posts in the
+ * viewer's feed; PENDING is a request awaiting an admin. */
+export const MEMBERSHIP_STATUS = {
+    PENDING: "PENDING",
+    APPROVED: "APPROVED",
+    REJECTED: "REJECTED",
+    REVOKED: "REVOKED",
 }
 
 /* Machine-readable error codes the client may branch on. **Keep this in sync with

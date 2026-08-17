@@ -10,14 +10,14 @@ This document describes the frontend architecture and the patterns ALL agents mu
 |-------|------------|
 | Framework | **Next.js 15** (App Router) on **React 19** |
 | Build / Dev Server | **Next.js** (`next dev` / `next build` / `next start`) |
-| Rendering model | **Client-rendered SPA inside Next.** Pages/layouts are Client Components (`"use client"`); the mock stores, `motion`, and localStorage auth run entirely on the client. Next exists here for the Node server (route handlers / a future API), not for SSR/RSC data fetching. |
+| Rendering model | **Client-rendered SPA inside Next.** Pages/layouts are Client Components (`"use client"`); the stores, `motion`, and the Supabase session run entirely on the client. Next exists here for the Node server that hosts `/api`, not for SSR/RSC data fetching. |
 | Routing | **Next.js App Router** (`src/app/**`, file-based) + `next/navigation` + `next/link` |
 | State Management | **Zustand 5** + **Immer** middleware |
 | Forms | `react-hook-form` + `zod` (via `@hookform/resolvers`) |
 | Styling | **Tailwind CSS v4** (via `@tailwindcss/postcss`) |
 | Animation | `motion` (Framer Motion) |
 | Theming | **`next-themes`** (class strategy, `storageKey` `synaxis-ui-theme`) |
-| Auth gate | **`components/AuthGate.jsx`** reading the persisted store (mock auth) |
+| Auth | **Supabase Auth** (emailed one-time code, browser client) — gates in `components/AuthGate.jsx`, role gating in `components/Auth.jsx` |
 | Native shell | **Capacitor 8** (iOS + Android) over a static export — see `native-architecture.md` |
 | Component Library | **shadcn/ui** (radix-ui primitives) — `components.json` at the repo root |
 | Icons | **Google Material Symbols** via the local `<Icon>` component |
@@ -25,6 +25,7 @@ This document describes the frontend architecture and the patterns ALL agents mu
 | Toasts | `sonner` |
 | Drawers | `vaul` (wrapped by shadcn `drawer`) |
 | Class Merging | `clsx` + `tailwind-merge` (re-exported as `cn()` in `@/lib/utils`) |
+| Database | **Postgres on Supabase** via **Prisma** — `prisma/schema.prisma`, client singleton `src/lib/db.js`, reached only from `src/lib/server/**` |
 
 Reference files:
 
@@ -96,10 +97,10 @@ Reference files:
 │   │   ├── api.js                   # API wrapper + ApiError — the only layer that fetches
 │   │   ├── constants.js             # ROUTES, SLIDE_ROUTES, NESTED_TRANSITION_ROUTES,
 │   │   │                            #   API_BASE / API_ENDPOINTS / PAGE_SIZE / ERROR_CODES, MOCK_*_MS
-│   │   ├── mock.js                  # mockDelay / mockId — used by the mock backend, not by stores
+│   │   ├── mock.js                  # mockDelay / mockId — the `app` store's skeleton floor + temp ids
 │   │   ├── utils.js                 # Shared pure helpers (cn, formatDate, appPath/basePath,
 │   │   │                            #   toErrorList, route resolvers: slideRouteFor/baseRouteFor/…)
-│   │   ├── metadata.js              # Client-visible seed still awaiting an endpoint (users, events)
+│   │   ├── supabase.js              # Browser Supabase client + accessToken()
 │   │   ├── db.js                    # Prisma client singleton — wired, unused
 │   │   ├── server/                  # server-only; see backend-architecture.md
 │   │   │   ├── errors.js            # ERROR_CODES/ERROR_STATUS registry + AppError
@@ -107,7 +108,7 @@ Reference files:
 │   │   │   ├── respond.js           # sendResource / sendCreated / sendCollection / sendNoContent
 │   │   │   ├── cursor.js            # opaque cursor encode/decode + paginate
 │   │   │   ├── posts.service.js     # business logic — the seam Prisma replaces
-│   │   │   └── seed.js              # the mock backend's mutable "database"
+│   │   │   └── projections.js       # database rows → wire shapes
 │   │   ├── hooks/                   # Cross-cutting React hooks (not Zustand hooks)
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useNow.hook.jsx
@@ -176,9 +177,11 @@ an endpoint. Two things from it that bite here:
 - **Branch on `error.code`, never `error.message`.** The codes are the stable half of the
   contract, and `ERROR_CODES` in `lib/constants.js` must stay in sync with its twin in
   `lib/server/errors.js`.
-- **Latency is server-side now.** The mock backend awaits `MOCK_LATENCY_MS` inside its
-  service layer, so stores must **not** race a `mockDelay` floor of their own (see the store
-  template below).
+- **Every request carries a bearer token.** `lib/api.js` reads the Supabase access token
+  per request and sends `Authorization: Bearer …`; a 401 signs the app out. Stores do not
+  think about auth at all.
+- **No latency floor.** Reads hit Postgres now. Stores must **not** race a `mockDelay` floor
+  of their own (see the store template below).
 
 All routes and endpoints live in `lib/constants.js`. Parameterized paths are functions, so
 no caller ever builds a URL by hand:
@@ -263,8 +266,7 @@ const useStore = create(immer((set, get) => ({
         try {
             /* Collections come back as { items, nextCursor } — always an object, never a
              * bare array, and `nextCursor === null` is the only end-of-collection signal.
-             * No `mockDelay` floor here: the mock backend already floors every read at
-             * MOCK_LATENCY_MS server-side, so racing one again would double the load. */
+             * No `mockDelay` floor here — reads hit the database directly. */
             const { items, nextCursor } = await api.get(API_ENDPOINTS.ITEMS, {
                 params: { limit: PAGE_SIZE.ITEMS },
             })
@@ -474,9 +476,9 @@ Three non-negotiable patterns inside hooks:
 
 1. **`useShallow` for multi-selectors.** Pull every value you need in one selector so the component re-renders on shallow changes only.
 2. **Initial-load gate via `skeleton`, derived so it paints on the first frame.** Expose a `skeleton` flag derived straight from readiness — `skeleton = !ready` for a primary load, `skeleton = items.length === 0` for a secondary resource. Both are already truthy on the component's very first render (the store boots `ready: false` / `items: []`), so the skeleton is present on frame one rather than fading in a beat late. Once loaded, `ready`/data stays truthy, so refreshes never re-flash it. **Do not** derive it as `!ready && loading` — `loading` is false until the fetch effect runs *after* the first paint, which produces the no-skeleton → fade-in → fade-out flash.
-3. **Never debounce the flag.** A guaranteed-visible skeleton needs a minimum on-screen duration, and that floor lives **on the server**: the mock service layer awaits `MOCK_LATENCY_MS` (`lib/constants.js`, currently 1000ms) on every read, because that is where a real backend's latency would be. So no read can resolve fast enough to produce a sub-perceptual flash, and there is nothing to debounce away.
+3. **Never debounce the flag.** Rule 2 is what prevents a flash: because `skeleton` is already truthy on the first render, there is no no-skeleton → fade-in → fade-out sequence to suppress. Hooks must **not** wrap the flag in a delay (the old `useDelay` wrapper is gone), and stores must **not** race a `Promise.all([api.get(...), mockDelay(...)])` floor of their own.
 
-   Two things follow. Hooks must **not** wrap the flag in a delay (the old `useDelay` wrapper is gone — rule 2 plus the server-side floor replaces it). And stores must **not** race a `Promise.all([api.get(...), mockDelay(...)])` floor of their own: the floor is already in the response, so racing it again just doubles every load. See `backend-architecture.md` → **Mocked latency**.
+   Reads now hit Postgres, so response times are real and variable — a fast query can resolve in tens of milliseconds. If a skeleton genuinely flickers, fix it in the transition (`<Transition fast>`), never by slowing the API down.
 
 ```javascript
 import { useShallow } from 'zustand/react/shallow'
@@ -491,7 +493,7 @@ export const useApps = () => {
     useEffect(() => { init() }, [init])
 
     /* Painted on the first frame; cleared once ready. The server floors every read at
-     * MOCK_LATENCY_MS, so no debounce is needed to avoid a flash. */
+     * frame, so no debounce is needed to avoid a flash. */
     const skeleton = !ready
 
     return useMemo(() => ({ items, skeleton }), [items, skeleton])
@@ -859,40 +861,39 @@ Full detail, and how to attach a real session, is in `auth-architecture.md`.
 
 ### Role-gated visibility (`<Privileged/>`, `<PrivilegedRoute/>`)
 
-> **Forward-looking:** role gating (`Privileged`, `PrivilegedRoute`, `ROLES`, `ROLE_LEVEL`) is not yet built in this slimmed repo. When you add roles, recreate `components/Auth.jsx` as the home for these client-side visibility helpers; route-level protection belongs alongside the gates in `components/AuthGate.jsx`. The pattern below is the intended convention.
+> **These hide UI; they do not secure anything.** Every rule here is enforced again on the server — `requireMembership(..., { role: "ADMIN" })` in the service layer is what actually stops a member from publishing. A gate that exists only on the client does not exist, because the API is reachable with `curl`. See `auth-architecture.md`.
 
-Roles are hierarchical (`BASIC` < `ADMIN` < `PROVISIONER`; compare via `ROLE_LEVEL` in `lib/constants.js`). Use the helpers in `components/Auth.jsx`:
+Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/constants.js`) and **scoped to one group** — being an admin of one parish grants nothing in another. Both helpers therefore take an optional `orgId`; omit it and they resolve against the viewer's primary group. Use the helpers in `components/Auth.jsx`:
 
 - **`<Privileged role={…}>`** — inline UI (buttons, tabs, table actions). Renders children when the current user's role meets or exceeds `role`; otherwise renders `fallback` (default `null`, i.e. hidden).
 - **`<PrivilegedRoute role={…}>`** — whole routes. Redirects unauthorized users instead of hiding content.
 
 **Visibility convention — follow this whenever you gate UI above `ROLES.BASIC`:**
 
-| Required role | Basic user | Admin | Provisioner |
-|---------------|------------|-------|-------------|
-| `ROLES.ADMIN` | **hidden** | visible | visible |
-| `ROLES.PROVISIONER` | **hidden** | **disabled** (`disabled`) | visible |
+| Required role | Member | Admin |
+|---------------|--------|-------|
+| `ROLES.MEMBER` | visible | visible |
+| `ROLES.ADMIN` | **hidden** | visible |
 
-- **Basic users** must not see admin- or provisioner-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden).
-- **Admins** may see provisioner-only (or any role above theirs) affordances as **disabled** — pass `disabled` on `<Privileged>` so the control stays visible but dimmed and non-interactive (`opacity-50`, `pointer-events-none`). This signals that the action exists at a higher privilege level without granting access.
-- **Provisioners** see everything their role allows normally (no `disabled` needed for their own tier).
+- **Members** must not see admin-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden). The composer on the feed is the worked example.
+- Pass `disabled` only to signal that an action exists at a higher tier to someone plausibly close to it: the control stays visible but dimmed and non-interactive (`opacity-50`, `pointer-events-none`). Do not use it for a tier the viewer can never reach.
 
 ```jsx
 import { Privileged } from '@/components/Auth'
 import { ROLES } from '@/lib/constants'
 
-/* Admin-only — hidden from basic users */
+/* Admin of the viewer's primary group — hidden from members */
 <Privileged role={ROLES.ADMIN}>
-    <Button onClick={handleDelete}>Delete</Button>
+    <Button onClick={handlePublish}>New post</Button>
 </Privileged>
 
-/* Provisioner-only — hidden from basic, disabled for admins */
-<Privileged role={ROLES.PROVISIONER} disabled>
-    <Button onClick={handleProvision}>Provision...</Button>
+/* Admin of one specific group */
+<Privileged role={ROLES.ADMIN} orgId={org.id}>
+    <Button onClick={handleApprove}>Approve</Button>
 </Privileged>
 ```
 
-Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `pages/nodes/[node]/page.jsx` (`ProvisionNodeAction` — provisioner CTA with `disabled`).
+Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Composer.jsx` (the admin-only feed composer). The underlying hooks are `useRole(orgId)` and `usePrivileged(role, orgId)` in `lib/store/auth/hook.js`.
 
 ### Prop drilling — don't
 
@@ -1301,7 +1302,7 @@ import { TableSkeleton } from '@/components/Skeleton'
 ```
 
 - The `skeleton` flag comes from the hook, derived from readiness (`!ready`, or `items.length === 0` for a secondary resource) so it paints on the **first** frame and is only true on the first load — refreshes update silently. See the hook-layer section.
-- Guaranteeing the skeleton stays on long enough to read is the **server's** job: the mock service layer floors every read at `MOCK_LATENCY_MS`. Neither the store nor the hook adds a floor or a debounce (`useDelay` was removed) — with a floored response there is no sub-perceptual flash to suppress.
+- Neither the store nor the hook adds a floor or a debounce (`useDelay` was removed). Deriving `skeleton` from readiness so it is truthy on the first render (see **The hook layer**) is what removes the flash; an artificial delay would only make every load slower.
 - **A silent load has no skeleton at all.** When there is already a complete surface on screen — the post overlay, seeded from the feed's cached row — a background refresh must not cover it. Gate the skeleton on a readiness flag the cache can satisfy (`ready` in `lib/store/post/store.js`), not on the fetch being in flight.
 
 ### Page transitions

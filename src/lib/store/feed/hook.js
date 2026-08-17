@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from 'zustand/react/shallow'
 
+import { useGroups } from "@/lib/store/auth/hook"
 import useFeedStore from "./store"
 
 /* The dashboard feed. One page at a time: `hasMore` comes from the server's cursor being
@@ -27,9 +28,7 @@ export const useFeed = () => {
     }, [init])
 
     /* Skeleton derives straight from readiness, so it paints on the first frame and stays
-     * until the initial load lands. No debounce needed: the mock service floors every read
-     * at MOCK_LATENCY_MS server-side (see lib/server/posts.service.js), so it is always on
-     * long enough to read. Refreshes keep `ready` true and so never re-flash it. */
+     * until the initial load lands. Refreshes keep `ready` true and so never re-flash it. */
     const skeleton = !ready
 
     return useMemo(() => ({
@@ -40,4 +39,34 @@ export const useFeed = () => {
         refresh,
         loadMore,
     }), [posts, skeleton, hasMore, loadingMore, refresh, loadMore])
+}
+
+/* Publishing, for the composer.
+ *
+ * Resolves the target group from the viewer rather than taking it as a prop — the session
+ * already knows which groups they administer, so passing an id down would be prop drilling
+ * around the cheaper source of truth. `primary` is the first group the viewer administers;
+ * when someone can administer several, that is where a group picker slots in.
+ *
+ * `canPublish` is false for a member, but note the composer is hidden from them by
+ * `<Privileged/>` anyway and the server refuses regardless — this only keeps the button
+ * from being tapped in the window before the viewer resolves. */
+export const usePublish = () => {
+    const [publish, loading] = useFeedStore(
+        useShallow(state => ([state.publish, state.loading.publish])),
+    )
+    const { primary } = useGroups()
+
+    const submit = useCallback(
+        ({ title, body, media } = {}) =>
+            publish({ orgId: primary?.id, title, body, media }),
+        [publish, primary?.id],
+    )
+
+    return useMemo(() => ({
+        publish: submit,
+        group: primary,
+        loading,
+        canPublish: Boolean(primary?.id),
+    }), [submit, primary, loading])
 }

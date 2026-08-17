@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { ROUTES } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { useAuthed } from "@/lib/store/auth/hook"
+import { useAuthGate } from "@/lib/store/auth/hook"
 
 /* The route guards, mounted by the two route-group layouts.
  *
@@ -15,36 +15,58 @@ import { useAuthed } from "@/lib/store/auth/hook"
  * first place. So the gate has to be here, and being here it is the *only* gate, which is
  * the point: web and native then enforce auth identically instead of diverging.
  *
- * Both gates render nothing until mounted. `loggedIn` lives in localStorage (the auth
- * store's `persist`), which no prerender can see, so the build-time HTML is always the
- * signed-out view; useMounted defers the decision to the client, where the persisted value
- * is already restored on the first render — no flash of the wrong side of the gate, and no
- * hydration mismatch. In the native app the splash screen is still up while this settles
- * (see lib/native.js), so the redirect is invisible.
+ * ── Two things must be true before either gate may decide ───────────────────
+ *
+ * **mounted** — `loggedIn` is restored from localStorage, which no prerender can see, so
+ * the build-time HTML is always the signed-out view. `useMounted` defers the decision to
+ * the client, where the persisted value is already there on the first render: no flash of
+ * the wrong side of the gate, and no hydration mismatch.
+ *
+ * **ready** — the auth store has finished reconciling that persisted guess against the
+ * real Supabase session. Deciding before this is not a cosmetic flicker, it is a bug that
+ * makes signing in by link impossible:
+ *
+ *   1. A magic link lands on `/#access_token=…&refresh_token=…`.
+ *   2. The gate sees `loggedIn === false` (nothing persisted yet) and redirects to /login.
+ *   3. That navigation **discards the URL fragment**, taking the tokens with it.
+ *   4. The login page boots, finds no session anywhere, and sits there.
+ *
+ * Waiting for `ready` holds the redirect until `init()` has had its chance to read the URL
+ * and establish the session. Rendering `null` in the meantime is the same thing the gate
+ * already did while undecided, so nothing else changes — and in the native app the splash
+ * screen is still up while it settles, so none of it is visible.
  *
  * Redirects are `replace`, not `push`: a bounced navigation must not leave an entry behind
  * for the back gesture to land on. */
 export const ProtectedGate = ({ children }) => {
-    const loggedIn = useAuthed()
+    const { ready, loggedIn } = useAuthGate()
     const mounted = useMounted()
     const router = useRouter()
 
-    useEffect(() => {
-        if (mounted && !loggedIn) router.replace(ROUTES.PUBLIC.LOGIN)
-    }, [mounted, loggedIn, router])
+    const settled = mounted && ready
 
-    return mounted && loggedIn ? children : null
+    useEffect(() => {
+        if (settled && !loggedIn) router.replace(ROUTES.PUBLIC.LOGIN)
+    }, [settled, loggedIn, router])
+
+    return settled && loggedIn ? children : null
 }
 
-/* The mirror image: keeps a signed-in user off the login page. */
+/* The mirror image: keeps a signed-in user off the login page.
+ *
+ * This one needs `ready` for its own reason. A viewer arriving on /login with a live
+ * session — a bookmarked link, or the magic-link callback — must be bounced *into* the app,
+ * and that can only be known once the session check has run. */
 export const PublicGate = ({ children }) => {
-    const loggedIn = useAuthed()
+    const { ready, loggedIn } = useAuthGate()
     const mounted = useMounted()
     const router = useRouter()
 
-    useEffect(() => {
-        if (mounted && loggedIn) router.replace(ROUTES.DEFAULT)
-    }, [mounted, loggedIn, router])
+    const settled = mounted && ready
 
-    return mounted && !loggedIn ? children : null
+    useEffect(() => {
+        if (settled && loggedIn) router.replace(ROUTES.DEFAULT)
+    }, [settled, loggedIn, router])
+
+    return settled && !loggedIn ? children : null
 }

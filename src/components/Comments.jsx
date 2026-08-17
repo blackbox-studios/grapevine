@@ -32,7 +32,7 @@ import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 /* A single comment: author + relative time, body, and the like meter (heart
  * toggle + tally) in the right column. */
 const CommentRow = ({ comment, now, onToggleLike }) => {
-    const { author, text, created_at, likes, liked, pending } = comment
+    const { author, text, createdAt, likes, liked, pending } = comment
     return (
         /* A comment the server hasn't confirmed yet reads as in-flight rather than settled,
          * and can't be liked — it has no server id to like. */
@@ -42,7 +42,7 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                 <p className="text-xs leading-snug">
                     <span className="font-semibold">{author.handle}</span>{" "}
                     <span className="text-muted-foreground">
-                        · {timeAgoCompact(now, new Date(created_at).getTime())}
+                        · {timeAgoCompact(now, new Date(createdAt).getTime())}
                     </span>
                 </p>
                 <p className="text-sm leading-snug wrap-break-word font-medium">{text}</p>
@@ -338,7 +338,7 @@ export const CommentsPanel = ({ post, className }) => {
                     {formatCompact(post.likes)} likes
                 </p>
                 <p className="text-xs font-medium text-muted-foreground pb-2">
-                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                    {timeAgoMacro(now, new Date(post.createdAt).getTime())}
                 </p>
             </div>
 
@@ -373,7 +373,7 @@ export const PostCommentsThread = ({ post }) => {
                     <span className="font-semibold">{author.handle}</span> {post.body}
                 </p>
                 <span className="text-xs text-muted-foreground">
-                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                    {timeAgoMacro(now, new Date(post.createdAt).getTime())}
                 </span>
             </div>
         </div>

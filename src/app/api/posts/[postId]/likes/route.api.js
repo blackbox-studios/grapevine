@@ -1,3 +1,4 @@
+import { requireViewer } from "@/lib/server/auth"
 import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
 import { togglePostLike } from "@/lib/server/posts.service"
@@ -9,9 +10,10 @@ import { togglePostLike } from "@/lib/server/posts.service"
  * optimistic update can be reconciled without re-fetching the post. */
 export const dynamic = "force-dynamic"
 
-export const POST = route(async (_request, { params }) => {
+export const POST = route(async (request, { params }) => {
+    const viewer = await requireViewer(request)
     const { postId } = await params
-    return sendResource(await togglePostLike(postId))
+    return sendResource(await togglePostLike(viewer, postId))
 })
 
 export const OPTIONS = preflight

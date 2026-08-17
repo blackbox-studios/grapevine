@@ -31,7 +31,7 @@ pageExtensions: native ? ["jsx", "js"] : ["api.js", "jsx", "js"],
 
 Handlers are named **`route.api.js`**, not `route.js`. `api.js` is only a recognized page
 extension in the Node build, so the entire `src/app/api/**` tree is *invisible* to the
-export — not stubbed, not empty, simply not a route. Verified: the Node build lists five
+export — not stubbed, not empty, simply not a route. Verified: the Node build lists nine
 `ƒ /api/...` routes; the native export lists none and `out/` contains no `api/`.
 
 **Consequences you must respect:**
@@ -103,11 +103,11 @@ opaque string — never parse it.
 - **IDs** — strings.
 - **Absent vs. null** — `null` means "known to be empty"; an omitted key means "not
   applicable to this representation". Not interchangeable.
-- **Casing** — the seed corpus uses `snake_case` for `created_at` and camelCase elsewhere
-  (`likedBy`, `nextCursor`). That inconsistency is inherited from the original mock data,
-  and it is the one place this contract is not clean. **New fields are camelCase.** When a
-  real database lands, rename `created_at` → `createdAt` in one pass across the seed, the
-  services, and the components that read it.
+- **Casing** — camelCase, everywhere, no exceptions. The old `created_at` holdover from
+  the mock corpus was renamed to `createdAt` across the wire, the services, and the
+  components when Postgres landed. The only remaining snake_case is inside
+  `prisma/seed-data.js`, which is a frozen fixture the seed script translates — it is not
+  on the wire.
 
 ---
 
@@ -175,14 +175,22 @@ completed (offline, DNS, CORS, aborted connection).
 
 ## 5. Endpoints
 
-| Method | Path | Returns |
-|---|---|---|
-| `GET` | `/api/feed?limit=&cursor=` | `{ items, nextCursor }` — the dashboard feed, newest first |
-| `GET` | `/api/posts/:postId` | the post resource |
-| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | `{ items, nextCursor }` |
-| `POST` | `/api/posts/:postId/comments` | `201` + the created comment, `Location` set |
-| `POST` | `/api/posts/:postId/likes` | `{ liked, likes }` — toggles the viewer's like |
-| `POST` | `/api/comments/:commentId/likes` | `{ liked, likes }` |
+| Method | Path | Auth | Returns |
+|---|---|---|---|
+| `GET` | `/api/me` | viewer | the viewer: profile, vocation, role, groups |
+| `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
+| `GET` | `/api/orgs/:orgId/members` | **group admin** | `{ items, nextCursor }` — the roster |
+| `GET` | `/api/feed?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first |
+| `POST` | `/api/posts` | **group admin** | `201` + the created post, `Location` set |
+| `GET` | `/api/posts/:postId` | member of its group | the post resource |
+| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` |
+| `POST` | `/api/posts/:postId/comments` | member of its group | `201` + the created comment, `Location` set |
+| `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
+| `POST` | `/api/comments/:commentId/likes` | member of its group | `{ liked, likes }` |
+
+**Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
+not be one — the app is invite-only and its content is a parish's private life. See
+`auth-architecture.md`.
 
 Two things about these are load-bearing rather than incidental:
 
@@ -204,24 +212,39 @@ the resulting state.
 ```
 src/lib/server/            # all server-only, all behind `import "server-only"`
   errors.js                # ERROR_CODES + ERROR_STATUS registry, AppError, notFound(), invalid()
-  handler.js               # route() wrapper (request id, error serialization, headers), pageParams()
+  handler.js               # route() wrapper (request id, CORS, error serialization), pageParams()
   respond.js               # success responders (§2)
-  cursor.js                # encodeCursor / decodeCursor / paginate
-  posts.service.js         # business logic — the seam Prisma replaces
-  seed.js                  # the mock "database": FEED + COMMENTS, mutated in place
+  cursor.js                # opaque cursors + the keyset helpers (§6.1)
+  auth.js                  # requireViewer / requireMembership / readableOrgIds
+  supabase.js              # server Supabase clients (anon for verification, service role)
+  projections.js           # database rows → wire shapes
+  posts.service.js         # posts, comments, likes
+  profile.service.js       # the viewer, their groups, a group's roster
 
 src/app/api/
+  me/route.api.js
+  orgs/route.api.js
+  orgs/[orgId]/members/route.api.js
   feed/route.api.js
+  posts/route.api.js                       # POST — publish
   posts/[postId]/route.api.js
   posts/[postId]/comments/route.api.js
   posts/[postId]/likes/route.api.js
   comments/[commentId]/likes/route.api.js
 ```
 
+`projections.js` is the boundary between the schema and the contract. A Prisma model handed
+straight to `Response.json` publishes every column ever added to it, including ones added
+later by someone who never read this document — so every field the client receives is
+listed there by hand. It also absorbs the naming differences (`likeCount` → `likes`,
+`Comment.body` → `text`, normalized `PostMedia` rows → `image`/`images`/`document`), which
+is what lets a column be renamed without touching a component.
+
 Every file in `lib/server/` starts with `import "server-only"`. That turns "this leaked
 into the client bundle" from a silent regression into a build error — which matters most
-for `seed.js`, since shipping the whole corpus to the browser would defeat the entire
-exercise.
+for `db.js` and `supabase.js`: pulling Prisma or the service role key into the client
+bundle would be a serious leak, and `server-only` makes it a build error instead of a
+silent one.
 
 ### Layering
 
@@ -238,8 +261,10 @@ A handler is three lines because everything else is in the wrapper or the servic
 export const dynamic = "force-dynamic"
 
 export const GET = route(async (request, { params }) => {
+    const viewer = await requireViewer(request)
     const { postId } = await params
     const { items, nextCursor } = await listComments(
+        viewer,
         postId,
         pageParams(request, { fallback: PAGE_SIZE.COMMENTS }),
     )
@@ -249,6 +274,11 @@ export const GET = route(async (request, { params }) => {
 
 Rules:
 
+- **Every handler starts with `requireViewer(request)`** and passes the resulting viewer
+  into the service. Services take a viewer as their first argument and scope their queries
+  by it — there is no "list all posts" function, and adding one would defeat the whole
+  access model. Group-scoped writes additionally call
+  `requireMembership(viewer.id, orgId, { role })`.
 - **Every handler is wrapped in `route()`.** An unwrapped one leaks stack traces on a 500
   and skips the `X-Request-Id` and `Cache-Control` headers. A route handler has no
   middleware chain, so `route()` *is* the chain: it is `catchAsync` + `requestId` +
@@ -261,19 +291,19 @@ Rules:
 - **Read pagination through `pageParams`**, which clamps `limit` so a client can't ask for
   the whole table in one call.
 
-### Mocked latency
+### Latency
 
-Reads await `mockDelay(MOCK_LATENCY_MS)` (1000ms) inside the service; writes use
-`MOCK_WRITE_LATENCY_MS` (300ms) so an optimistic mutation reconciles promptly.
+There is none to fake any more. The service layer's `mockDelay(MOCK_LATENCY_MS)` awaits
+went away with the mock corpus; every read is now a real query over a real connection.
 
-The latency lives **on the server** because that is where a real backend's latency lives.
-It doubles as the guaranteed minimum skeleton duration: no read resolves faster than a
-second, so a loading state is always on screen long enough to read and there is no
-sub-perceptual flash to debounce away.
+`MOCK_LATENCY_MS` still exists in `lib/constants.js` for exactly one consumer — the `app`
+store, whose dashboard surface has no endpoint yet and would otherwise resolve in zero
+milliseconds and flash its skeleton. When that domain gets one, the constant and
+`lib/mock.js` go with it.
 
-> **Stores must not add a floor of their own.** The old
-> `Promise.all([api.get(...), mockDelay(MOCK_LATENCY_MS)])` pattern is obsolete — the floor
-> is in the response now, and racing it again just doubles every load.
+> **Stores must still not add a floor of their own.** If a skeleton flashes because a query
+> is genuinely fast, that is a UI timing problem to solve in the transition, not a reason to
+> slow the API down.
 
 ---
 
@@ -330,6 +360,11 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 - [ ] File is named `route.api.js` (not `route.js`)
 - [ ] `export const dynamic = "force-dynamic"`
 - [ ] Handler wrapped in `route()`; body is read-request → call-service → `respond.js`
+- [ ] Starts with `await requireViewer(request)`; the viewer is the service's first argument
+- [ ] The service scopes its query by that viewer, or calls `requireMembership` for a
+      group-scoped read/write — an unauthorized row must never be loaded, not merely
+      filtered out afterwards
+- [ ] Anything new the client can see is listed in `lib/server/projections.js`
 - [ ] Logic lives in a service that throws `AppError` and never touches a `Response`
 - [ ] Success status is the most specific correct one (`201`, `204` — not `200` for everything)
 - [ ] Collection responses are `{ items, nextCursor }` via `sendCollection`
@@ -348,10 +383,16 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Error codes → status registry, `AppError` | `src/lib/server/errors.js` |
 | Error serialization, request id, response headers | `src/lib/server/handler.js` → `route()` |
 | Success responders | `src/lib/server/respond.js` |
-| Pagination cursors | `src/lib/server/cursor.js` |
-| Business logic (the Prisma seam) | `src/lib/server/posts.service.js` |
-| Mock data / "database" | `src/lib/server/seed.js` |
-| Mocked latency constants | `MOCK_LATENCY_MS`, `MOCK_WRITE_LATENCY_MS` in `src/lib/constants.js` |
+| Opaque cursors + keyset helpers | `src/lib/server/cursor.js` |
+| Authentication + authorization | `src/lib/server/auth.js` |
+| Server Supabase clients | `src/lib/server/supabase.js` |
+| Rows → wire shapes | `src/lib/server/projections.js` |
+| Posts, comments, likes | `src/lib/server/posts.service.js` |
+| Viewer, groups, roster | `src/lib/server/profile.service.js` |
+| Prisma client singleton | `src/lib/db.js` |
+| Schema / domain model | `prisma/schema.prisma` |
+| Seed script + frozen fixture | `prisma/seed.js`, `prisma/seed-data.js` |
+| Remaining mock latency (the `app` store only) | `MOCK_LATENCY_MS` in `src/lib/constants.js` |
 | Client wrapper + `ApiError` | `src/lib/api.js` |
 | Endpoint + page-size registry | `API_ENDPOINTS`, `PAGE_SIZE` in `src/lib/constants.js` |
 | Native/Node route split | `pageExtensions` in `next.config.mjs` |
@@ -359,27 +400,134 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 
 ---
 
-## 10. Wiring in a real database
+## 10. The database
 
-Nothing above `posts.service.js` should change. The migration, in order:
+Postgres, on Supabase, through Prisma. `prisma/schema.prisma` is the domain; read its
+header before changing anything, because two decisions there carry most of the design
+(permission vs vocation as separate axes, and access as a membership row rather than a
+flag).
 
-1. **Model the domain** in `prisma/schema.prisma`; `npm run prisma:migrate`.
-2. **Replace the service bodies** with `prisma` queries (`src/lib/db.js` is the client
-   singleton, already wired and idle). Keep the signatures and the thrown `AppError`s.
-3. **Replace `paginate`** with a real query. Keyset beats offset: encode
-   `{ createdAt, id }` in the cursor and use `take` + `cursor`. The cursor is opaque by
-   contract, so this is a server-only change — no client edit, no version bump.
-4. **Delete the latency awaits** from the service, and with them the two `MOCK_*` constants.
-   Check the skeleton behaviour afterwards: a fast local database resolves in single-digit
-   milliseconds, and every loading state in the app was tuned against a 1000ms floor.
-5. **Delete `seed.js`** (or move it to `prisma/seed.js` as real seed data).
-6. **Add validation.** Bodies are currently checked by hand (`addComment` trims and
-   rejects empty text). Once there is more than one write worth guarding, put Zod schemas
-   in front of them and map failures onto `invalid(...)` — the same Zod the forms use.
-7. **Then, and only then**, revisit auth. `DATABASE_URL` is the only env var this needs;
-   read `auth-architecture.md` and the "Adding a library" section of
-   `native-architecture.md` first, because the static export is what makes an auth SDK
-   hard here.
+### Connections
+
+Two URLs, and the split is required rather than an optimization:
+
+| Var | Port | Used by | Why |
+|---|---|---|---|
+| `DATABASE_URL` | 6543 | the app at runtime | Supabase's transaction pooler. Serverless opens a connection per invocation; direct connections exhaust Postgres' limit under any real traffic. |
+| `DIRECT_URL` | 5432 | `prisma migrate` only | Migrate takes advisory locks and issues DDL, neither of which survives a pooler. Point migrations at 6543 and they hang or fail with prepared-statement errors. |
+
+### Pagination is keyset, not offset
+
+`lib/server/cursor.js`. The cursor encodes `{ createdAt, id }`; `keysetWhere` resumes past
+it, `keysetOrder` matches, `keysetPage` turns an over-fetched row set into
+`{ items, nextCursor }`.
+
+Three things about it are load-bearing:
+
+- **The key is the pair, never `createdAt` alone.** Two posts can share a timestamp, and a
+  non-unique key silently drops or repeats rows at a page boundary. `id` is the tiebreaker
+  that makes the ordering total.
+- **`direction` must match the query's `orderBy`** — `"desc"` for the feed, `"asc"` for a
+  comment thread. Mismatch them and the second page silently repeats the first rather than
+  failing.
+- **End-of-collection is detected by over-fetching one row** (`take: limit + 1`), never by
+  `COUNT(*)`. A count makes the database touch every matching row on every request to
+  produce a number the contract does not even carry.
+
+The models carry indexes in exactly the sort order the cursor compares, so a page is an
+index range scan.
+
+### Denormalized tallies
+
+`Post.likeCount`, `Post.commentCount`, `Comment.likeCount` are maintained inside the same
+transaction as the write that changes them, so they cannot drift from the rows that justify
+them. They exist because every feed card renders both, and counting per card would be two
+extra queries per post per page.
+
+Likes are still **rows** (`PostLike`, `CommentLike`) — the feed has to answer "did *this
+viewer* like it" per card, which a counter cannot. The composite primary key makes a
+double-tap idempotent at the database level; a racing duplicate surfaces as Prisma `P2002`
+and is treated as "already liked", not as an error.
+
+### Sequential transactions, not interactive ones
+
+Every write here uses the **array** form, `prisma.$transaction([...])`, and that is a
+deliberate choice rather than a style preference. An interactive transaction
+(`$transaction(async tx => ...)`) holds a pooled connection open across several
+client-server round trips; through Supabase's transaction pooler, on serverless, that is
+a connection held for the whole exchange rather than for one dispatch.
+
+None of these writes need it. A like toggle branches on state read *before* the
+transaction opens, and a new comment's tally bump does not read anything the insert
+returns — so no statement depends on a previous one's result, which is the only thing the
+interactive form buys. Reach for it when that stops being true, and not before.
+
+### Locking out the Data API — `prisma/policies.sql`
+
+Supabase auto-generates a REST API over the `public` schema, authenticated with the
+publishable key that is **compiled into our own client bundle**. It answers independently
+of `/api`, so it bypasses `requireViewer`, `requireMembership`, and the APPROVED-membership
+feed scoping completely.
+
+`prisma/policies.sql` closes it: RLS enabled with **no policies** (deny-all) plus explicit
+`REVOKE` of the `anon` / `authenticated` grants and an `ALTER DEFAULT PRIVILEGES` so future
+tables are not granted either. The app is unaffected because Prisma connects as the table
+owner, and an owner is exempt from RLS — which is also why there are no policies to write.
+
+> **Re-run `npm run db:secure` after every migration.** A migration that adds a table adds
+> it unprotected. The file installs an event trigger that enables RLS on any new `public`
+> table as a backstop, but the trigger only exists once the file has been applied at least
+> once.
+
+Verify with the two queries at the foot of that file; both should return nothing.
+
+### Migrating and seeding
+
+```bash
+npm run prisma:migrate   # create/apply a migration (uses DIRECT_URL)
+npm run db:secure        # RLS + revoke Data API grants — after EVERY migration
+npm run prisma:seed      # parish, people, and the post corpus
+npm run db:reset         # DESTRUCTIVE: drop, re-migrate, re-secure, re-seed
+```
+
+Three things about that sequence:
+
+- **Seeding is never automatic.** The CLI does not run it after a migrate. It is registered
+  in `prisma.config.ts` (`migrations.seed`) so `prisma db seed` knows what to run, and
+  nothing more.
+- **`db:reset` passes `--skip-seed` deliberately.** `migrate reset` *would* trigger the
+  configured seed, and it has to not — the seed must land after `db:secure`, or it writes
+  into tables the Data API can still read.
+- **`prisma migrate reset` drops everything, and Prisma blocks it for AI agents.** Recent
+  CLI versions refuse it in an agent environment without explicit user consent passed
+  through `PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION`. That guard is correct; do not
+  work around it. Run the reset yourself.
+
+`prisma/seed.js` provisions two real, sign-innable Supabase accounts (an ADMIN priest and a
+MEMBER layperson) and a cast of Profile-only people who author the seeded comments but have
+no credentials. That split is deliberate: it makes "provisioned" and "exists in the app"
+visibly different states, which is what invite-only means here. It is idempotent — every
+row upserts on a natural key.
+
+### Naming
+
+Models and fields are camelCase in the Prisma client and **snake_case in Postgres**, via
+`@@map` / `@map`. Postgres folds unquoted identifiers to lowercase, so a mixed-case table
+has to be quoted forever — in every raw query, every psql session, and every statement
+typed into the Supabase SQL editor. A new model needs its `@@map`; the raw `DISTINCT ON`
+query in `posts.service.js` is the one place this is visible in app code.
+
+### If you add a field
+
+1. `prisma/schema.prisma` — include `@map` for any camelCase name, and an `@@index` on any
+   new foreign key (Postgres does not index one automatically, and an unindexed FK turns
+   `ON DELETE CASCADE` into a sequential scan).
+2. `npm run prisma:migrate`, then `npm run db:secure` if the change added a table.
+3. `lib/server/projections.js` — nothing reaches a client that is not listed there.
+4. The service, if it needs a new `include` or `where`.
+
+Steps 3 and 4 are where a schema change stops. No route handler, store, hook, or component
+should need to change for a rename, because the projection absorbs it.
 
 ---
 

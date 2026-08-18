@@ -5,6 +5,9 @@ export const ROUTES = {
     POST: "/p",
     SETTINGS: "/settings",
     SETTINGS_USERS: "/settings/users",
+    /* Signed in, but not yet through the door — see components/MemberGate.jsx. */
+    WELCOME: "/welcome",
+    ACCESS: "/access",
     PUBLIC: {
         LOGIN: "/login",
     },
@@ -68,8 +71,11 @@ export const API_BASE =
 export const API_ENDPOINTS = {
     /* The session probe: who the viewer is and which groups they belong to. */
     ME: "/me",
+    ME_ONBOARDING: "/me/onboarding",
     ORGS: "/orgs",
     ORG_MEMBERS: (orgId) => `/orgs/${orgId}/members`,
+    ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
+    MEMBERSHIP: (membershipId) => `/memberships/${membershipId}`,
     FEED: "/feed",
     /* Collection root — POST here to publish (admin only). */
     POSTS: "/posts",
@@ -127,19 +133,61 @@ export const ROLE_LEVEL = {
     [ROLES.ADMIN]: 20,
 }
 
-/* Who a person IS. Presentational only — a vocation never grants a permission. A priest is
- * usually their parish's admin but need not be, and an admin need not be a priest. */
+/* Where a person stands in the life of the parish. **Presentational only** — a vocation
+ * never grants a permission; that is `ROLES`. A parish can have a Reader who administers
+ * the feed and a Priest who does not.
+ *
+ * One value per person, never a set — these standings are mutually exclusive, so nobody is
+ * both a matushka and an ordained reader.
+ *
+ * Declared in the same order as the Postgres enum, which sorts by physical position and is
+ * what the roster orders on. Keep the two in step. */
 export const VOCATIONS = {
-    PRIEST: "PRIEST",
+    CATECHUMEN: "CATECHUMEN",
     FAITHFUL: "FAITHFUL",
+    READER: "READER",
+    /* A priest's wife. Slavic usage deliberately, not the Greek "Presbytera". */
+    MATUSHKA: "MATUSHKA",
+    DEACON: "DEACON",
+    PRIEST: "PRIEST",
+    BISHOP: "BISHOP",
 }
 
-/* Membership approval states. APPROVED is the only one that puts a group's posts in the
- * viewer's feed; PENDING is a request awaiting an admin. */
+/* Ordered for a picker, so the admin sees ranks in the order the parish thinks of them
+ * rather than however Object.keys happens to enumerate. */
+export const VOCATION_OPTIONS = [
+    VOCATIONS.CATECHUMEN,
+    VOCATIONS.FAITHFUL,
+    VOCATIONS.READER,
+    VOCATIONS.MATUSHKA,
+    VOCATIONS.DEACON,
+    VOCATIONS.PRIEST,
+    VOCATIONS.BISHOP,
+]
+
+/* Whether a signed-in viewer may use the app, and if not, why.
+ *
+ * Derived server-side from their memberships (see `projectViewer`) rather than left for
+ * the client to work out, so the gate has one value to branch on and cannot disagree with
+ * what the API would enforce.
+ *
+ *   ACTIVE   at least one APPROVED membership — the app opens
+ *   REVOKED  access was removed
+ *   NONE     signed in but belongs to nothing at all
+ *
+ * There is no "waiting on approval" state: an admin admits people, nobody asks to join,
+ * and a membership is APPROVED from the moment it exists. */
+export const ACCESS = {
+    ACTIVE: "ACTIVE",
+    REVOKED: "REVOKED",
+    NONE: "NONE",
+}
+
+/* Membership access states — in the parish, or removed from it. APPROVED is what puts a
+ * group's posts in the viewer's feed. Mirrors `MembershipStatus` in schema.prisma; read the
+ * admission note in that file's header before adding a third value. */
 export const MEMBERSHIP_STATUS = {
-    PENDING: "PENDING",
     APPROVED: "APPROVED",
-    REJECTED: "REJECTED",
     REVOKED: "REVOKED",
 }
 

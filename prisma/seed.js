@@ -89,19 +89,20 @@ const PEOPLE = [
         role: "MEMBER",
         signIn: true,
     },
-    { handle: "deacon.paul", fullName: "Dn. Paul", vocation: "PRIEST", verified: true, role: "MEMBER" },
-    { handle: "mat.carly", fullName: "Mat. Carly", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "presvytera.anna", fullName: "Anna", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "reader.michael", fullName: "Reader Michael", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "deacon.paul", fullName: "Dn. Paul", vocation: "DEACON", verified: true, role: "MEMBER" },
+    { handle: "mat.carly", fullName: "Mat. Carly", vocation: "MATUSHKA", role: "MEMBER" },
+    { handle: "matushka.anna", fullName: "Anna", vocation: "MATUSHKA", role: "MEMBER" },
+    { handle: "reader.michael", fullName: "Reader Michael", vocation: "READER", verified: true, role: "MEMBER" },
     { handle: "choir.elena", fullName: "Elena", vocation: "FAITHFUL", role: "MEMBER" },
     { handle: "geoffrey.k", fullName: "Geoffrey", vocation: "FAITHFUL", role: "MEMBER" },
     { handle: "theodora.v", fullName: "Theodora", vocation: "FAITHFUL", role: "MEMBER" },
     { handle: "casey.n", fullName: "Casey Nguyen", vocation: "FAITHFUL", role: "MEMBER" },
     { handle: "morgan.p", fullName: "Morgan Patel", vocation: "FAITHFUL", role: "MEMBER" },
     { handle: "sam.okafor", fullName: "Sam Okafor", vocation: "FAITHFUL", role: "MEMBER" },
-    /* Two people mid-flow, so the roster shows states other than APPROVED and the
-     * approval queue is not empty on first look. */
-    { handle: "taylor.b", fullName: "Taylor Brooks", vocation: "FAITHFUL", role: "MEMBER", status: "PENDING" },
+    { handle: "taylor.b", fullName: "Taylor Brooks", vocation: "FAITHFUL", role: "MEMBER" },
+    /* One person removed, so the roster shows both statuses and the Restore action has
+     * something to act on. REVOKED is the only alternative there is — see the admission
+     * note in schema.prisma's header. */
     { handle: "riley.c", fullName: "Riley Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED" },
 ]
 
@@ -292,7 +293,7 @@ const main = async () => {
                 orgId: org.id,
                 role: person.role,
                 status,
-                decidedAt: status === "PENDING" ? null : new Date(),
+                decidedAt: new Date(),
             },
         })
     }

@@ -127,13 +127,33 @@ export const projectOrg = (org, membership) => ({
     status: membership?.status ?? null,
 })
 
-/* The signed-in viewer. `role` and `vocation` are the two axes the UI gates on — see the
+/* Whether this viewer may use the app, and if not, why.
+ *
+ * Derived here rather than left to the client, so the gate branches on one value that
+ * cannot drift from what the API would actually enforce. The order of the checks is the
+ * precedence: one approved membership is enough to be in, regardless of what else is
+ * revoked.
+ *
+ * Three values, not four. There is no PENDING, because nobody can ask to join — an admin
+ * admits people and the membership is APPROVED from the moment it exists. REVOKED and NONE
+ * stay distinct because they need different wording: one person was removed, the other was
+ * never attached to a parish at all. */
+const accessFor = (memberships) => {
+    if (memberships.some((m) => m.status === "APPROVED")) return "ACTIVE"
+    if (memberships.some((m) => m.status === "REVOKED")) return "REVOKED"
+    return "NONE"
+}
+
+/* The signed-in viewer. `role` and `vocation` are the two axes the UI reads — see the
  * header of `prisma/schema.prisma` for why they are separate — and `orgs` carries every
  * group the viewer belongs to, with their role in each.
  *
  * `role` at the top level is the viewer's role in their *primary* group, which is what a
  * single-organization app renders in the profile menu. It is a convenience over `orgs`,
- * not a second source of truth. */
+ * not a second source of truth.
+ *
+ * `access` and `onboardedAt` are what the gates act on: the first decides whether the app
+ * opens at all, the second whether first-run orientation still has to happen. */
 export const projectViewer = (profile, memberships = []) => {
     const primary = memberships.find((m) => m.status === "APPROVED") ?? memberships[0] ?? null
 
@@ -145,8 +165,17 @@ export const projectViewer = (profile, memberships = []) => {
         avatar: profile.avatarUrl,
         vocation: profile.vocation,
         verified: profile.verified,
+        /* Date only — `@db.Date`, so there is no time to strip and no timezone to shift it
+         * across. Sent as YYYY-MM-DD, which is what a date input expects. */
+        birthday: profile.birthday ? profile.birthday.toISOString().slice(0, 10) : null,
+        onboardedAt: profile.onboardedAt?.toISOString() ?? null,
         createdAt: profile.createdAt.toISOString(),
+        access: accessFor(memberships),
         role: primary?.role ?? null,
-        orgs: memberships.map((membership) => projectOrg(membership.org, membership)),
+        /* Only groups the viewer is actually in. A revoked membership informs `access`
+         * above but must not appear as one of their groups. */
+        orgs: memberships
+            .filter((m) => m.status === "APPROVED")
+            .map((membership) => projectOrg(membership.org, membership)),
     }
 }

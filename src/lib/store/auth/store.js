@@ -48,12 +48,14 @@ const ERROR_INIT = {
     request: false,
     verify: false,
     logout: false,
+    onboarding: false,
 }
 
 const LOADING_INIT = {
     request: false,
     verify: false,
     logout: false,
+    onboarding: false,
 }
 
 const INIT = {
@@ -365,6 +367,34 @@ const useStore = create(
                         state.loggedIn = false
                         state.user = null
                     })
+                },
+
+                /* Finishes first-run orientation and lets the viewer into the app.
+                 *
+                 * The response is the whole updated viewer, so it replaces `user`
+                 * outright — the gate reads `onboardedAt` off it, and re-fetching to learn
+                 * what we were just told would leave the reader on a finished form. */
+                completeOnboarding: async (values, router) => {
+                    set(state => {
+                        state.loading.onboarding = true
+                        state.error.onboarding = false
+                    })
+                    try {
+                        const user = await api.post(API_ENDPOINTS.ME_ONBOARDING, values)
+                        set(state => { state.user = user })
+                        router?.replace(ROUTES.DEFAULT)
+                        return true
+                    } catch (error) {
+                        set(state => {
+                            state.error.onboarding = toErrorList(
+                                error,
+                                'Could not save your details. Please try again.',
+                            )
+                        })
+                        return false
+                    } finally {
+                        set(state => { state.loading.onboarding = false })
+                    }
                 },
 
                 /* GET /api/me → the viewer. The single place `loggedIn` is set true. */

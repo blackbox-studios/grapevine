@@ -204,7 +204,7 @@ export const COMMENTS = {
         },
         {
             id: "cmt-001-04",
-            author: { handle: "presvytera.anna", name: "Anna", avatar: null },
+            author: { handle: "matushka.anna", name: "Anna", avatar: null },
             text: "Welcome to the world, Cyrus John! May God grant him many years. ☦️",
             created_at: "2026-08-09T17:00:00.000000Z",
             likes: 15,
@@ -320,7 +320,7 @@ export const COMMENTS = {
         },
         {
             id: "cmt-003-03",
-            author: { handle: "presvytera.anna", name: "Anna", avatar: null },
+            author: { handle: "matushka.anna", name: "Anna", avatar: null },
             text: "Congratulations!! 21 inches — she's going to be tall. 🥹",
             created_at: "2026-08-08T14:00:00.000000Z",
             likes: 3,

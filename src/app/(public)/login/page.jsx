@@ -8,12 +8,9 @@ import { REGEXP_ONLY_DIGITS } from "input-otp"
 import useMeasure from "react-use-measure"
 import { z } from "zod"
 
-import Ripple from "@/assets/svg/ripple.svg"
-import TypeLogo from "@/assets/svg/type-logo.svg"
-import GlossyMark, { paletteFor, useMarkCycle } from "@/components/GlossyMark"
+import GatewayShell, { GatewayButton } from "@/components/GatewayShell"
 import Hyperlink from "@/components/Hyperlink"
 import Transition from "@/components/Transition"
-import { Button } from "@/components/ui/button"
 import {
     Form,
     FormControl,
@@ -99,27 +96,9 @@ const EmailStep = ({ onSubmit, loading }) => {
                     )}
                 />
 
-                <Button
-                    asChild
-                    size="lg"
-                    className="h-14 w-full bg-(--mark-accent) text-white transition-all duration-500 hover:bg-(--mark-accent) hover:opacity-90"
-                >
-                    <motion.button
-                        type="submit"
-                        disabled={loading}
-                        whileTap={{ scale: 0.96 }}
-                        transition={{ type: "spring", stiffness: 700, damping: 32, mass: 0.6 }}
-                    >
-                        {loading ? (
-                            <Ripple
-                                aria-label="Sending your code"
-                                className="size-8 [&_circle]:stroke-current"
-                            />
-                        ) : (
-                            "Continue with email"
-                        )}
-                    </motion.button>
-                </Button>
+                <GatewayButton type="submit" disabled={loading} loading={loading} busyLabel="Sending your code">
+                    Continue with email
+                </GatewayButton>
             </form>
         </Form>
     )
@@ -173,7 +152,7 @@ const CodeStep = ({ email, onSubmit, onResend, onBack, loading, resendIn }) => {
                                     autoComplete="one-time-code"
                                     disabled={loading}
                                     aria-label="Sign-in code from your email"
-                                    containerClassName="justify-center gap-2"
+                                    containerClassName="w-full justify-center gap-2"
                                     /* Filling the last slot submits. Standard for a code
                                      * field, and it is the difference between one gesture and
                                      * three on a phone. The button stays for the paste case
@@ -184,12 +163,20 @@ const CodeStep = ({ email, onSubmit, onResend, onBack, loading, resendIn }) => {
                                     {OTP_GROUPS.map((count, groupIndex) => (
                                         <Fragment key={groupIndex}>
                                             {groupIndex > 0 && <InputOTPSeparator />}
-                                            <InputOTPGroup>
+                                            {/* The groups share the row and the slots inside
+                                              * them flex, rather than each slot being a fixed
+                                              * 44px square. Eight fixed squares plus the
+                                              * separator need ~384px, which is wider than the
+                                              * content column on any phone narrower than a Pro
+                                              * Max — and the overflow was centred, so the code
+                                              * was clipped at *both* ends. They still cap at
+                                              * 44px, so nothing changes where there is room. */}
+                                            <InputOTPGroup className="min-w-0 flex-1">
                                                 {Array.from({ length: count }, (_, slot) => (
                                                     <InputOTPSlot
                                                         key={slot}
                                                         index={groupOffset(groupIndex) + slot}
-                                                        className="size-11 rounded-none border-transparent bg-muted text-base first:rounded-l-xl last:rounded-r-xl"
+                                                        className="h-11 min-w-0 max-w-11 flex-1 rounded-none border-transparent bg-muted text-base first:rounded-l-xl last:rounded-r-xl"
                                                     />
                                                 ))}
                                             </InputOTPGroup>
@@ -202,27 +189,9 @@ const CodeStep = ({ email, onSubmit, onResend, onBack, loading, resendIn }) => {
                     )}
                 />
 
-                <Button
-                    asChild
-                    size="lg"
-                    className="h-14 w-full bg-(--mark-accent) text-white transition-all duration-500 hover:bg-(--mark-accent) hover:opacity-90"
-                >
-                    <motion.button
-                        type="submit"
-                        disabled={loading}
-                        whileTap={{ scale: 0.96 }}
-                        transition={{ type: "spring", stiffness: 700, damping: 32, mass: 0.6 }}
-                    >
-                        {loading ? (
-                            <Ripple
-                                aria-label="Verifying your code"
-                                className="size-8 [&_circle]:stroke-current"
-                            />
-                        ) : (
-                            "Sign in"
-                        )}
-                    </motion.button>
-                </Button>
+                <GatewayButton type="submit" disabled={loading} loading={loading} busyLabel="Verifying your code">
+                    Sign in
+                </GatewayButton>
 
                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     {/* Supabase rejects a second code for the same address inside 60
@@ -263,16 +232,8 @@ const CodeStep = ({ email, onSubmit, onResend, onBack, loading, resendIn }) => {
 const LoginPage = () => {
     const { stage, email, requestCode, verify, resend, resendIn, back, loading, clearError } =
         useLogin()
-    const { from, to, advance } = useMarkCycle()
-
     /* Drives the height animation across the step change. */
     const [measureRef, bounds] = useMeasure()
-
-    /* The button wears whatever colour the mark is currently wearing. It updates
-     * when the logo is tapped, via a custom property — Tailwind tokens can't
-     * express the runtime palette. Every accent clears contrast against white text,
-     * so the label stays white throughout. */
-    const palette = paletteFor(to)
 
     /* Store failures surface as toasts through useErrorListener, so each submit clears the
      * previous one first — otherwise a stale error sits under a fresh attempt. */
@@ -292,46 +253,18 @@ const LoginPage = () => {
     }), [clearError, requestCode, verify, resend])
 
     return (
-        <div
-            className="relative flex min-h-dvh w-full flex-col overflow-hidden bg-background"
-            style={{ "--mark-accent": palette.accent }}
-        >
-            {/* Wordmark, desktop only. Its paths ship as solid white, so recolour
-              * them with currentColor to track the theme. */}
-            <TypeLogo
-                aria-label="Synaxis"
-                className="absolute left-10 top-8 hidden h-12 w-auto text-(--mark-accent) [&_path]:fill-current lg:block"
-            />
-
-            {/* Mobile spreads the mark across the free space with the form pinned
-              * low; desktop (lg) collapses that and centres the whole stack, adding
-              * the welcome copy between the mark and the form. */}
-            <main className="flex flex-1 flex-col lg:items-center lg:justify-center lg:gap-8 lg:py-16">
-                <div className="flex flex-1 items-center justify-center px-8 lg:flex-none lg:px-0">
-                    <GlossyMark
-                        from={from}
-                        to={to}
-                        onClick={advance}
-                        className="w-[min(40vw,15rem)] lg:w-32"
-                    />
+        <GatewayShell
+            heading="Welcome to Synaxis"
+            subheading="By Holy Trinity Cathedral"
+            footer={
+                <div className="max-w-72 text-center text-xs leading-relaxed text-muted-foreground">
+                    By continuing you agree to the&nbsp;
+                    <Hyperlink>System User Agreement</Hyperlink>
+                    &nbsp;and&nbsp;
+                    <Hyperlink>Privacy Policy</Hyperlink>
                 </div>
-
-                {/* Everything but the mark fades in together, ~0.75s after mount, via
-                  * the shared Transition. The button colour cross-fades in CSS and its
-                  * press scale is motion's, so neither has to share this duration. */}
-                <Transition
-                    delay={0.75}
-                    className="flex h-auto w-full flex-col items-center gap-6 px-6 pb-12 sm:pb-16 lg:gap-8 lg:px-0 lg:pb-0"
-                >
-                    <div className="hidden flex-col items-center gap-1.5 text-center lg:flex">
-                        <h1 className="font-heading text-2xl font-semibold text-foreground">
-                            Welcome to Synaxis
-                        </h1>
-                        <p className="font-medium leading-2 tracking-normal text-muted-foreground font-heading">
-                            By Holy Trinity Cathedral
-                        </p>
-                    </div>
-
+            }
+        >
                     {/* The two steps cross-fade rather than swapping instantly.
                       *
                       * `AnimatePresence mode="wait"` + `<Transition>` is the same pairing the
@@ -383,15 +316,7 @@ const LoginPage = () => {
                         </div>
                     </motion.div>
 
-                    <div className="max-w-72 text-center text-xs leading-relaxed text-muted-foreground">
-                        By continuing you agree to the&nbsp;
-                        <Hyperlink>System User Agreement</Hyperlink>
-                        &nbsp;and&nbsp;
-                        <Hyperlink>Privacy Policy</Hyperlink>
-                    </div>
-                </Transition>
-            </main>
-        </div>
+        </GatewayShell>
     )
 }
 

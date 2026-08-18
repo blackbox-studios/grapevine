@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from 'zustand/react/shallow'
 
-import { OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES } from "@/lib/constants"
+import { ACCESS, OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES, ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import useAuthStore from "./store"
 
@@ -97,6 +97,37 @@ export const useLogin = () => {
     ])
 }
 
+/* Orientation: submit the answers, and the viewer comes back onboarded.
+ *
+ * The updated viewer replaces the store's copy directly rather than triggering a re-fetch
+ * — `onboardedAt` is what the gate reads, so any gap between "saved" and "the client knows
+ * it saved" is a gap where the viewer sits on a completed form. */
+export const useOnboarding = () => {
+    const [user, completeOnboarding, loading, error, clearError] = useAuthStore(
+        useShallow(state => ([
+            state.user,
+            state.completeOnboarding,
+            state.loading.onboarding,
+            state.error.onboarding,
+            state.clearError,
+        ])),
+    )
+    const router = useRouter()
+
+    const submit = useCallback(
+        (values) => completeOnboarding(values, router),
+        [completeOnboarding, router],
+    )
+
+    return useMemo(() => ({
+        user,
+        submit,
+        loading,
+        error,
+        clearError: () => clearError("onboarding"),
+    }), [user, submit, loading, error, clearError])
+}
+
 export const useLogout = () => {
     const logoutUser = useAuthStore(state => state.logout)
     const router = useRouter()
@@ -156,37 +187,63 @@ export const useAuthGate = () => {
  * It used to be called only by useLogin, which meant it ran only once the login page had
  * mounted. A cold load of any protected route therefore redirected first and asked
  * afterwards, and a magic-link callback lost its tokens to that redirect. */
+/* Where a signed-in viewer belongs, as a route — or `null` for "the app", or `undefined`
+ * for "not known yet".
+ *
+ * Three-valued on purpose. A gate that cannot tell "no redirect needed" from "the viewer
+ * has not loaded" will bounce someone out of the app for the fraction of a second before
+ * /api/me answers, and on a magic-link boot that is long enough to matter.
+ *
+ * This is the single source that both gates in components/MemberGate.jsx and the callback
+ * scrub in useAuthInit read, so they cannot disagree and fight over the same navigation. */
+export const useGatewayDestination = () => {
+    return useAuthStore(state => {
+        if (!state.ready || !state.loggedIn) return undefined
+        if (!state.user) return undefined
+        if (state.user.access !== ACCESS.ACTIVE) return ROUTES.ACCESS
+        if (!state.user.onboardedAt) return ROUTES.WELCOME
+        return null
+    })
+}
+
+/* Boots the auth store. Mounted once by <App/>, which sits in the root layout *outside*
+ * both route groups — so the session is resolved no matter which URL the app is opened at.
+ *
+ * It used to be called only by useLogin, which meant it ran only once the login page had
+ * mounted. A cold load of any protected route therefore redirected first and asked
+ * afterwards, and a magic-link callback lost its tokens to that redirect. */
 export const useAuthInit = () => {
     const init = useAuthStore(state => state.init)
+    const destination = useGatewayDestination()
     const router = useRouter()
 
     useEffect(() => {
-        init().finally(() => {
-            /* Scrub the magic-link callback out of the address bar.
-             *
-             * `/auth/v1/verify` hands the session back as `#access_token=…&refresh_token=…`.
-             * supabase-js has read it by the time init resolves, but the fragment stays in
-             * the URL — and therefore in the address bar, in browser history, and in
-             * anything the reader copies or shares from there. A refresh token pasted into
-             * a chat is a live credential.
-             *
-             * **`router.replace`, not `history.replaceState`.** The raw History API looks
-             * like the lighter option and does not work here: the App Router caches the URL
-             * it booted with, so it restores the fragment on the next render that touches
-             * the router — the address bar cleared, then repopulated itself the moment
-             * anything was clicked. Going through the router updates its state too, so the
-             * change sticks. */
-            if (typeof window === "undefined") return
+        init()
+    }, [init])
 
-            /* Only on success. A *failed* callback (`#error=…`) must be left alone: the
-             * gate is about to redirect to /login, which drops the fragment anyway, and
-             * replacing the URL here would race that navigation and win — stranding the
-             * viewer on a protected route that renders nothing, because the gate had
-             * already decided to send them away. */
-            if (!window.location.hash.includes("access_token")) return
-            router.replace(window.location.pathname + window.location.search)
-        })
-    }, [init, router])
+    /* Scrub the magic-link callback out of the address bar.
+     *
+     * `/auth/v1/verify` hands the session back as `#access_token=…&refresh_token=…`.
+     * supabase-js has read it by the time the session resolves, but the fragment stays in
+     * the URL — and therefore in the address bar, in browser history, and in anything the
+     * reader copies. A refresh token pasted into a chat is a live credential.
+     *
+     * **Only when nobody else is navigating.** This is gated on `destination === null`
+     * ("the viewer stays where they are") because the gates in components/MemberGate.jsx
+     * may be about to send them to /welcome or /access — and those navigations drop the
+     * fragment for free. Scrubbing unconditionally means two `router.replace` calls racing
+     * for the same tick: this one lands last, cancels the gate's redirect, and leaves the
+     * viewer on a route the gate has already decided to render nothing for. That is a
+     * blank page, and it is exactly what happened before this guard existed.
+     *
+     * `router.replace`, not `history.replaceState`: the App Router caches the URL it
+     * booted with and restores the fragment on the next render that touches the router. */
+    useEffect(() => {
+        if (destination !== null) return
+        if (typeof window === "undefined") return
+        if (!window.location.hash.includes("access_token")) return
+        router.replace(window.location.pathname + window.location.search)
+    }, [destination, router])
 }
 
 /* The viewer's role in a given group, or in their primary group when no id is passed.

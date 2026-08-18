@@ -53,7 +53,7 @@ export const preflight = (request) => {
         applyCors(response, origin)
         response.headers.set(
             "Access-Control-Allow-Methods",
-            "GET, POST, PUT, DELETE, OPTIONS",
+            "GET, POST, PATCH, PUT, DELETE, OPTIONS",
         )
         /* Echo what the browser asked for; the fallback lists what this API actually
          * reads. `Authorization` is on it because every endpoint is authenticated by a

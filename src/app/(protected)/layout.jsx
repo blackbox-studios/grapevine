@@ -13,6 +13,7 @@ import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { ProtectedGate } from "@/components/AuthGate";
+import { MemberGate } from "@/components/MemberGate";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
@@ -209,10 +210,20 @@ const ProtectedShell = ({ children }) => {
     )
 }
 
-/* Auth redirects are handled by <AuthGate/> (see it for the protected-route gate). */
+/* Two gates, in order, answering two different questions.
+ *
+ *   <ProtectedGate>  are you signed in at all?          → /login
+ *   <MemberGate>     signed in, but do you belong here? → /access or /welcome
+ *
+ * The order matters and the nesting is the enforcement: MemberGate reads the viewer, which
+ * only exists once there is a session, so it must never run first. Neither renders its
+ * children until it has an answer, so the shell below is only ever mounted for someone who
+ * is signed in, admitted, and through orientation. */
 const ProtectedLayout = ({ children }) => (
     <ProtectedGate>
-        <ProtectedShell>{children}</ProtectedShell>
+        <MemberGate>
+            <ProtectedShell>{children}</ProtectedShell>
+        </MemberGate>
     </ProtectedGate>
 )
 

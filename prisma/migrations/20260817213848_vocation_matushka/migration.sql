@@ -1,0 +1,11 @@
+-- Matushka — a priest's wife, Slavic usage rather than the Greek "Presbytera".
+--
+-- `AFTER 'READER'` is the whole point of this edit. Prisma generates a bare
+-- `ADD VALUE`, which appends: the label would land after BISHOP and the enum would sort
+-- CATECHUMEN, FAITHFUL, READER, DEACON, PRIEST, BISHOP, MATUSHKA. Postgres orders an enum
+-- by physical position, so the roster would show a matushka below a bishop.
+--
+-- No type recreate needed this time. ADD VALUE can *place* a new label; what it cannot do
+-- is move an existing one, which is why the previous migration had to rebuild the type to
+-- get PRIEST after DEACON.
+ALTER TYPE "vocation" ADD VALUE 'MATUSHKA' AFTER 'READER';

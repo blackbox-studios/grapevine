@@ -106,6 +106,12 @@ class API {
         return this.grab("put", endpoint, body, options)
     }
 
+    /* Partial update. Used where the caller holds only the field it is changing rather
+     * than a whole resource to replace — the roster's approve/revoke/re-rank actions. */
+    static patch(endpoint, body = {}, options = {}) {
+        return this.grab("patch", endpoint, body, options)
+    }
+
     static delete(endpoint, options = {}) {
         return this.grab("delete", endpoint, null, options)
     }

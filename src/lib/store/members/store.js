@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
+import { API_ENDPOINTS, ERROR_CODES } from '@/lib/constants'
 import { toErrorList } from '@/lib/utils'
 
 /* A group's roster — the User Management table.
@@ -18,10 +18,15 @@ import { toErrorList } from '@/lib/utils'
 
 const ERROR_INIT = {
     list: false,
+    invite: false,
+    update: false,
 }
 
 const LOADING_INIT = {
     list: false,
+    invite: false,
+    /* Keyed by membership id, so one row's spinner does not disable the whole table. */
+    update: {},
 }
 
 const INIT = {
@@ -60,7 +65,15 @@ const useStore = create(immer((set, get) => ({
             set(state => {
                 if (state.orgId !== orgId) return
                 state.items = []
-                state.error.list = toErrorList(error, 'Could not load the member list.')
+                /* A refusal is silent. It means the viewer reached a surface they should
+                 * not have, which the route gate is already handling by redirecting them —
+                 * so toasting as well tells a member off for a navigation they did not
+                 * choose, on a page disappearing underneath the toast. The hook does not
+                 * send this request for a non-admin at all; this is the backstop for the
+                 * case it cannot cover, an admin demoted mid-session. */
+                if (error?.code !== ERROR_CODES.PERMISSION_DENIED) {
+                    state.error.list = toErrorList(error, 'Could not load the member list.')
+                }
                 /* Resolve readiness on the failure path too, or the skeleton spins
                  * forever instead of settling on the empty state. */
                 state.ready = true
@@ -68,6 +81,78 @@ const useStore = create(immer((set, get) => ({
         } finally {
             set(state => {
                 if (state.orgId === orgId) state.loading.list = false
+            })
+        }
+    },
+
+    /* Admits one or more people. The server takes a pasted blob and splits it, so the
+     * whole textarea goes over as-is rather than being parsed here.
+     *
+     * The roster is refetched rather than patched from the response: an admission can
+     * create a person, restore a revoked one, or re-rank an existing one, and reconciling
+     * three shapes into the list by hand is more code and more ways to be wrong than one
+     * read. Returns the report so the caller can say what happened per address. */
+    invite: async ({ emails, role, vocation }) => {
+        const orgId = get().orgId
+        if (!orgId) return null
+
+        set(state => {
+            state.loading.invite = true
+            state.error.invite = false
+        })
+        try {
+            const result = await api.post(API_ENDPOINTS.ORG_INVITES(orgId), {
+                emails,
+                role,
+                vocation,
+            })
+            await get().refresh()
+            return result
+        } catch (error) {
+            set(state => {
+                state.error.invite = toErrorList(error, 'Could not add those people.')
+            })
+            return null
+        } finally {
+            set(state => { state.loading.invite = false })
+        }
+    },
+
+    /* Approve, revoke, or re-rank one member.
+     *
+     * Optimistic would be the wrong call here: these are consequential, low-frequency
+     * administrative actions where being told the truth matters more than the row moving
+     * instantly, and a revoke that silently failed while appearing to succeed is exactly
+     * the bug worth avoiding. The row shows a spinner and takes the server's answer. */
+    updateMember: async (membershipId, patch) => {
+        set(state => { state.loading.update[membershipId] = true })
+        try {
+            const member = await api.patch(API_ENDPOINTS.MEMBERSHIP(membershipId), patch)
+            set(state => {
+                const index = state.items.findIndex(item => item.membershipId === membershipId)
+                if (index !== -1) state.items[index] = member
+            })
+            return member
+        } catch (error) {
+            set(state => {
+                state.error.update = toErrorList(error, 'Could not update that member.')
+            })
+            return null
+        } finally {
+            set(state => { delete state.loading.update[membershipId] })
+        }
+    },
+
+    /* Re-reads the roster for the group already loaded. */
+    refresh: async () => {
+        const orgId = get().orgId
+        if (!orgId) return
+        try {
+            const { items } = await api.get(API_ENDPOINTS.ORG_MEMBERS(orgId))
+            set(state => { state.items = items })
+        } catch (error) {
+            set(state => {
+                state.error.list = toErrorList(error, 'Could not refresh the member list.')
             })
         }
     },

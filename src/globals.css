@@ -421,6 +421,18 @@
 
 }
 
+/* Hides the scrollbar without disabling scrolling. For surfaces where the scrollbar is
+ * chrome rather than affordance — the date drum, whose position is communicated by the
+ * selection pill instead. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @utility panel {
   @apply shadow-[0_4px_12px_#00000025] dark:shadow-[0_8px_48px_#0000002e] backdrop-blur-md;
 }

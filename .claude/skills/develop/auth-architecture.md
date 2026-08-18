@@ -21,9 +21,16 @@
 - **Two identities, kept apart.** Supabase owns the *session*; `GET /api/me` owns the
   *viewer* (profile, vocation, role, groups). `loggedIn` means both are in place.
 - **Two authorization axes.** `Membership.role` (ADMIN | MEMBER) is per-group permission.
-  `Profile.vocation` (PRIEST | FAITHFUL) is presentational and grants nothing.
-- **Route guards are client components** (`AuthGate.jsx`), because a static export has no
-  server. **Real enforcement is server-side**, in `src/lib/server/auth.js`.
+  `Profile.vocation` (CATECHUMEN | FAITHFUL | READER | MATUSHKA | DEACON | PRIEST | BISHOP)
+  is presentational and grants nothing.
+- **Admission is the security model.** An admin adds an email, which provisions the account
+  outright — there is no acceptance step and no self-serve path. Removing someone is a
+  status change, not a delete.
+- **Signing in is not the same as getting in.** Two more gates follow: `access` (do you
+  belong to a group at all) and `onboardedAt` (have you finished orientation).
+- **Route guards are client components** (`AuthGate.jsx`, `MemberGate.jsx`), because a
+  static export has no server. **Real enforcement is server-side**, in
+  `src/lib/server/auth.js`.
 
 ---
 
@@ -37,8 +44,10 @@
                              └─ 401/no Profile → sign back out; a session alone is not entry
                            ► loggedIn = true, router.replace("/")
 
-<ProtectedGate> sees loggedIn → renders the shell
-<PublicGate> on /login sees loggedIn → redirects to /
+<ProtectedGate> signed in?          no → /login
+<MemberGate>    access !== ACTIVE?  yes → /access     "your access has been removed"
+                onboardedAt null?   yes → /welcome    first-run orientation
+                otherwise                → the app
 ```
 
 Sign-out reverses it: `supabase.auth.signOut()`, reset every store, `replace("/login")`.
@@ -105,6 +114,143 @@ bypassed. Two consequences worth knowing:
 
 ---
 
+## Admission — how anyone gets in
+
+There is one way into a parish: an admin adds an email address. That is not a convenience
+layered over sign-in, it *is* the whitelist — `shouldCreateUser: false` means an address
+with no `auth.users` row can never obtain a code, so provisioning and authorising are the
+same act.
+
+**Provisioned immediately, not on acceptance.** `POST /api/orgs/:orgId/invites` creates the
+Supabase auth user, the `Profile`, and an **APPROVED** `Membership` in one go. The person
+simply signs in whenever they like. There is no token to redeem and no public accept route,
+and that is deliberate on three counts: a public route would fight the invite-only gate, it
+would fight the static export, and a redemption *link* is exactly the thing that cannot work
+inside the native WebView.
+
+The `Invite` row survives as an audit trail — who admitted whom, to what role and vocation,
+when. It is not a ticket, and it no longer pretends to be: the `token` / `expiresAt` /
+`acceptedAt` columns are gone, because there is no link to redeem and nothing to expire.
+
+**Admission is one-directional, and the schema enforces it.** An admin adds people; a person
+never asks to join and there is nothing to approve. `MembershipStatus` is `APPROVED |
+REVOKED` — no PENDING request, no REJECTED refusal — so an unapproved membership is not a
+state that can be represented, and `Membership.status` defaults to `APPROVED` because
+admission is the only thing that creates a row.
+
+This follows from the invite-only gate rather than being a separate decision. A
+request-to-join flow needs a public entry point where a stranger identifies themselves, and
+`shouldCreateUser: false` means that stranger can never receive a sign-in code anyway — the
+request would come from someone who by construction cannot act on the answer.
+
+The earlier schema had the request half without the entry point, which is how the roster
+ended up with an **Approve** button that nothing could populate and `/access` with a
+"waiting on approval" screen nobody could reach. If a parish ever does want people to be
+able to ask, that is a new model — a `JoinRequest` with its own table and its own gate — not
+a third value on this enum.
+
+**No email is sent.** Also deliberate: a priest can add forty people without touching a rate
+limit, and telling them happens out of band, which for a parish is how it actually happens.
+
+Consequences worth knowing:
+
+- **A Supabase dashboard invite does not work.** It creates an auth user with no `Profile`
+  and no `Membership`, so `requireViewer` throws *"This account has not been set up yet"*
+  and `verifyCode` tears the session back down. It fails safe, but confusingly — use the
+  app's own admissions.
+- **Addresses arrive as a blob.** The endpoint splits on commas, semicolons and whitespace,
+  because a list of parishioners arrives pasted, not typed. Failures are reported **per
+  address** rather than aborting the batch — one typo must not cost the other twenty-nine.
+- **Re-admitting is an upsert.** Adding someone previously revoked restores them rather
+  than colliding.
+
+### Removal
+
+`PATCH /api/memberships/:id` with `status: "REVOKED"`. A status change, never a delete, so
+their posts and comments stay attributed to a real person and re-admitting is one field.
+
+**It does not remove their Supabase account** — they can still authenticate, they simply
+have no group to read. That is what `/access` exists for; without it they would land in the
+app and find an empty feed, which reads as breakage rather than as a decision.
+
+An admin cannot revoke themselves. Otherwise the last admin can lock the parish out of its
+own roster.
+
+---
+
+## The gateway — signed in, but not yet in
+
+`access` is derived server-side in `projectViewer` and sent on the viewer, so the client
+branches on one value that cannot drift from what the API would enforce:
+
+| `access` | Means | Screen |
+|---|---|---|
+| `ACTIVE` | at least one APPROVED membership | the app |
+| `REVOKED` | removed | `/access` |
+| `NONE` | signed in, belongs to nothing | `/access` |
+
+There is no "waiting on approval" value, because nobody can ask to join. `REVOKED` and
+`NONE` stay distinct only because they need different wording — one person was removed, the
+other was never attached to a parish at all — and `/access` offers the same single action
+either way: sign out and talk to a person.
+
+Orientation is the second gate. `onboardedAt` is null until the viewer completes `/welcome`,
+which asks one question — their birthday — because everything else about them (rank, role,
+parish) was set by the priest at admission. Asking again would be asking them to re-enter
+what an admin already decided.
+
+### One destination, two gates
+
+`useGatewayDestination()` returns the route a signed-in viewer belongs on: a path, `null`
+for "the app", or `undefined` for "not resolved yet". **Both gates read it and neither
+decides anything itself.**
+
+That is the whole design. Two gates reasoning independently is how redirect loops get
+written — one sends you to `/welcome`, the other decides you don't belong there and sends
+you back, forever. Here there is a single answer and both merely obey it:
+
+- `<MemberGate>` wraps the app shell and holds anyone with somewhere else to be.
+- `<GatewayRedirect>` wraps `/welcome` and `/access` and sends you back into the app once
+  you no longer belong there.
+
+The three-valued return matters as much as the sharing. A gate that cannot tell "no
+redirect needed" from "the viewer hasn't loaded" bounces people out of the app for the
+fraction of a second before `/api/me` answers — and on a magic-link boot that is long
+enough to see.
+
+> **Anything else that navigates on boot must respect it too.** The callback-URL scrub in
+> `useAuthInit` is gated on `destination === null` for exactly this reason: it once fired
+> `router.replace("/")` a tick after `MemberGate` had redirected to `/welcome`, cancelling
+> it and leaving a blank page — the gate correctly rendering nothing for a route it had
+> already decided against. Two `router.replace` calls racing for the same tick is the bug;
+> the shared destination is the fix.
+
+### Testing admission and orientation locally
+
+Two workflows, and they exercise different things.
+
+**Rewind an existing account** — fastest loop while building the orientation screen:
+
+```bash
+npm run dev:reset-member -- admin    # clears onboardedAt, birthday, lastSeenAt
+npm run dev:login -- admin           # sign in; lands on /welcome
+```
+
+**Admit a genuinely new person** — exercises the whole journey, including the roster
+states, which the rewind cannot show you:
+
+```bash
+# In the app, as an admin: Settings → Users → paste you+newbie@yourdomain.com
+npm run dev:login -- you+newbie@yourdomain.com
+```
+
+Plus-addressing gives you as many distinct accounts as you like in one inbox, and
+`dev:login` means none of it costs an email. Before that account signs in the roster shows
+it as **Not yet signed in**; afterwards, **Orientation pending** until `/welcome` is
+completed.
+
+---
+
 ## The two identities
 
 | | Owned by | Persisted by | Answers |
@@ -144,8 +290,8 @@ export const GET = route(async (request) => {
 | Function | Throws | When |
 |---|---|---|
 | `requireViewer(request)` | `401 UNAUTHENTICATED` | no bearer token, token fails Supabase verification, or no Profile for its `sub` |
-| `requireMembership(id, orgId)` | `404 NOT_FOUND` | no membership, or REJECTED |
-| | `403 PERMISSION_DENIED` | PENDING, REVOKED, or wrong role |
+| `requireMembership(id, orgId)` | `404 NOT_FOUND` | no membership |
+| | `403 PERMISSION_DENIED` | REVOKED, or wrong role |
 | `readableOrgIds(id)` | — | the APPROVED set the feed is scoped to |
 
 **404 rather than 403 for a non-member** is deliberate: confirming a group or post exists
@@ -202,15 +348,41 @@ Conflating these is the mistake the schema is shaped to prevent.
 | | Values | Scope | Grants |
 |---|---|---|---|
 | `Membership.role` | `ADMIN`, `MEMBER` | **per group** | ADMIN may publish; MEMBER may read, like, comment |
-| `Profile.vocation` | `PRIEST`, `FAITHFUL` | global | nothing — it is a label |
+| `Profile.vocation` | `CATECHUMEN`, `FAITHFUL`, `READER`, `MATUSHKA`, `DEACON`, `PRIEST`, `BISHOP` | global | nothing — it is a label |
 
 A priest is *usually* their parish's admin but need not be, and an admin need not be a
-priest. Because roles are per-group, `useRole(orgId)` / `usePrivileged(role, orgId)` always
-resolve against one group; a global "am I admin" would paper over that the moment a second
-group exists.
+priest — a parish can have a Reader who administers the feed and a Priest who does not.
+Because roles are per-group, `useRole(orgId)` / `usePrivileged(role, orgId)` always resolve
+against one group; a global "am I admin" would paper over that the moment a second group
+exists.
+
+Vocation is **one value, never a set** — these standings are mutually exclusive, so nobody
+is both a matushka and an ordained reader. That is why it is an enum column rather than a
+collection of flags: the schema makes the invalid combination unrepresentable instead of
+leaving it to validation. It is set by an admin at admission and editable on the roster
+afterwards, because people are tonsured and ordained over a life in the parish.
+
+> **The enum's declaration order is the sort order.** Postgres orders an enum by physical
+> position, not alphabetically, and the roster sorts on it. Adding a rank means placing it
+> — `ALTER TYPE … ADD VALUE 'X' AFTER 'Y'`, not a bare `ADD VALUE`, which appends and would
+> sort a matushka below a bishop. Prisma generates the bare form; edit the migration.
+> Moving an *existing* label is not possible with `ADD VALUE` at all and needs a type
+> recreate (see `20260817212259_member_lifecycle`).
 
 `MembershipStatus` is the third piece: only `APPROVED` puts a group's posts in a viewer's
-feed. Revoking is a status change, not a delete, so the history survives.
+feed, and it is what `access` is derived from.
+
+### Lifecycle timestamps
+
+Two nullable columns on `Profile` carry the states the roster shows and the gates act on:
+
+| Column | Null means | Set by |
+|---|---|---|
+| `lastSeenAt` | **never signed in** — the invitation has not been taken up | `touchProfile` on `/api/me`, throttled to 10 minutes |
+| `onboardedAt` | orientation unfinished | `POST /api/me/onboarding` |
+
+They are kept here rather than read from `auth.users.last_sign_in_at`, which is visible
+today but lives in a schema Supabase owns and has been progressively locking down.
 
 ---
 
@@ -222,13 +394,22 @@ feed. Revoking is a status change, not a delete, so the history survives.
 | RLS + Data API lockdown | `prisma/policies.sql` (`npm run db:secure`) |
 | Server clients (anon + service role) | `src/lib/server/supabase.js` |
 | `requireViewer`, `requireMembership`, `readableOrgIds` | `src/lib/server/auth.js` |
-| Store: `requestCode` / `verifyCode` / `logout` / `expire` | `src/lib/store/auth/store.js` |
-| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGroups` | `src/lib/store/auth/hook.js` |
+| Admissions, roster, onboarding, revoke | `src/lib/server/profile.service.js` |
+| `access` derivation | `accessFor` in `src/lib/server/projections.js` |
+| Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` | `src/lib/store/auth/store.js` |
+| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGroups`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
+| Roster store + hook (invite, approve, revoke, re-rank) | `src/lib/store/members/` |
 | Route guards (signed in vs not) | `src/components/AuthGate.jsx` |
+| Gateway guards (do you belong / orientation) | `src/components/MemberGate.jsx` |
 | Role gating (what you may do) | `src/components/Auth.jsx` |
+| Shared chrome for login / welcome / access | `src/components/GatewayShell.jsx` |
 | Login screen (email → code) | `src/app/(public)/login/page.jsx` |
+| Orientation + access-removed screens | `src/app/(gateway)/` |
+| Birthday drum picker | `src/components/DateWheel.jsx` |
+| Admin roster UI (invite, revoke, vocation) | `src/app/(protected)/settings/users/page.jsx` |
 | Bearer header + 401 sign-out | `src/lib/api.js` |
-| Viewer + memberships endpoint | `src/app/api/me/route.api.js` |
+| Endpoints | `src/app/api/me/`, `me/onboarding/`, `orgs/[orgId]/invites/`, `memberships/[membershipId]/` |
+| Dev sign-in without email | `scripts/dev-login.mjs` (`npm run dev:login`) |
 
 ---
 
@@ -257,3 +438,13 @@ feed. Revoking is a status change, not a delete, so the history survives.
 - **Adding a provider (Google/Apple) is a native problem, not a web one.** It needs a
   custom URL scheme and the Capacitor `Browser`/`App` plugins to catch the callback. The
   store is the seam; nothing above it changes.
+- **Nothing else may navigate on boot without consulting `useGatewayDestination()`.** Two
+  `router.replace` calls in the same tick means the last one wins, and the loser's gate is
+  left rendering nothing — a blank page. See the callback scrub in `useAuthInit`.
+- **`/welcome` and `/access` are their own route group**, not part of `(protected)`, so they
+  do not wear the app shell. Rendering a Home tab around "your access has been removed"
+  would offer a home to someone who has none.
+- **The roster distinguishes three lifecycle states, not two.** "Not yet signed in" and
+  "orientation pending" are different problems with different remedies — someone who has
+  never signed in may not know they were added. Collapsing them into "inactive" loses the
+  distinction that decides which of the two you go and talk to.

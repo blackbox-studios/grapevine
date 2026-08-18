@@ -15,15 +15,34 @@
 //     parish but not necessarily, and an admin need not be a priest — collapsing
 //     these into one field is the mistake this split exists to prevent.
 //
-//  2. **Access is a membership row, not a flag.** `MembershipStatus` is the
-//     admin-approval gate: a PENDING row is a request, an APPROVED row is what makes
-//     an organization's posts visible in your feed. Revoking access is a status
-//     change, which keeps the history rather than deleting it.
+//  2. **Access is a membership row, not a flag.** An APPROVED row is what makes an
+//     organization's posts visible in your feed. Revoking access is a status change,
+//     which keeps the history rather than deleting it.
 //
 // Sign-in itself is gated one level further up, by Supabase: the client calls
 // `signInWithOtp({ shouldCreateUser: false })`, so an email with no `auth.users` row
 // can never obtain a code. Provisioning a user is therefore the only way in, which
 // is what makes the app invite-only.
+//
+// ── Admission is one-directional ────────────────────────────────────────────
+//
+// **An admin admits people. A person never asks to join, and there is nothing to
+// approve.** This is a deliberate constraint on the domain, not a feature that has
+// not been built yet, and the schema is shaped to make the other shape impossible:
+// `MembershipStatus` is APPROVED | REVOKED, with no PENDING request and no REJECTED
+// refusal, so an unapproved membership is not a state that can be represented.
+//
+// It follows from the invite-only gate above. A request-to-join flow needs a public
+// entry point where a stranger identifies themselves, and `shouldCreateUser: false`
+// means that stranger can never receive a sign-in code anyway — so the request would
+// be from someone who by construction cannot act on the answer. Admission writes the
+// Supabase user, the Profile, and an APPROVED Membership in one step (`admitOne`);
+// the person simply signs in.
+//
+// If a parish ever does want people to be able to ask, that is a new model — a
+// JoinRequest with its own table and its own gate — not a third value on this enum.
+// Putting it back here is what produced a roster with an Approve button that nothing
+// could ever populate.
 //
 // ── Naming ──────────────────────────────────────────────────────────────────
 //
@@ -84,6 +103,28 @@ model Profile {
   vocation  Vocation @default(FAITHFUL)
   /// Clergy or parish accounts confirmed by an admin; drives the check on a post card.
   verified  Boolean  @default(false)
+
+  /// Date of birth, collected during first-run orientation.
+  ///
+  /// `@db.Date` rather than a timestamp on purpose: a birthday is a calendar date, not an
+  /// instant. Stored as a timestamp it would acquire a time and a timezone, and someone
+  /// born on the 1st would start rendering as the 31st for readers west of the server.
+  birthday DateTime? @db.Date
+
+  /// When orientation was completed. Null means they have signed in but not finished it,
+  /// which is a state the roster shows and the gate acts on — see `access` in
+  /// `lib/server/projections.js`.
+  onboardedAt DateTime? @map("onboarded_at")
+
+  /// Last time this profile was seen by the API. **Null means they have never signed in**,
+  /// which is how an admin tells an invitation that has been taken up from one that has
+  /// not. Stamped by `touchProfile`, throttled so an active session is not a database
+  /// write per request.
+  ///
+  /// Kept here rather than read from `auth.users.last_sign_in_at`, which is visible today
+  /// but lives in a schema Supabase owns and has been progressively locking down.
+  lastSeenAt DateTime? @map("last_seen_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -102,11 +143,29 @@ model Profile {
   @@map("profile")
 }
 
-/// Vocation is presentational: it labels a person, it never grants anything. Adding a
-/// value (DEACON, BISHOP, MONASTIC, READER) is an additive migration, so start narrow.
+/// Where someone stands in the life of the parish. **Presentational only** — a vocation
+/// never grants a permission; that is `Membership.role`, and the two are deliberately
+/// separate (see the header). A parish can have a Reader who administers the feed and a
+/// Priest who does not.
+///
+/// One value per person, never a set: these are mutually exclusive standings, so a
+/// matushka is not also an ordained reader. That is why this is an enum column rather than
+/// a collection of flags — the schema makes the invalid combination unrepresentable
+/// instead of leaving it to validation.
+///
+/// Declared in ecclesiastical order, and that ordering is load-bearing: Postgres sorts an
+/// enum by declaration order, not alphabetically, so this is what the roster sorts on.
+/// Inserting a rank in the middle later means a type recreate, not an `ADD VALUE` — get
+/// the order right now.
 enum Vocation {
-  PRIEST
+  CATECHUMEN
   FAITHFUL
+  READER
+  /// A priest's wife. Slavic usage deliberately, not the Greek "Presbytera".
+  MATUSHKA
+  DEACON
+  PRIEST
+  BISHOP
 
   @@map("vocation")
 }
@@ -155,17 +214,22 @@ enum OrgKind {
 /// authorization record. Read it as a sentence: this profile has this role in this
 /// organization, and that grant is in this state.
 ///
-/// `status` is the approval gate — only APPROVED contributes an organization's posts
-/// to a viewer's feed. `role` is the permission — only ADMIN may post. Both are
-/// checked server-side in `requireMembership`.
+/// `status` is the access gate — only APPROVED contributes an organization's posts to
+/// a viewer's feed. `role` is the permission — only ADMIN may post. Both are checked
+/// server-side in `requireMembership`.
 model Membership {
   id          String           @id @default(cuid())
   profileId   String           @map("profile_id") @db.Uuid
   orgId       String           @map("org_id")
   role        OrgRole          @default(MEMBER)
-  status      MembershipStatus @default(PENDING)
-  requestedAt DateTime         @default(now()) @map("requested_at")
-  /// When an admin approved, rejected, or revoked — and which admin did it.
+  /// Defaults to APPROVED because admission is the only way a row is created, and
+  /// admission always grants access. A row that exists but does not grant anything
+  /// would be a member nobody can see and no screen can repair.
+  status      MembershipStatus @default(APPROVED)
+  /// When an admin added this person. Not "requested" — nobody asks to join; see the
+  /// admission note in the header.
+  admittedAt  DateTime         @default(now()) @map("admitted_at")
+  /// When an admin last changed `status` (revoked or restored), and which admin did it.
   decidedAt   DateTime?        @map("decided_at")
   decidedById String?          @map("decided_by_id") @db.Uuid
 
@@ -173,11 +237,12 @@ model Membership {
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   decidedBy Profile?     @relation("MembershipDecider", fields: [decidedById], references: [id], onDelete: SetNull)
 
-  /// One membership per person per organization; a re-request updates the row.
+  /// One membership per person per organization; re-admitting updates the row, which
+  /// is the way back in for someone previously revoked.
   @@unique([profileId, orgId])
   /// Serves the feed's "which orgs may this viewer read" lookup.
   @@index([profileId, status])
-  /// Serves an admin's pending-requests queue.
+  /// Serves the roster.
   @@index([orgId, status])
   /// Postgres does not index a foreign key automatically, and an unindexed one makes
   /// the ON DELETE SetNull scan the whole table.
@@ -192,39 +257,45 @@ enum OrgRole {
   @@map("org_role")
 }
 
+/// Two values, and deliberately only two: a person is in the parish or they have been
+/// removed from it. There is no PENDING, because nobody can ask to join, and no
+/// REJECTED, because there is no request to turn down — see the admission note in the
+/// header before adding a third.
+///
 /// Declaration order is the sort order: Postgres orders an enum by how it was
-/// declared, not alphabetically. `listMembers` relies on PENDING sorting first so the
-/// roster doubles as the approval queue — reordering these silently reorders that list.
+/// declared, not alphabetically. `listMembers` relies on APPROVED sorting first, so
+/// the roster leads with the people actually in the parish.
 enum MembershipStatus {
-  PENDING
   APPROVED
-  REJECTED
   REVOKED
 
   @@map("membership_status")
 }
 
-/// An admin's invitation for an email address to join an organization. Accepting one
-/// provisions the Supabase auth user and the Profile, then writes an APPROVED
-/// Membership — which is why an invited user skips the PENDING queue.
+/// The audit trail for an admission: who admitted this address, to what role and
+/// vocation, and when.
+///
+/// **Not a ticket.** There is no token to redeem, no expiry, and no acceptance —
+/// `admitOne` provisions the Supabase user, the Profile and an APPROVED Membership on
+/// the spot, and the person simply signs in. A redemption link could not work here
+/// anyway: it needs an origin to land on, and a Capacitor WebView has none.
+///
+/// The row is written after the admission and its failure is swallowed, because
+/// losing the audit line is not worth failing an admission over.
 model Invite {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   email       String
-  orgId       String    @map("org_id")
-  /// The role and vocation the invitee is granted on acceptance.
-  role        OrgRole   @default(MEMBER)
-  vocation    Vocation  @default(FAITHFUL)
-  /// Opaque single-use token carried by the invitation link.
-  token       String    @unique
-  invitedById String    @map("invited_by_id") @db.Uuid
-  expiresAt   DateTime  @map("expires_at")
-  acceptedAt  DateTime? @map("accepted_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  orgId       String   @map("org_id")
+  /// The role and vocation the person was granted.
+  role        OrgRole  @default(MEMBER)
+  vocation    Vocation @default(FAITHFUL)
+  invitedById String   @map("invited_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   invitedBy Profile      @relation("InviteInviter", fields: [invitedById], references: [id], onDelete: Cascade)
 
-  /// One outstanding invite per email per organization.
+  /// One row per email per organization; re-admitting updates it.
   @@unique([email, orgId])
   @@index([orgId])
   @@index([invitedById])

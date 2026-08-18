@@ -89,20 +89,15 @@ export const requireViewer = async (request) => {
  *  - **Membership present but wrong role → 403.** The viewer already knows this
  *     organization exists, so there is nothing left to protect; say plainly that the
  *     action needs a higher role.
- *  - **PENDING → 403 with its own message.** A requested-but-unapproved membership is a
- *     state the UI should explain rather than a mystery, and the viewer clearly knows the
- *     organization exists, because they asked to join it. */
+ *  - **REVOKED → 403, not 404.** They were in this parish and know it exists, so hiding
+ *     it now would only be confusing; the honest answer is that access was removed. */
 export const requireMembership = async (profileId, orgId, { role } = {}) => {
     const membership = await prisma.membership.findUnique({
         where: { profileId_orgId: { profileId, orgId } },
     })
 
-    if (!membership || membership.status === "REJECTED") {
+    if (!membership) {
         throw notFound("Group not found.")
-    }
-
-    if (membership.status === "PENDING") {
-        throw forbidden("Your request to join this group is still awaiting approval.")
     }
 
     if (membership.status !== "APPROVED") {

@@ -29,26 +29,18 @@ import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 /* Shared pieces                                                              */
 /* -------------------------------------------------------------------------- */
 
-/* How a row gets out of the way of one that arrives above it.
- *
- * A spring rather than a duration because the distance a row travels is whatever the new
- * comment's height turns out to be — one line or six — and a fixed duration reads as
- * hurried at one and sluggish at the other. Damped just short of overshooting: a comment
- * thread should settle, not bounce. */
+/* A spring, not a duration: a row travels however tall the new comment turns out to be,
+ * and a fixed duration reads as hurried at one line and sluggish at six. */
 const ROW_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
 
 /* A single comment: author + relative time, body, and the like meter (heart
  * toggle + tally) in the right column.
  *
- * `layout="position"` is what makes the rest of the thread slide down when a comment is
- * posted instead of teleporting: the row's *position* is animated between renders, but not
- * its size, so the text inside is never scaled or squashed mid-flight. It only works while
- * the row keeps a stable React key across the optimistic → confirmed swap — see the
- * `localId` note in the comments store.
- *
- * Nothing here animates `x`/`y`/`scale`. A layout animation *is* a transform animation, and
- * a second one on the same element fights it; the arriving row therefore only fades, and
- * every bit of movement on screen belongs to the rows making room for it. */
+ * `layout="position"` is what slides the thread down around a new comment instead of
+ * teleporting it — position only, so the text is never squashed mid-flight. Nothing here
+ * animates x/y/scale: a layout animation is itself a transform animation and a second one
+ * would fight it, so the arriving row only fades and all movement belongs to the rows
+ * making room. */
 const CommentRow = ({ comment, now, onToggleLike }) => {
     const { author, text, createdAt, likes, liked, pending } = comment
     const reduceMotion = useReducedMotion()
@@ -109,9 +101,9 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
     )
 }
 
-/* Empty state for a post that has no comments yet. Animated, and a sibling of the rows
- * inside the same `AnimatePresence`, so writing the first comment on a post crossfades this
- * out under the arriving row instead of collapsing a hundred pixels out from under it. */
+/* Empty state for a post that has no comments yet. A sibling of the rows inside the same
+ * `AnimatePresence`, so the first comment crossfades this out instead of collapsing a
+ * hundred pixels out from under the arriving row. */
 const NoComments = () => (
     <motion.div
         initial={{ opacity: 0 }}
@@ -129,18 +121,13 @@ const NoComments = () => (
  * is an optional pinned node (the post caption on desktop). Presentational: all
  * data/actions come from the owning body via props.
  *
- * The rows live in their own `AnimatePresence` so posting a comment reads as one movement:
- * the new row fades in at the top of the thread and everything under it — including the
- * "load more" affordance, which is why that carries `layout` too — glides down to make room
- * rather than jumping. `initial={false}` keeps that quiet on the first paint: a thread that
- * has only just loaded appears, it doesn't perform. `mode="popLayout"` takes a leaving row
- * out of the flow the instant it starts to fade, so the thread closes over it smoothly
- * instead of waiting for the fade to finish and then snapping shut.
+ * The rows get their own `AnimatePresence` so a new comment fades in at the top while the
+ * thread below it — the "load more" button included — glides down. `initial={false}` keeps
+ * the first paint quiet; `popLayout` pulls a leaving row out of the flow as it starts to
+ * fade, so the thread closes over it rather than snapping shut afterwards.
  *
- * A row is keyed on `localId ?? id` rather than `id` alone. An optimistic comment is
- * created under a temporary id and swapped for the server's row a moment later; keying on
- * the id would make that swap look like a removal and an insertion, and the row would
- * animate itself out and back in for no reason the viewer can see. */
+ * Keyed on `localId ?? id`: an optimistic comment is swapped for the server's row under a
+ * new id, and keying on `id` would replay the row's entrance on confirmation. */
 const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore, toggleLike, header }) => (
     <AnimatePresence mode="wait" initial={false}>
         {skeleton ? (

@@ -303,7 +303,7 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
                  * in while the rows already on screen stay put — React keeps their motion state
                  * across the re-render. The whole first page mounts together and fades in as one. */
                 <motion.div
-                    key={post.id}
+                    key={post.localId ?? post.id}
                     initial={{ opacity: 0 }}
                     /* A just-published post is on screen before the server has confirmed
                      * it, so it renders dimmed and inert until the created resource

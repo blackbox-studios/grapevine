@@ -144,14 +144,10 @@ const useStore = create(immer((set, get) => ({
      * UI can show it as not-yet-committed and refuse to like something that has no server
      * id yet. A failure removes the row and undoes the tally bump.
      *
-     * The swap carries the temporary id forward as `localId`, which is what the list keys
-     * on. Keying on `id` instead would make the confirmation look like a removal and an
-     * insertion to `AnimatePresence`, and the row the viewer just wrote would animate itself
-     * out and back in half a second after it appeared.
-     *
-     * It goes to the *front* of the list because that is where the server puts it too —
-     * `listComments` pins the viewer's own comments above the thread — so the row does not
-     * move when the thread is next loaded. */
+     * The temporary id carries forward as `localId` so the list's React key survives the
+     * swap — otherwise the row replays its entrance on confirmation. It goes to the front
+     * because `listComments` pins the viewer's own comments there too, so it will not move
+     * when the thread reloads. */
     add: async (text) => {
         const postId = get().post
         const body = (text ?? '').trim()

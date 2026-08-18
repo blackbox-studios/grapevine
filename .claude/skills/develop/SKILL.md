@@ -57,3 +57,13 @@ This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app
 ## General guidelines
 
 - **No emojis in code or docs** unless the user asks for them.
+
+### Comments
+
+Comments carry the *why*; the code already states the what. Five rules, and the first two are the ones that get broken:
+
+- **Document the decision, not the journey.** When a change reverses an earlier one, **replace** the comment that explained the old approach — never append the new reasoning underneath it. A block that records every direction the code was taken in is unreadable, and a reader cannot tell which paragraph is still true. Only the final decision belongs in the file; the history belongs in git.
+- **Never comment on where code *isn't*.** "This lives in X, not here", "moved to Y", "deliberately not in this file" — that is the journey wearing a signpost, and it is a pointer that goes stale the moment the other file moves again. State what the code in front of you does and why. The corollary: **if an edit leaves a file's code unchanged, its comments come out unchanged too.** Touching only the prose of a file you didn't otherwise modify is the tell that you are narrating a decision rather than documenting one.
+- **Length is earned.** One or two lines is the default. Spend a paragraph only where the next person would otherwise undo the decision — a platform quirk, an ordering that looks arbitrary and isn't, a constraint enforced somewhere else. Never on restating a signature.
+- **Say it once.** If the header of a function or file already establishes a constraint, a line inside it refers to that constraint rather than re-arguing it.
+- **Delete what the code outgrew, in the same edit.** A stale comment is worse than no comment, because it is trusted.

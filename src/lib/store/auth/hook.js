@@ -179,12 +179,17 @@ export const useAuthGate = () => {
     })))
 }
 
-/* Boots the auth store. Mounted once by <App/>, which sits in the root layout *outside*
- * both route groups — so the session is resolved no matter which URL the app is opened at.
+/* Whether the app still has no answer about who the viewer is — what the boot spinner in
+ * <ProtectedGate/> covers, since every gate renders `null` until this is false.
  *
- * It used to be called only by useLogin, which meant it ran only once the login page had
- * mounted. A cold load of any protected route therefore redirected first and asked
- * afterwards, and a magic-link callback lost its tokens to that redirect. */
+ * `ready` is the right signal because `init()` publishes it only after `_loadProfile()` has
+ * awaited GET /api/me, so it means the *viewer* is loaded and not just that Supabase
+ * answered. `loggedIn && !user` is a guard on the persisted view, which writes the two
+ * together: if they ever disagree, holding the spinner beats showing an empty shell. */
+export const useBooting = () => {
+    return useAuthStore(state => !state.ready || (state.loggedIn && !state.user))
+}
+
 /* Where a signed-in viewer belongs, as a route — or `null` for "the app", or `undefined`
  * for "not known yet".
  *

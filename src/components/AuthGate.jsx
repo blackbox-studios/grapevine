@@ -3,9 +3,10 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 
+import { LoadOverlay } from "@/components/Loading"
 import { ROUTES } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { useAuthGate } from "@/lib/store/auth/hook"
+import { useAuthGate, useBooting } from "@/lib/store/auth/hook"
 
 /* The route guards, mounted by the two route-group layouts.
  *
@@ -32,14 +33,19 @@ import { useAuthGate } from "@/lib/store/auth/hook"
  *   4. The login page boots, finds no session anywhere, and sits there.
  *
  * Waiting for `ready` holds the redirect until `init()` has had its chance to read the URL
- * and establish the session. Rendering `null` in the meantime is the same thing the gate
- * already did while undecided, so nothing else changes — and in the native app the splash
- * screen is still up while it settles, so none of it is visible.
+ * and establish the session.
+ *
+ * <LoadOverlay/> covers that window, scoped to this gate so it reaches the signed-in route
+ * groups and nothing else. It is always mounted and told whether to show — rendering it
+ * conditionally would cut off its exit fade and re-arm the minimum on-screen time it owns —
+ * and it waits on `booting`, not `settled`, because <MemberGate/> below renders nothing of
+ * its own until GET /api/me answers.
  *
  * Redirects are `replace`, not `push`: a bounced navigation must not leave an entry behind
  * for the back gesture to land on. */
 export const ProtectedGate = ({ children }) => {
     const { ready, loggedIn } = useAuthGate()
+    const booting = useBooting()
     const mounted = useMounted()
     const router = useRouter()
 
@@ -49,7 +55,12 @@ export const ProtectedGate = ({ children }) => {
         if (settled && !loggedIn) router.replace(ROUTES.PUBLIC.LOGIN)
     }, [settled, loggedIn, router])
 
-    return settled && loggedIn ? children : null
+    return (
+        <>
+            {settled && loggedIn ? children : null}
+            <LoadOverlay loading={!mounted || booting} />
+        </>
+    )
 }
 
 /* The mirror image: keeps a signed-in user off the login page.

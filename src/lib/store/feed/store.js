@@ -131,6 +131,7 @@ const useStore = create(immer((set, get) => ({
             state.error.publish = false
             state.items.unshift({
                 id: tempId,
+                localId: tempId,
                 author: user
                     ? {
                           handle: user.handle,
@@ -169,7 +170,9 @@ const useStore = create(immer((set, get) => ({
             const post = await api.post(API_ENDPOINTS.POSTS, { orgId, title, body, media })
             set(state => {
                 const index = state.items.findIndex(item => item.id === tempId)
-                if (index !== -1) state.items[index] = post
+                /* `localId` carries forward so the feed's React key survives the swap —
+                 * otherwise the card remounts and replays its fade-in. */
+                if (index !== -1) state.items[index] = { ...post, localId: tempId }
             })
             return post
         } catch (error) {

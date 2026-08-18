@@ -189,31 +189,21 @@ export const getPost = async (viewer, postId) => {
     })
 }
 
-/* How many of the viewer's own comments ride at the top of a thread.
- *
- * Bounded rather than "all of them" because the pinned block is fetched whole, with no
- * cursor of its own — an unbounded version would load every comment a chatty member ever
- * left on a busy post before the first page could render. Anything past the cap is not
- * lost: it simply stays where it was written, in the chronological body below. */
+/* Capped because the pinned block is fetched whole, with no cursor of its own. Anything
+ * past the cap stays where it was written, in the chronological body below. */
 const PINNED_OWN_COMMENTS = 20
 
-/* One page of a post's comments: the viewer's own first, then the thread oldest-first.
+/* One page of a post's comments: the viewer's own first (newest first), then the thread
+ * oldest-first.
  *
- * **The viewer's own comments are pinned to the top**, newest first, so the reply someone
- * just left is where they left it when they close the sheet and open it again — not buried
- * at the far end of a thread they'd have to page through to find. The client shows a new
- * comment at the top optimistically, and this is what makes the server agree on a reload
- * instead of contradicting it.
+ * Pinning is what keeps a reply where the viewer left it across a reload, agreeing with the
+ * optimistic row the client already showed at the top. The pinned set is resolved on
+ * *every* page because its ids are what the body excludes — skip that on page two and the
+ * same comment is served twice. Only the first page carries the block itself, and
+ * `nextCursor` still comes off the body's last row.
  *
- * The pinned set is resolved on *every* page, not just the first, because its ids are what
- * the chronological body excludes — a later page that forgot to exclude them would serve
- * the same comment twice, once pinned and once in place. Only the first page carries the
- * block itself.
- *
- * Oldest-first is why the body's direction is "asc" here and "desc" in the feed; the cursor
- * helpers take it explicitly because getting it wrong silently repeats the first page
- * rather than failing. The cursor still comes off the body's last row, so pinning changes
- * nothing about how the thread pages. */
+ * The body's direction is "asc" against the feed's "desc"; the cursor helpers take it
+ * explicitly because a mismatch silently repeats the first page rather than failing. */
 export const listComments = async (viewer, postId, { limit, cursor }) => {
     /* The post was loaded to authorize the read; its `orgId` is then what decides which
      * commenters wear the admin check, so it is carried into the projection rather than

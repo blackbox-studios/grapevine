@@ -1,11 +1,11 @@
 import "server-only"
 
-import { Prisma } from "@prisma/client"
+import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
 import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { requireMembership } from "@/lib/server/auth"
-import { invalid, notFound } from "@/lib/server/errors"
+import { AppError, invalid, notFound } from "@/lib/server/errors"
 import { projectOrg, projectViewer } from "@/lib/server/projections"
 import { supabaseAdmin } from "@/lib/server/supabase"
 
@@ -66,6 +66,19 @@ export const getViewer = async (viewer) => {
     const memberships = await membershipsFor(viewer.id, { includeInactive: true })
     touchProfile(viewer)
     return projectViewer(viewer, memberships)
+}
+
+/* A client string checked against a generated Prisma enum, or `undefined` if absent.
+ *
+ * Validated against the enum object rather than a copied list so it cannot drift from the
+ * schema. Without this an unknown value reaches Prisma and surfaces as a 500, where the
+ * contract promises a 400. */
+const readEnum = (values, value, field) => {
+    if (value == null) return undefined
+    if (!Object.hasOwn(values, value)) {
+        throw invalid(`That ${field} is not a valid option.`, { [field]: "Invalid" })
+    }
+    return value
 }
 
 /* One name part, validated.
@@ -430,8 +443,11 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
 /* Admits a batch. Every address is attempted, and failures are reported per address
  * rather than aborting the rest — a priest pasting in thirty emails should not lose
  * twenty-nine of them to one typo. */
-export const inviteMembers = async (viewer, orgId, { emails, role, vocation }) => {
+export const inviteMembers = async (viewer, orgId, { emails, ...input }) => {
     await requireMembership(viewer.id, orgId, { role: "ADMIN" })
+
+    const role = readEnum(OrgRole, input.role, "role") ?? "MEMBER"
+    const vocation = readEnum(Vocation, input.vocation, "vocation") ?? "FAITHFUL"
 
     const list = (Array.isArray(emails) ? emails : [emails])
         .flatMap((entry) => String(entry ?? "").split(/[\s,;]+/))
@@ -451,15 +467,17 @@ export const inviteMembers = async (viewer, orgId, { emails, role, vocation }) =
 
     for (const email of unique) {
         try {
-            admitted.push(
-                await admitOne(viewer, orgId, {
-                    email,
-                    role: role ?? "MEMBER",
-                    vocation: vocation ?? "FAITHFUL",
-                }),
-            )
+            admitted.push(await admitOne(viewer, orgId, { email, role, vocation }))
         } catch (error) {
-            failed.push({ email, reason: error?.message ?? "Could not add this address." })
+            /* This is reported in a 200 body, so it never passes through the handler's
+             * reduction to INTERNAL — only an AppError's message is safe to repeat. */
+            failed.push({
+                email,
+                reason:
+                    error instanceof AppError
+                        ? error.message
+                        : "Could not add this address.",
+            })
         }
     }
 
@@ -475,7 +493,11 @@ export const inviteMembers = async (viewer, orgId, { emails, role, vocation }) =
  * attributed to a real profile, the history survives, and re-admitting them later is one
  * field. It also does **not** remove their Supabase account: they can still authenticate,
  * they simply have no group to read. The app shows them the access-removed screen. */
-export const updateMembership = async (viewer, membershipId, { status, role, vocation }) => {
+export const updateMembership = async (viewer, membershipId, input) => {
+    const status = readEnum(MembershipStatus, input.status, "status")
+    const role = readEnum(OrgRole, input.role, "role")
+    const vocation = readEnum(Vocation, input.vocation, "vocation")
+
     const membership = await prisma.membership.findUnique({
         where: { id: membershipId },
         include: { profile: true },

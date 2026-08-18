@@ -4,10 +4,14 @@
  *   npm run dev:reset-member -- member          # the seeded member
  *   npm run dev:reset-member -- someone@x.org   # anyone provisioned
  *
- * Clears the three columns that make someone look established — `onboardedAt`, `birthday`
- * and `lastSeenAt` — without touching their membership, posts or comments. The next sign-in
- * therefore goes through /welcome, and the roster shows them as "Not yet signed in" until
- * they do.
+ * Clears the columns that make someone look established — `onboardedAt`, `firstName`,
+ * `lastName`, `birthday` and `lastSeenAt` — without touching their membership, posts or
+ * comments. The next sign-in therefore goes through /welcome with every step empty, and the
+ * roster shows them as "Not yet signed in" until they do.
+ *
+ * The handle survives, because it cannot be null and because that mirrors reality: a person
+ * arrives at orientation already carrying the provisional handle admission derived from
+ * their email, and the point of the step is replacing it.
  *
  * This exists because the alternative is remembering a psql incantation, and the state it
  * resets is exactly the state you need to churn while building the orientation screen.
@@ -52,11 +56,17 @@ if (!profile) {
 
 await prisma.profile.update({
     where: { id: profile.id },
-    data: { onboardedAt: null, birthday: null, lastSeenAt: null },
+    data: {
+        onboardedAt: null,
+        firstName: null,
+        lastName: null,
+        birthday: null,
+        lastSeenAt: null,
+    },
 })
 
 console.log(`\n  ✓ ${email} reset to a brand-new member.`)
-console.log("    onboardedAt, birthday and lastSeenAt cleared; membership untouched.")
+console.log("    onboardedAt, name, birthday and lastSeenAt cleared; handle and membership untouched.")
 console.log(`\n    Next: npm run dev:login -- ${argument}\n`)
 
 await prisma.$disconnect()

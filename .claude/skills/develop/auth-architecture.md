@@ -195,9 +195,27 @@ other was never attached to a parish at all — and `/access` offers the same si
 either way: sign out and talk to a person.
 
 Orientation is the second gate. `onboardedAt` is null until the viewer completes `/welcome`,
-which asks one question — their birthday — because everything else about them (rank, role,
-parish) was set by the priest at admission. Asking again would be asking them to re-enter
-what an admin already decided.
+which asks the three things **only they can supply**: their name (first and last), the
+`@handle` that appears beside their comments, and their birthday. Everything else about them
+— rank, role, parish — was set by the priest at admission and is deliberately not asked
+again.
+
+Those three are asked one step at a time, but written **in a single POST**. The steps are a
+client-side presentation of one decision; posting per step would make "half-onboarded" a
+real database state, and no screen repairs one — the gate would simply keep sending them
+back to re-answer. `STEP_FOR_FIELD` in the page maps a server-side field error back to the
+step that caused it, which is what lets a handle taken between the live check and the write
+land the viewer on the handle question rather than on a finished form with a toast.
+
+The handle is the one field with a live server check, `GET /api/me/onboarding/handle`. It is
+**advisory** — the unique constraint in `completeOnboarding` is what actually decides — and
+it exists because the handle is chosen in the middle of the flow, so leaving uniqueness to
+the final submit means discovering the collision after the last question.
+
+> A profile carries a **provisional** handle before this, derived from the email local part
+> by `deriveHandle` at admission, because an admin inviting someone knows only their address.
+> It can be shorter than `HANDLE_MIN` allows; nothing validates a placeholder. Orientation is
+> where it is replaced by one the person chose.
 
 ### One destination, two gates
 
@@ -232,7 +250,7 @@ Two workflows, and they exercise different things.
 **Rewind an existing account** — fastest loop while building the orientation screen:
 
 ```bash
-npm run dev:reset-member -- admin    # clears onboardedAt, birthday, lastSeenAt
+npm run dev:reset-member -- admin    # clears onboardedAt, name, birthday, lastSeenAt
 npm run dev:login -- admin           # sign in; lands on /welcome
 ```
 

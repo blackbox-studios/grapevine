@@ -46,6 +46,24 @@ const unauthenticated = (message = "Sign in to continue.") =>
 
 const forbidden = (message) => new AppError(ERROR_CODES.PERMISSION_DENIED, message)
 
+const unavailable = (message) => new AppError(ERROR_CODES.UNAVAILABLE, message)
+
+/* Did the token verification fail, or did it never happen?
+ *
+ * supabase-js reports a transport failure — timeout, DNS, a paused project, an outage — as
+ * an `AuthRetryableFetchError` rather than by throwing, so it arrives in the same `error`
+ * slot as "this token is not valid". Telling them apart matters more than it looks: a 401
+ * makes `lib/api.js` call `expire()`, which signs the viewer out and clears their session.
+ * Treating an unreachable auth server as a 401 therefore **destroys valid sessions every
+ * time Supabase hiccups**, and reports it to the reader as "Your session has expired",
+ * which is both wrong and unactionable — nothing they do to their account will help.
+ *
+ * Matched on the error's `name`, which is exactly what Supabase's own
+ * `isAuthRetryableFetchError` checks. That predicate is not re-exported by `supabase-js`,
+ * and reaching into `@supabase/auth-js` for it would take a dependency on a transitive
+ * package; the name is the stable part of the contract. */
+const isUnreachable = (error) => error?.name === "AuthRetryableFetchError"
+
 /* Resolves the caller's Profile, or throws 401.
  *
  * Two steps, and both are load-bearing:
@@ -67,6 +85,17 @@ export const requireViewer = async (request) => {
     if (!token) throw unauthenticated()
 
     const { data, error } = await supabaseAnon().auth.getUser(token)
+
+    /* Could not reach Supabase at all — a 503, and explicitly *not* a 401. The viewer's
+     * session is very probably fine; we simply cannot confirm it right now, and signing
+     * them out over an outage would turn a brief blip into a forced re-authentication for
+     * everybody. See `isUnreachable`. */
+    if (isUnreachable(error)) {
+        throw unavailable(
+            "Can't reach the sign-in service just now. Please try again in a moment.",
+        )
+    }
+
     if (error || !data?.user) throw unauthenticated("Your session has expired.")
 
     const profile = await prisma.profile.findUnique({ where: { id: data.user.id } })

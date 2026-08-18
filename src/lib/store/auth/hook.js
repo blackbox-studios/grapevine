@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { ACCESS, OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES, ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
-import useAuthStore from "./store"
+import useAuthStore, { viewerAuthor } from "./store"
 
 /* The login form's whole surface: request a code, then verify it.
  *
@@ -103,10 +103,11 @@ export const useLogin = () => {
  * — `onboardedAt` is what the gate reads, so any gap between "saved" and "the client knows
  * it saved" is a gap where the viewer sits on a completed form. */
 export const useOnboarding = () => {
-    const [user, completeOnboarding, loading, error, clearError] = useAuthStore(
+    const [user, completeOnboarding, checkHandle, loading, error, clearError] = useAuthStore(
         useShallow(state => ([
             state.user,
             state.completeOnboarding,
+            state.checkHandle,
             state.loading.onboarding,
             state.error.onboarding,
             state.clearError,
@@ -122,10 +123,13 @@ export const useOnboarding = () => {
     return useMemo(() => ({
         user,
         submit,
+        /* Passed straight through. The result is per-keystroke and belongs to the step that
+         * asked, so it is held there in local state rather than in the store. */
+        checkHandle,
         loading,
         error,
         clearError: () => clearError("onboarding"),
-    }), [user, submit, loading, error, clearError])
+    }), [user, submit, checkHandle, loading, error, clearError])
 }
 
 export const useLogout = () => {
@@ -148,18 +152,12 @@ export const useUser = () => {
  *
  * Used for the optimistic comment row, which has to render before the server has replied
  * with the authoritative resource. Built here so the projection lives in one place and the
- * optimistic row cannot render a different author than the one that comes back. */
+ * optimistic row cannot render a different author than the one that comes back.
+ *
+ * The shape itself is `viewerAuthor` in the store, shared with the comments store, which
+ * needs the same projection from a layer where no hook is available. */
 export const useViewerAuthor = () => {
-    return useAuthStore(useShallow(state => (
-        state.user
-            ? {
-                  handle: state.user.handle,
-                  name: state.user.fullName,
-                  avatar: state.user.avatar,
-                  verified: state.user.verified,
-              }
-            : null
-    )))
+    return useAuthStore(useShallow(state => viewerAuthor(state.user)))
 }
 
 /* Whether anyone is signed in. Kept separate from useLogin so a consumer doesn't drag in

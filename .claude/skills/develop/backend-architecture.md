@@ -178,12 +178,14 @@ completed (offline, DNS, CORS, aborted connection).
 | Method | Path | Auth | Returns |
 |---|---|---|---|
 | `GET` | `/api/me` | viewer | the viewer: profile, vocation, role, groups |
+| `POST` | `/api/me/onboarding` | viewer | the updated viewer — first-run orientation, all fields at once |
+| `GET` | `/api/me/onboarding/handle?value=` | viewer | `{ handle, available, reason }` — advisory @handle check |
 | `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
 | `GET` | `/api/orgs/:orgId/members` | **group admin** | `{ items, nextCursor }` — the roster |
 | `GET` | `/api/feed?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first |
 | `POST` | `/api/posts` | **group admin** | `201` + the created post, `Location` set |
 | `GET` | `/api/posts/:postId` | member of its group | the post resource |
-| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` |
+| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread oldest-first |
 | `POST` | `/api/posts/:postId/comments` | member of its group | `201` + the created comment, `Location` set |
 | `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
 | `POST` | `/api/comments/:commentId/likes` | member of its group | `{ liked, likes }` |
@@ -436,6 +438,14 @@ Three things about it are load-bearing:
 
 The models carry indexes in exactly the sort order the cursor compares, so a page is an
 index range scan.
+
+**A comment thread pins the viewer's own comments above the paged body**, newest first, so
+the reply someone just left is still at the top when they reopen the sheet — matching what
+the optimistic client already showed them. That block is not part of the keyset: it is
+fetched whole (capped, see `PINNED_OWN_COMMENTS`), returned only on the cursorless first
+page, and `nextCursor` still comes off the body's last row. What it *does* touch every page
+is the body's `where`, which excludes the pinned ids — resolve them on every call, not just
+the first, or page two serves the same comment a second time in its chronological place.
 
 ### Denormalized tallies
 

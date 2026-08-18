@@ -72,6 +72,9 @@ export const API_ENDPOINTS = {
     /* The session probe: who the viewer is and which groups they belong to. */
     ME: "/me",
     ME_ONBOARDING: "/me/onboarding",
+    /* Is this @handle free? Answered live while the viewer types one during orientation,
+     * so a collision surfaces on the step that caused it rather than after the last one. */
+    ME_HANDLE: "/me/onboarding/handle",
     ORGS: "/orgs",
     ORG_MEMBERS: (orgId) => `/orgs/${orgId}/members`,
     ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
@@ -152,6 +155,61 @@ export const VOCATIONS = {
     PRIEST: "PRIEST",
     BISHOP: "BISHOP",
 }
+
+/* How a vocation prefixes a name, for the vocations that carry a form of address.
+ *
+ * **This is the only place a title is written down.** Titles used to live inside stored
+ * name strings — an admin typed "Dn. Paul" into a full-name box — which made the rank part
+ * of the person's name and left their surname unrecorded. Deriving it here means ordaining
+ * a reader as a deacon is a vocation change and nothing else, and that nobody can be
+ * addressed as a rank they do not hold.
+ *
+ * Absent (CATECHUMEN, FAITHFUL) means no title, which is not the same as an empty string:
+ * `displayName()` branches on whether a title exists to decide between "Dn. Paul" and
+ * "Jordan Rivera". See `lib/name.js`.
+ *
+ * "Priest" rather than the colloquial "Fr.", and the Slavic "Mat." rather than the Greek
+ * "Presbytera", matching the vocation names themselves. */
+export const VOCATION_TITLE = {
+    [VOCATIONS.BISHOP]: "Bp.",
+    [VOCATIONS.PRIEST]: "Priest",
+    [VOCATIONS.DEACON]: "Dn.",
+    [VOCATIONS.MATUSHKA]: "Mat.",
+    [VOCATIONS.READER]: "Reader",
+}
+
+/* The same ranks as they appear inside a **handle** — "rdr.justinian", "mat.carly".
+ *
+ * A second map rather than a lowercased `VOCATION_TITLE`, because the two answer different
+ * questions. A title is prose and can carry punctuation and full words ("Reader Michael");
+ * a handle is an identifier constrained to `HANDLE_PATTERN`, so it wants the short spoken
+ * abbreviation with no trailing dot — `rdr`, not `reader` or `Reader.`. Deriving one from
+ * the other would mean "Priest" becoming `priest.alexander` and "Bp." becoming `bp..nicholas`.
+ *
+ * Only a suggestion. It prefills the handle step, which is editable, and nothing downstream
+ * requires a handle to match anybody's rank — a reader who wants `justinian` simply types
+ * it, and a handle is not re-derived when someone is later ordained. */
+export const VOCATION_HANDLE_PREFIX = {
+    [VOCATIONS.BISHOP]: "bp",
+    [VOCATIONS.PRIEST]: "fr",
+    [VOCATIONS.DEACON]: "dn",
+    [VOCATIONS.MATUSHKA]: "mat",
+    [VOCATIONS.READER]: "rdr",
+}
+
+/* What a @handle may be, checked identically on both sides of the wire — the client for
+ * the message it shows while typing, `normalizeHandle` on the server for the answer that
+ * actually decides. Lowercase because handles are compared exactly and a case-sensitive
+ * @mention is a trap; bounded by alphanumerics at both ends so nothing reads as "@.foo" or
+ * trails a separator.
+ *
+ * Note this is stricter than what `deriveHandle` produces at admission: a two-letter email
+ * local part yields a provisional handle too short to pass here. That is intended — the
+ * provisional handle is a placeholder, and orientation is where it must be replaced by one
+ * a person actually chose. */
+export const HANDLE_MIN = 3
+export const HANDLE_MAX = 24
+export const HANDLE_PATTERN = /^[a-z0-9][a-z0-9._-]{1,22}[a-z0-9]$/
 
 /* Ordered for a picker, so the admin sees ranks in the order the parish thinks of them
  * rather than however Object.keys happens to enumerate. */

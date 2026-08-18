@@ -35,14 +35,33 @@ const documentType = (media) => {
     return media.mimeType?.split("/").pop()?.toLowerCase() ?? "file"
 }
 
-/* The author block every post and comment carries. `name` is the display name and
- * `handle` the @mention; both are needed, because the card shows one and the caption
- * byline shows the other. */
-export const projectAuthor = (profile) => ({
+/* The author block every post and comment carries.
+ *
+ * **The name is sent in parts, never as a composed string.** `firstName`, `lastName` and
+ * `vocation` go over the wire and `displayName()` in `lib/name.js` assembles them on the
+ * client. That is not indirection for its own sake: the same author is written two ways
+ * depending on where they appear — "Dn. Paul" in a byline, "Paul Ivanov" in a roster that
+ * sorts by surname — and a server that picked one would make the other impossible without a
+ * second endpoint. Sending the parts lets each surface ask for the form it needs.
+ *
+ * `verified` is the blue check, and it is **computed, not stored**: it means "this person
+ * administers the organization this post belongs to". `orgId` is therefore required to
+ * answer it, and the caller must pass the org the content lives in — which is why this
+ * takes it explicitly rather than reading it off the profile. Omitting it yields `false`,
+ * the safe answer: a missing org can never manufacture a check.
+ *
+ * The membership rows come from `postInclude`/`commentInclude`, already filtered to the
+ * author's APPROVED ADMIN memberships, so this is a scan of a handful of ids rather than a
+ * query per card. */
+export const projectAuthor = (profile, orgId = null) => ({
     handle: profile.handle,
-    name: profile.fullName,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    vocation: profile.vocation,
     avatar: profile.avatarUrl,
-    verified: profile.verified,
+    verified: Boolean(
+        orgId && profile.memberships?.some((membership) => membership.orgId === orgId),
+    ),
 })
 
 /* Media rows → the three shapes the feed card understands. A post has exactly one of
@@ -84,13 +103,17 @@ const projectMedia = (media = []) => {
 /* A post, as the feed card and the detail surface read it.
  *
  * `liked` is per-viewer, so it cannot come off the row — the caller resolves it and passes
- * it in. `likedBy` is the social-proof name ("Mat. Carly and 17 others"), likewise
+ * it in. `likedBy` is the social-proof person ("Mat. Carly and 17 others"), likewise
  * resolved by the caller because it is a different person for every viewer. Both default
  * to the unauthenticated-ish answer if omitted, which keeps a partial projection safe
- * rather than accidentally claiming the viewer liked something. */
+ * rather than accidentally claiming the viewer liked something.
+ *
+ * `likedBy` is the name *parts*, not a rendered string, for the same reason the author
+ * block is — the card writes it with `displayName()` so the person who liked a post is
+ * addressed exactly as they are in their own byline. */
 export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
     id: post.id,
-    author: projectAuthor(post.author),
+    author: projectAuthor(post.author, post.orgId),
     group: post.org?.name ?? null,
     createdAt: post.createdAt.toISOString(),
     title: post.title,
@@ -103,10 +126,14 @@ export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
 })
 
 /* A comment in an open thread. `text`, not `body` — the client has always called it that,
- * and the rename belongs here rather than in every component that renders one. */
-export const projectComment = (comment, { liked = false } = {}) => ({
+ * and the rename belongs here rather than in every component that renders one.
+ *
+ * `orgId` is the organization of the *post* the comment hangs under, which is what decides
+ * whether its author wears the admin check. A comment has no organization of its own, so
+ * the caller — which had to load the post to authorize the read anyway — passes it down. */
+export const projectComment = (comment, { liked = false, orgId = null } = {}) => ({
     id: comment.id,
-    author: projectAuthor(comment.author),
+    author: projectAuthor(comment.author, orgId),
     text: comment.body,
     createdAt: comment.createdAt.toISOString(),
     likes: comment.likeCount,
@@ -161,10 +188,13 @@ export const projectViewer = (profile, memberships = []) => {
         id: profile.id,
         email: profile.email,
         handle: profile.handle,
-        fullName: profile.fullName,
+        /* Parts, not a composed string — the viewer is rendered by `displayName()` like
+         * anybody else, and the onboarding form needs the two fields back individually to
+         * populate itself if the viewer returns to it. */
+        firstName: profile.firstName,
+        lastName: profile.lastName,
         avatar: profile.avatarUrl,
         vocation: profile.vocation,
-        verified: profile.verified,
         /* Date only — `@db.Date`, so there is no time to strip and no timezone to shift it
          * across. Sent as YYYY-MM-DD, which is what a date input expects. */
         birthday: profile.birthday ? profile.birthday.toISOString().slice(0, 10) : null,

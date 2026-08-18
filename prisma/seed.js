@@ -69,41 +69,50 @@ const ORG = {
  * comments, but there is no credential behind them.
  *
  * Handles match the fixture data in seed-data.js, because that is how comments are mapped
- * back onto their authors below. */
+ * back onto their authors below.
+ *
+ * **Names are given and family, never an addressed form.** Nobody is seeded as "Dn. Paul"
+ * — he is Paul Ivanov with `vocation: DEACON`, and the title is composed at render time by
+ * `displayName()`. Seeding the addressed form is what the old `fullName` column encouraged,
+ * and it left every deacon and matushka in the corpus with no surname at all.
+ *
+ * There is no `verified` either. The blue check is derived from an ADMIN membership, so the
+ * `role` below is already what grants it. */
 const PEOPLE = [
     {
         handle: "cathedraldean",
-        fullName: "Priest Alexander",
+        firstName: "Alexander",
+        lastName: "Petrov",
         email: ADMIN_EMAIL,
         vocation: "PRIEST",
-        verified: true,
         role: "ADMIN",
         avatarUrl: "/img/mock/priest-alexander.png",
         signIn: true,
     },
     {
         handle: "j.rivera",
-        fullName: "Jordan Rivera",
+        firstName: "Jordan",
+        lastName: "Rivera",
         email: MEMBER_EMAIL,
         vocation: "FAITHFUL",
         role: "MEMBER",
         signIn: true,
     },
-    { handle: "deacon.paul", fullName: "Dn. Paul", vocation: "DEACON", verified: true, role: "MEMBER" },
-    { handle: "mat.carly", fullName: "Mat. Carly", vocation: "MATUSHKA", role: "MEMBER" },
-    { handle: "matushka.anna", fullName: "Anna", vocation: "MATUSHKA", role: "MEMBER" },
-    { handle: "reader.michael", fullName: "Reader Michael", vocation: "READER", verified: true, role: "MEMBER" },
-    { handle: "choir.elena", fullName: "Elena", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "geoffrey.k", fullName: "Geoffrey", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "theodora.v", fullName: "Theodora", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "casey.n", fullName: "Casey Nguyen", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "morgan.p", fullName: "Morgan Patel", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "sam.okafor", fullName: "Sam Okafor", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "taylor.b", fullName: "Taylor Brooks", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "deacon.paul", firstName: "Paul", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER" },
+    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER" },
+    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER" },
+    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER" },
+    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER" },
     /* One person removed, so the roster shows both statuses and the Restore action has
      * something to act on. REVOKED is the only alternative there is — see the admission
      * note in schema.prisma's header. */
-    { handle: "riley.c", fullName: "Riley Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED" },
+    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED" },
 ]
 
 /* Profiles with no auth user still need a primary key. A synthetic uuid is fine — nothing
@@ -136,7 +145,7 @@ const provisionAuthUser = async (supabase, person) => {
     const { data: created, error } = await supabase.auth.admin.createUser({
         email: person.email,
         email_confirm: true,
-        user_metadata: { full_name: person.fullName, handle: person.handle },
+        user_metadata: { full_name: `${person.firstName} ${person.lastName}`, handle: person.handle },
     })
 
     if (!error) return created.user.id
@@ -266,19 +275,19 @@ const main = async () => {
             update: {
                 email,
                 handle: person.handle,
-                fullName: person.fullName,
+                firstName: person.firstName,
+                lastName: person.lastName,
                 avatarUrl: person.avatarUrl ?? null,
                 vocation: person.vocation,
-                verified: person.verified ?? false,
             },
             create: {
                 id,
                 email,
                 handle: person.handle,
-                fullName: person.fullName,
+                firstName: person.firstName,
+                lastName: person.lastName,
                 avatarUrl: person.avatarUrl ?? null,
                 vocation: person.vocation,
-                verified: person.verified ?? false,
             },
         })
 
@@ -329,7 +338,11 @@ const main = async () => {
          * exist to do the liking. Deterministic (sorted by handle) so re-seeding produces
          * the same rows rather than churning them. */
         const likeTarget = fixture.likes ?? 0
-        const namedLiker = PEOPLE.find((person) => person.fullName === fixture.likedBy)?.handle
+        /* The fixture names the social-proof liker by handle. It used to name them by
+         * display name, which stopped being a stable key the moment names became parts and
+         * titles became derived — "Mat. Carly" is now assembled at render time and matches
+         * nothing in this file. */
+        const namedLiker = PEOPLE.find((person) => person.handle === fixture.likedBy)?.handle
         const eligible = PEOPLE.map((person) => person.handle)
             .filter((handle) => byHandle.get(handle) !== authorId && handle !== namedLiker)
             .sort()
@@ -401,7 +414,7 @@ const main = async () => {
     console.log(`\n✓ ${ORG.name}: ${members} members, ${posts} posts, ${comments} comments`)
     console.log("\n  Sign in with either address — the code arrives by email:")
     for (const person of PEOPLE.filter((p) => p.signIn)) {
-        console.log(`    ${person.email.padEnd(22)} ${person.role.padEnd(7)} ${person.fullName}`)
+        console.log(`    ${person.email.padEnd(22)} ${person.role.padEnd(7)} ${person.firstName} ${person.lastName}`)
     }
 }
 

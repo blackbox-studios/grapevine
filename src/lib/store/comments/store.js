@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer'
 import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
-import useAuthStore from '@/lib/store/auth/store'
+import useAuthStore, { viewerAuthor } from '@/lib/store/auth/store'
 import usePostStore from '@/lib/store/post/store'
 import { haptic } from '@/lib/native'
 import { toErrorList } from '@/lib/utils'
@@ -142,7 +142,16 @@ const useStore = create(immer((set, get) => ({
      * viewer, then is swapped for the created resource the server returns — which owns the
      * real id, author, and timestamp. Until that lands the row is marked `pending`, so the
      * UI can show it as not-yet-committed and refuse to like something that has no server
-     * id yet. A failure removes the row and undoes the tally bump. */
+     * id yet. A failure removes the row and undoes the tally bump.
+     *
+     * The swap carries the temporary id forward as `localId`, which is what the list keys
+     * on. Keying on `id` instead would make the confirmation look like a removal and an
+     * insertion to `AnimatePresence`, and the row the viewer just wrote would animate itself
+     * out and back in half a second after it appeared.
+     *
+     * It goes to the *front* of the list because that is where the server puts it too —
+     * `listComments` pins the viewer's own comments above the thread — so the row does not
+     * move when the thread is next loaded. */
     add: async (text) => {
         const postId = get().post
         const body = (text ?? '').trim()
@@ -151,15 +160,13 @@ const useStore = create(immer((set, get) => ({
         /* Stamp the row with the real signed-in viewer. The server assigns the
          * authoritative author anyway, but showing the right person for the half-second
          * before it replies is the whole point of an optimistic row. */
-        const user = useAuthStore.getState().user
-        const author = user
-            ? { handle: user.handle, name: user.fullName, avatar: user.avatar, verified: user.verified }
-            : null
+        const author = viewerAuthor(useAuthStore.getState().user)
 
         const tempId = mockId('pending')
         set(state => {
             state.items.unshift({
                 id: tempId,
+                localId: tempId,
                 author,
                 text: body,
                 createdAt: new Date().toISOString(),
@@ -177,7 +184,7 @@ const useStore = create(immer((set, get) => ({
             const comment = await api.post(API_ENDPOINTS.POST_COMMENTS(postId), { text: body })
             set(state => {
                 const index = state.items.findIndex(item => item.id === tempId)
-                if (index !== -1) state.items[index] = comment
+                if (index !== -1) state.items[index] = { ...comment, localId: tempId }
             })
         } catch (error) {
             set(state => {

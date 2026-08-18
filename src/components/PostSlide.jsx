@@ -186,7 +186,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                             className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-left text-white"
                         >
                             <div className="flex items-center gap-2">
-                                <Avatar name={post.author.name} src={post.author.avatar} className="size-8" />
+                                <Avatar person={post.author} className="size-8" />
                                 <span className="text-sm font-semibold">{post.author.handle}</span>
                                 {post.author.verified && (
                                     <Icon size="xs" className="text-sky-400 [font-variation-settings:'FILL'_1]">

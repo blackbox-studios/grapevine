@@ -5,6 +5,11 @@ import { completeOnboarding } from "@/lib/server/profile.service"
 
 /* POST /api/me/onboarding — finish first-run orientation.
  *
+ * Takes all of it at once — name, handle, birthday — even though the screen asks in steps.
+ * The steps are a client-side presentation of one decision; a partial POST per step would
+ * make "half-onboarded" a real state in the database, and there is no screen that repairs
+ * one. See `completeOnboarding`.
+ *
  * Returns the whole updated viewer rather than 204, so the client can replace its copy in
  * one step. That matters here: `onboardedAt` is what the welcome gate reads, and a client
  * that had to re-fetch to learn it would sit on the orientation screen a beat longer than
@@ -13,8 +18,10 @@ export const dynamic = "force-dynamic"
 
 export const POST = route(async (request) => {
     const viewer = await requireViewer(request)
-    const { birthday } = await request.json()
-    return sendResource(await completeOnboarding(viewer, { birthday }))
+    const { firstName, lastName, handle, birthday } = await request.json()
+    return sendResource(
+        await completeOnboarding(viewer, { firstName, lastName, handle, birthday }),
+    )
 })
 
 export const OPTIONS = preflight

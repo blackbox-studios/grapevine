@@ -54,6 +54,7 @@ import {
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { fullName } from "@/lib/name"
 import { useMembers } from "@/lib/store/members/hook"
 import { cn, roleLabel, timeAgo } from "@/lib/utils"
 
@@ -81,11 +82,17 @@ const STATUS_VARIANT = {
 const ROLE_OPTIONS = [ROLES.MEMBER, ROLES.ADMIN]
 
 /* Name, email and handle together, because an admin searching a roster has one of the
- * three in mind and does not think about which. Matched as one string so "fr alex" finds
- * "Fr. Alexander" without needing every field checked separately. */
+ * three in mind and does not think about which. Matched as one string so a query spanning
+ * two of them still finds the row.
+ *
+ * Both name parts are searched, and the surname is the reason this roster is the surface
+ * that kept them: a deacon appears in the feed as "Dn. Paul", so his family name is
+ * findable here or nowhere. */
 const matchesQuery = (member, query) => {
     if (!query) return true
-    return `${member.fullName} ${member.email} ${member.handle}`.toLowerCase().includes(query)
+    return `${member.firstName ?? ""} ${member.lastName ?? ""} ${member.email} ${member.handle}`
+        .toLowerCase()
+        .includes(query)
 }
 
 /* Whether an invitation has been taken up, and how far.
@@ -445,13 +452,22 @@ const SettingsUsersPage = () => {
                                                         <TableCell>
                                                             <div className="flex items-center gap-4">
                                                                 <Avatar
-                                                                    name={member.fullName}
-                                                                    src={member.avatar}
+                                                                    person={member}
                                                                     className="size-9 shrink-0"
                                                                 />
                                                                 <div className="flex flex-col">
+                                                                    {/* Given and family name, not
+                                                                      * the addressed form: the
+                                                                      * vocation column beside this
+                                                                      * already states the rank, and
+                                                                      * an admin managing a roster
+                                                                      * needs the surname that
+                                                                      * "Dn. Paul" hides. Falls back
+                                                                      * to the @handle for someone
+                                                                      * admitted but still
+                                                                      * mid-orientation. */}
                                                                     <span className="font-semibold text-foreground">
-                                                                        {member.fullName}
+                                                                        {fullName(member)}
                                                                         {member.isSelf && (
                                                                             <span className="ml-2 text-sm font-normal text-muted-foreground">
                                                                                 (you)
@@ -477,7 +493,7 @@ const SettingsUsersPage = () => {
                                                                     setVocation(member.membershipId, value)
                                                                 }
                                                                 disabled={busy}
-                                                                label={`Vocation for ${member.fullName}`}
+                                                                label={`Vocation for ${fullName(member)}`}
                                                                 className="w-40"
                                                             />
                                                         </TableCell>

@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS, ROUTES } from '@/lib/constants'
+import { API_ENDPOINTS, ROLES, ROUTES } from '@/lib/constants'
 import { supabase } from '@/lib/supabase'
 import useGlobalStore from '@/lib/store/global.store'
 import { toErrorList } from '@/lib/utils'
@@ -78,6 +78,32 @@ const INIT = {
 
 /* Guards against a second `onAuthStateChange` subscription on hot reload. */
 let subscription = null
+
+/* The viewer, in the shape the API stamps on a post or comment author.
+ *
+ * Optimistic rows render before the server has replied, and they must render as the *same*
+ * person the reply will carry — otherwise a freshly posted comment visibly rewrites itself
+ * a moment later. Defined once here because two callers need it from different layers:
+ * `useViewerAuthor` (a hook, for components) and the comments store (plain state, no hook
+ * available). Two copies of this drifted apart is exactly the bug it prevents.
+ *
+ * The name goes as parts, like every other author block — `displayName()` composes it.
+ *
+ * `verified` is the approximation: the server answers it against the organization the
+ * content belongs to, and the viewer's role in their primary group is the closest a client
+ * can get without an org id on the wire. Correct for a single-parish deployment, and
+ * replaced by the authoritative row within the second regardless. */
+export const viewerAuthor = (user) =>
+    user
+        ? {
+              handle: user.handle,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              vocation: user.vocation,
+              avatar: user.avatar,
+              verified: user.role === ROLES.ADMIN,
+          }
+        : null
 
 /* A sign-in link that failed comes back as an *error* in the URL fragment rather than a
  * session — `#error=access_denied&error_code=otp_expired&…`. supabase-js finds no tokens,
@@ -369,6 +395,29 @@ const useStore = create(
                     })
                 },
 
+                /* Is this @handle free? Asked while the viewer types one during
+                 * orientation.
+                 *
+                 * Returns the answer instead of storing it, which is the exception this
+                 * store makes to holding its own state: the result belongs to one keystroke
+                 * on one step, and parking it here would mean a stale "taken" surviving in
+                 * the persisted viewer long after the field that asked. The step holds it in
+                 * local state; only the *outcome* — the saved handle — reaches the store.
+                 *
+                 * A failed check resolves as available rather than throwing. The check is
+                 * advisory and the unique constraint is authoritative, so a network blip
+                 * must not block someone on a handle that is probably fine — the submit
+                 * still catches a real collision. */
+                checkHandle: async (value) => {
+                    try {
+                        return await api.get(API_ENDPOINTS.ME_HANDLE, {
+                            params: { value: String(value ?? "") },
+                        })
+                    } catch {
+                        return { handle: String(value ?? ""), available: true, reason: null }
+                    }
+                },
+
                 /* Finishes first-run orientation and lets the viewer into the app.
                  *
                  * The response is the whole updated viewer, so it replaces `user`
@@ -383,7 +432,7 @@ const useStore = create(
                         const user = await api.post(API_ENDPOINTS.ME_ONBOARDING, values)
                         set(state => { state.user = user })
                         router?.replace(ROUTES.DEFAULT)
-                        return true
+                        return { ok: true }
                     } catch (error) {
                         set(state => {
                             state.error.onboarding = toErrorList(
@@ -391,7 +440,13 @@ const useStore = create(
                                 'Could not save your details. Please try again.',
                             )
                         })
-                        return false
+                        /* `fields` is handed back rather than only toasted. The form asks
+                         * its questions across several steps, so "which field" is also
+                         * "which step to return to" — a handle taken between the live check
+                         * and the write has to send the viewer back two screens, and a toast
+                         * alone would leave them on a finished form with no idea where the
+                         * problem is. See the API contract's failure shape. */
+                        return { ok: false, fields: error?.fields ?? null }
                     } finally {
                         set(state => { state.loading.onboarding = false })
                     }

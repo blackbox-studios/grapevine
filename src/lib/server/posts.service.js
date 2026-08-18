@@ -20,12 +20,34 @@ import { projectComment, projectPost } from "@/lib/server/projections"
  * organization that owns it. The scoping is applied in the query's `where`, not filtered
  * out afterwards, so an unauthorized row is never loaded in the first place. */
 
+/* Everything needed to render whoever wrote something.
+ *
+ * The name arrives in parts because the client composes it (see `projectAuthor`), and
+ * `vocation` rides along because it is what supplies the title.
+ *
+ * `memberships` is how the blue check is answered without a stored flag. It is narrowed to
+ * the author's APPROVED **admin** memberships — a handful of ids at most, and usually one —
+ * and `projectAuthor` checks whether the post's own organization is among them. Filtering
+ * here rather than in JS matters: an unfiltered include would pull every membership of
+ * every author on a feed page to answer a boolean. */
+const authorSelect = {
+    handle: true,
+    firstName: true,
+    lastName: true,
+    vocation: true,
+    avatarUrl: true,
+    memberships: {
+        where: { status: "APPROVED", role: "ADMIN" },
+        select: { orgId: true },
+    },
+}
+
 /* The relations every post projection needs. Declared once so the feed, the detail
  * fetch, and a freshly-created post cannot drift into returning different shapes for the
  * same entity — which is exactly the bug that makes a card change as you open it. */
 const postInclude = (viewerId) => ({
     org: { select: { name: true } },
-    author: { select: { handle: true, fullName: true, avatarUrl: true, verified: true } },
+    author: { select: authorSelect },
     media: { orderBy: { position: "asc" } },
     /* The viewer's own like, as a 0-or-1 row. A filtered relation include is one join,
      * where asking per post would be one query per card. */
@@ -33,12 +55,17 @@ const postInclude = (viewerId) => ({
 })
 
 const commentInclude = (viewerId) => ({
-    author: { select: { handle: true, fullName: true, avatarUrl: true, verified: true } },
+    author: { select: authorSelect },
     likes: { where: { profileId: viewerId }, select: { profileId: true }, take: 1 },
 })
 
-/* The social-proof name on a card — "<name> and 17 others" — for a whole page of posts in
+/* The social-proof person on a card — "<name> and 17 others" — for a whole page of posts in
  * one query.
+ *
+ * Selects the name *parts* rather than a name, because the card composes it with
+ * `displayName()` exactly as it composes a byline — so a deacon who liked a post reads as
+ * "Dn. Paul and 17 others" and not as his given and family name, which is the one place
+ * he is never called that.
  *
  * `DISTINCT ON` is Postgres-specific and has no Prisma Client equivalent, which is why
  * this drops to raw SQL. The alternative shapes are both worse: a nested `take: 1` include
@@ -51,12 +78,18 @@ const commentInclude = (viewerId) => ({
  * that its `@map` still matches — the Prisma-side camelCase name is not what Postgres
  * knows it as.
  *
- * Returns a Map of postId → name. Posts liked only by the viewer are simply absent. */
+ * Returns a Map of postId → `{ handle, firstName, lastName, vocation }`. Posts liked only
+ * by the viewer are simply absent. */
 const likedByNames = async (postIds, viewerId) => {
     if (postIds.length === 0) return new Map()
 
     const rows = await prisma.$queryRaw`
-        SELECT DISTINCT ON (l.post_id) l.post_id AS "postId", p.full_name AS "name"
+        SELECT DISTINCT ON (l.post_id)
+            l.post_id AS "postId",
+            p.handle AS "handle",
+            p.first_name AS "firstName",
+            p.last_name AS "lastName",
+            p.vocation AS "vocation"
         FROM post_like l
         JOIN profile p ON p.id = l.profile_id
         WHERE l.post_id IN (${Prisma.join(postIds)})
@@ -64,7 +97,17 @@ const likedByNames = async (postIds, viewerId) => {
         ORDER BY l.post_id, l.created_at DESC
     `
 
-    return new Map(rows.map((row) => [row.postId, row.name]))
+    return new Map(
+        rows.map((row) => [
+            row.postId,
+            {
+                handle: row.handle,
+                firstName: row.firstName,
+                lastName: row.lastName,
+                vocation: row.vocation,
+            },
+        ]),
+    )
 }
 
 /* Loads a post the viewer is allowed to see, or throws.
@@ -146,24 +189,64 @@ export const getPost = async (viewer, postId) => {
     })
 }
 
-/* One page of a post's comments, oldest first.
+/* How many of the viewer's own comments ride at the top of a thread.
  *
- * Oldest-first is why the direction is "asc" here and "desc" in the feed; the cursor
+ * Bounded rather than "all of them" because the pinned block is fetched whole, with no
+ * cursor of its own — an unbounded version would load every comment a chatty member ever
+ * left on a busy post before the first page could render. Anything past the cap is not
+ * lost: it simply stays where it was written, in the chronological body below. */
+const PINNED_OWN_COMMENTS = 20
+
+/* One page of a post's comments: the viewer's own first, then the thread oldest-first.
+ *
+ * **The viewer's own comments are pinned to the top**, newest first, so the reply someone
+ * just left is where they left it when they close the sheet and open it again — not buried
+ * at the far end of a thread they'd have to page through to find. The client shows a new
+ * comment at the top optimistically, and this is what makes the server agree on a reload
+ * instead of contradicting it.
+ *
+ * The pinned set is resolved on *every* page, not just the first, because its ids are what
+ * the chronological body excludes — a later page that forgot to exclude them would serve
+ * the same comment twice, once pinned and once in place. Only the first page carries the
+ * block itself.
+ *
+ * Oldest-first is why the body's direction is "asc" here and "desc" in the feed; the cursor
  * helpers take it explicitly because getting it wrong silently repeats the first page
- * rather than failing. */
+ * rather than failing. The cursor still comes off the body's last row, so pinning changes
+ * nothing about how the thread pages. */
 export const listComments = async (viewer, postId, { limit, cursor }) => {
-    await loadReadablePost(viewer.id, postId)
+    /* The post was loaded to authorize the read; its `orgId` is then what decides which
+     * commenters wear the admin check, so it is carried into the projection rather than
+     * re-queried per comment. */
+    const post = await loadReadablePost(viewer.id, postId)
+
+    const own = await prisma.comment.findMany({
+        where: { postId, authorId: viewer.id, deletedAt: null },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: PINNED_OWN_COMMENTS,
+        include: commentInclude(viewer.id),
+    })
+    const pinnedIds = own.map((comment) => comment.id)
 
     const rows = await prisma.comment.findMany({
-        where: { postId, deletedAt: null, ...keysetWhere(cursor, "asc") },
+        where: {
+            postId,
+            deletedAt: null,
+            ...(pinnedIds.length > 0 ? { id: { notIn: pinnedIds } } : {}),
+            ...keysetWhere(cursor, "asc"),
+        },
         orderBy: keysetOrder("asc"),
         take: limit + 1,
         include: commentInclude(viewer.id),
     })
 
-    return keysetPage(rows, limit, (comment) =>
-        projectComment(comment, { liked: comment.likes.length > 0 }),
-    )
+    const project = (comment) =>
+        projectComment(comment, { liked: comment.likes.length > 0, orgId: post.orgId })
+
+    const page = keysetPage(rows, limit, project)
+    if (cursor) return page
+
+    return { ...page, items: [...own.map(project), ...page.items] }
 }
 
 /* ---------------------------------------------------------------------------
@@ -345,7 +428,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
  * created resource returned here is the authoritative row the client swaps its optimistic
  * one for. The post's tally moves in the same transaction as the insert. */
 export const addComment = async (viewer, postId, text) => {
-    await loadReadablePost(viewer.id, postId)
+    const post = await loadReadablePost(viewer.id, postId)
 
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
@@ -365,5 +448,5 @@ export const addComment = async (viewer, postId, text) => {
         }),
     ])
 
-    return projectComment(comment, { liked: false })
+    return projectComment(comment, { liked: false, orgId: post.orgId })
 }

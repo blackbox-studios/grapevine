@@ -92,17 +92,49 @@ datasource db {
 /// service instead — both create the auth user and the profile together.
 model Profile {
   /// Mirrors auth.users.id.
-  id        String   @id @db.Uuid
-  email     String   @unique
+  id     String @id @db.Uuid
+  email  String @unique
   /// Public @handle. Distinct from email so a display identity can change without
   /// touching the credential. `@unique` already provides the lookup index.
-  handle    String   @unique
-  fullName  String   @map("full_name")
+  ///
+  /// Chosen by the person during first-run orientation, not assigned. Admission still
+  /// derives a provisional one from the email local part, because an admin inviting
+  /// somebody knows only their address — orientation is where they replace it.
+  handle String @unique
+
+  /// The person's name, in two parts, supplied by them during orientation.
+  ///
+  /// **There is no `fullName` column, and adding one back would be a mistake.** A stored
+  /// display string cannot answer both of the questions this app asks of a name: the feed
+  /// addresses clergy as title + given name ("Dn. Paul"), while the roster sorts and
+  /// searches on the surname. One frozen string serves one of those and quietly corrupts
+  /// the other — which is what happened when an admin typed "Dn. Paul" into a full-name
+  /// box and the deacon's surname ceased to exist as data.
+  ///
+  /// The title is **not** stored here either. It is derived from `vocation` at render
+  /// time by `displayName()` in `lib/name.js`, so ordaining a reader as a deacon is a
+  /// vocation change rather than a name edit — and so nobody can be addressed as a rank
+  /// they do not hold.
+  ///
+  /// Nullable because admission provisions a Profile from an email address alone; both are
+  /// non-null from the moment orientation completes. A profile with no name yet renders as
+  /// its handle. See `completeOnboarding`.
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+
   avatarUrl String?  @map("avatar_url")
   /// Who the person is, not what they may do. See the header note.
   vocation  Vocation @default(FAITHFUL)
-  /// Clergy or parish accounts confirmed by an admin; drives the check on a post card.
-  verified  Boolean  @default(false)
+
+  /// **There is no `verified` column.** The check on a post card means "this person
+  /// administers the group you are reading this in", which is already recorded — it is
+  /// `Membership.role == ADMIN`. Storing it a second time as a profile flag created a fact
+  /// that could disagree with the permission it claimed to describe: revoking someone's
+  /// admin role left them wearing the check, because nothing connected the two.
+  ///
+  /// It is derived per post, against that post's organization, in `projectAuthor` — so the
+  /// same person can carry the check in the parish they administer and not in the diocese
+  /// where they are an ordinary member. A global flag could not express that.
 
   /// Date of birth, collected during first-run orientation.
   ///

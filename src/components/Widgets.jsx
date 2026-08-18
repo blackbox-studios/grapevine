@@ -1,24 +1,22 @@
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
+import { initials } from "@/lib/name"
 import { appPath, cn, gradientFor } from "@/lib/utils"
 
-/* Up-to-two-letter initials from a display name, for the gradient avatar fallback. */
-const initials = (name) =>
-    String(name ?? "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((word) => word[0])
-        .join("")
-        .toUpperCase()
-
-/* User/author avatar. Uses the profile image when one is provided; otherwise falls
- * back to a deterministic gradient (via gradientFor()) with the name's initials.
- * Size it with a `size-*` class via `className`. */
-export const Avatar = ({ name, src, className }) =>
-    src ? (
+/* User/author avatar. Uses the profile image when one is provided; otherwise falls back to
+ * a deterministic gradient (via gradientFor()) with the person's initials. Size it with a
+ * `size-*` class via `className`.
+ *
+ * **Takes the person, not a name string.** Initials come from `firstName`/`lastName`
+ * directly, because a rendered display name may lead with a title — splitting "Dn. Paul"
+ * gives "DP", which is neither of his names. The gradient is keyed on the handle rather
+ * than the name for the same reason it is stable at all: a handle identifies one person,
+ * where two Anna's would otherwise share a colour and one person changing their name would
+ * change theirs. */
+export const Avatar = ({ person, className }) =>
+    person?.avatar ? (
         <img
-            src={appPath(src)}
+            src={appPath(person.avatar)}
             alt=""
             aria-hidden="true"
             className={cn("shrink-0 rounded-full object-cover", className)}
@@ -29,10 +27,10 @@ export const Avatar = ({ name, src, className }) =>
                 "flex shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold text-white",
                 className,
             )}
-            style={gradientFor(name)}
+            style={gradientFor(person?.handle)}
             aria-hidden="true"
         >
-            {initials(name)}
+            {initials(person)}
         </span>
     )
 

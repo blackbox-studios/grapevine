@@ -24,6 +24,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Two authorization axes, deliberately not merged.** `Membership.role` (ADMIN | MEMBER) is per-group permission. `Profile.vocation` (PRIEST | FAITHFUL) is who someone is and grants nothing — a priest is usually their parish's admin but need not be, and an admin need not be a priest.
 
+**Names and the blue check are composed, not stored.** `Profile` holds `firstName`, `lastName`, `handle` and `vocation`, and there is **no `fullName` column and no `verified` column** — both were removed because a stored display string cannot serve the feed (which addresses clergy as "Dn. Paul") and the roster (which sorts on the surname) at once, and a profile-wide verified flag could disagree with the admin role it claimed to describe. The API ships name *parts*; `displayName()` / `fullName()` / `initials()` in `src/lib/name.js` are the only place they become a name, and `VOCATION_TITLE` in `constants.js` is the only place a title is written down. The check is derived per post from `Membership.role == ADMIN` in that post's group, so the same person can carry it in the parish they administer and not in their diocese. Name, handle and birthday are collected once, step by step, at `/welcome`.
+
 Not a monorepo — the whole project is a single npm package rooted at the repo top level. Next.js App Router, Zustand, `motion`.
 
 ## Frontend architecture

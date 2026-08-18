@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
+import { API_ENDPOINTS, PAGE_SIZE, ROLES } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
 import useAuthStore from '@/lib/store/auth/store'
 import { toErrorList } from '@/lib/utils'
@@ -134,9 +134,17 @@ const useStore = create(immer((set, get) => ({
                 author: user
                     ? {
                           handle: user.handle,
-                          name: user.fullName,
+                          /* Name parts, not a rendered name — the card composes it with
+                           * displayName(), so the optimistic row is written exactly the way
+                           * the server's reply will be. */
+                          firstName: user.firstName,
+                          lastName: user.lastName,
+                          vocation: user.vocation,
                           avatar: user.avatar,
-                          verified: user.verified,
+                          /* Publishing requires ADMIN of this org, so the check is not a
+                           * guess here — reaching this line proves it. */
+                          verified:
+                              user.orgs?.find(org => org.id === orgId)?.role === ROLES.ADMIN,
                       }
                     : null,
                 group: groupName,

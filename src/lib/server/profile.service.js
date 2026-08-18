@@ -1,5 +1,8 @@
 import "server-only"
 
+import { Prisma } from "@prisma/client"
+
+import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { requireMembership } from "@/lib/server/auth"
 import { invalid, notFound } from "@/lib/server/errors"
@@ -65,56 +68,181 @@ export const getViewer = async (viewer) => {
     return projectViewer(viewer, memberships)
 }
 
-/* Completes first-run orientation.
+/* One name part, validated.
  *
- * Stamping `onboardedAt` is what lets the viewer past the welcome gate, so it is written
- * *with* the answers in one update — a birthday saved without the stamp would ask again
- * forever, and a stamp without the birthday would lose the only thing orientation exists
- * to collect. */
-export const completeOnboarding = async (viewer, { birthday }) => {
-    const value = String(birthday ?? "").trim()
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+ * Length-bounded rather than pattern-matched, and that restraint is deliberate: any regex
+ * narrow enough to be worth writing rejects somebody's actual name. Cyrillic, apostrophes,
+ * hyphens, and spaces inside a single part are all ordinary here. The only real failures to
+ * catch are empty and absurd. */
+const readName = (value, field, label) => {
+    const name = String(value ?? "").trim().replace(/\s+/g, " ")
+    if (!name) throw invalid(`Enter your ${label}.`, { [field]: "Required" })
+    if (name.length > 80) {
+        throw invalid(`That ${label} is too long.`, { [field]: "Too long" })
+    }
+    return name
+}
+
+/* A handle as it would be stored, or a validation failure explaining why not.
+ *
+ * **The server's answer is the one that counts.** `normalizeHandleInput` in `lib/name.js`
+ * shapes what the viewer types so the field shows the value that will be saved, but it runs
+ * on a client and is therefore a convenience, not a rule — this is the check that decides.
+ * The two use the same character set on purpose; keep them in step. */
+const readHandle = (value) => {
+    const handle = String(value ?? "").trim().replace(/^@+/, "").toLowerCase()
+
+    if (!handle) throw invalid("Choose a handle.", { handle: "Required" })
+    if (handle.length < HANDLE_MIN) {
+        throw invalid(`A handle needs at least ${HANDLE_MIN} characters.`, {
+            handle: "Too short",
+        })
+    }
+    if (handle.length > HANDLE_MAX) {
+        throw invalid(`A handle can be at most ${HANDLE_MAX} characters.`, {
+            handle: "Too long",
+        })
+    }
+    if (!HANDLE_PATTERN.test(handle)) {
+        throw invalid(
+            "A handle can use letters, numbers, dots, underscores and hyphens, and must start and end with a letter or number.",
+            { handle: "Invalid" },
+        )
+    }
+    return handle
+}
+
+/* A birthday as a `@db.Date`, or a validation failure.
+ *
+ * Bounds rather than a bare is-this-a-date check, because the failures worth catching are a
+ * typo'd year and a future date — "1837" and "next Tuesday" both parse perfectly. */
+const readBirthday = (value) => {
+    const text = String(value ?? "").trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
         throw invalid("Enter your date of birth.", { birthday: "Required" })
     }
 
     /* Parsed as UTC midnight, which is what `@db.Date` stores. Building it with
      * `new Date("YYYY-MM-DD")` rather than local parts is deliberate: local parsing in a
      * negative-offset timezone lands on the previous day. */
-    const date = new Date(`${value}T00:00:00.000Z`)
+    const date = new Date(`${text}T00:00:00.000Z`)
     if (Number.isNaN(date.getTime())) {
         throw invalid("That date does not look right.", { birthday: "Invalid" })
     }
-
-    const now = new Date()
-    if (date > now) {
+    if (date > new Date()) {
         throw invalid("A date of birth cannot be in the future.", { birthday: "Invalid" })
     }
     if (date.getUTCFullYear() < 1900) {
         throw invalid("That date does not look right.", { birthday: "Invalid" })
     }
+    return date
+}
 
-    const profile = await prisma.profile.update({
-        where: { id: viewer.id },
-        data: { birthday: date, onboardedAt: now },
+/* Is this @handle free?
+ *
+ * Answers the live check on the handle step. The viewer's *own* current handle counts as
+ * available — otherwise someone who walks back to the step is told the handle they are
+ * already wearing is taken, and cannot move forward without changing it.
+ *
+ * This is advisory. Between this answer and the write, somebody else can take the name, and
+ * only the unique constraint in `completeOnboarding` settles it. Behind `requireViewer`,
+ * like everything else here, so it is not an open handle-enumeration endpoint — though a
+ * signed-in member probing names is not a threat worth designing against, since handles are
+ * public the moment their owner comments. */
+export const checkHandle = async (viewer, value) => {
+    let handle
+    try {
+        handle = readHandle(value)
+    } catch (error) {
+        /* An invalid handle is not "taken" — it is not a handle at all. Reported as
+         * unavailable with the reason, so the step can say why without a second shape. */
+        return { handle: String(value ?? ""), available: false, reason: error.message }
+    }
+
+    if (handle === viewer.handle) return { handle, available: true, reason: null }
+
+    const taken = await prisma.profile.findUnique({
+        where: { handle },
+        select: { id: true },
     })
 
-    const memberships = await membershipsFor(profile.id, { includeInactive: true })
-    return projectViewer(profile, memberships)
+    return {
+        handle,
+        available: !taken,
+        reason: taken ? "That handle is already taken." : null,
+    }
+}
+
+/* Completes first-run orientation: the viewer's name, the @handle they chose, and their
+ * birthday.
+ *
+ * **One write, or none.** Stamping `onboardedAt` is what lets the viewer past the welcome
+ * gate, so it is written *with* the answers — a name saved without the stamp would ask
+ * again forever, and a stamp without the answers would let someone into the app as a
+ * nameless profile with no way back to the form that fills it in. Every field is validated
+ * before anything is written, for the same reason.
+ *
+ * This is also where the handle stops being the provisional one derived from an email
+ * address at admission and becomes one the person actually chose. */
+export const completeOnboarding = async (viewer, { firstName, lastName, handle, birthday }) => {
+    const first = readName(firstName, "firstName", "first name")
+    const last = readName(lastName, "lastName", "last name")
+    const chosen = readHandle(handle)
+    const date = readBirthday(birthday)
+
+    try {
+        const profile = await prisma.profile.update({
+            where: { id: viewer.id },
+            data: {
+                firstName: first,
+                lastName: last,
+                handle: chosen,
+                birthday: date,
+                onboardedAt: new Date(),
+            },
+        })
+
+        const memberships = await membershipsFor(profile.id, { includeInactive: true })
+        return projectViewer(profile, memberships)
+    } catch (error) {
+        /* The unique constraint is the real arbiter of a handle, not the availability check
+         * that ran while they typed — two people can pick the same name in the seconds
+         * between. Reported as a field error so the form can send them back to that step
+         * rather than failing the whole submission as something unexplained. */
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+        ) {
+            throw invalid("That handle was just taken. Please choose another.", {
+                handle: "Taken",
+            })
+        }
+        throw error
+    }
 }
 
 /* ---------------------------------------------------------------------------
  * The roster
  * ------------------------------------------------------------------------- */
 
+/* One row of the roster.
+ *
+ * The name goes over as parts, like everywhere else — the roster is in fact the surface
+ * that most needs them, because it sorts and searches on the surname that a composed
+ * "Dn. Paul" would have thrown away.
+ *
+ * There is no `verified` here: the check means "administers this group", and this row
+ * already carries `role`. Sending both would be the same fact twice, with the ever-present
+ * risk of them disagreeing. */
 const projectMember = (membership) => ({
     id: membership.profile.id,
     membershipId: membership.id,
     email: membership.profile.email,
     handle: membership.profile.handle,
-    fullName: membership.profile.fullName,
+    firstName: membership.profile.firstName,
+    lastName: membership.profile.lastName,
     avatar: membership.profile.avatarUrl,
     vocation: membership.profile.vocation,
-    verified: membership.profile.verified,
     role: membership.role,
     status: membership.status,
     admittedAt: membership.admittedAt.toISOString(),
@@ -168,12 +296,17 @@ export const listOrgs = async (viewer) => {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/* A handle from an email local part, made unique against what already exists.
+/* A provisional handle from an email local part, made unique against what already exists.
  *
  * Handles are public @mentions and unique, but an admin inviting someone knows only their
- * address — so one is derived and de-duplicated rather than demanded up front. The person
- * can be given a way to change it later; what matters here is that inviting two people at
- * `j.smith@` different domains cannot collide and fail the whole batch. */
+ * address — so one is derived and de-duplicated rather than demanded up front. **This is a
+ * placeholder, not the person's handle**: first-run orientation asks them to choose one and
+ * overwrites this. What matters here is only that inviting two people at `j.smith@`
+ * different domains cannot collide and fail the whole batch.
+ *
+ * Note it can produce something `readHandle` would reject — a two-letter local part is
+ * under the minimum. That is fine and intentional: nothing validates a placeholder, and the
+ * person replaces it before they ever reach the app. */
 const deriveHandle = async (email) => {
     const base =
         email
@@ -205,7 +338,7 @@ const deriveHandle = async (email) => {
  * No email is sent. That is deliberate rather than a shortcut — it means a priest can add
  * forty people without touching a rate limit, and each of them signs in whenever they
  * choose. Telling them is out of band, which for a parish is how it actually happens. */
-const admitOne = async (viewer, orgId, { email, role, vocation, fullName }) => {
+const admitOne = async (viewer, orgId, { email, role, vocation }) => {
     const address = String(email ?? "").trim().toLowerCase()
     if (!EMAIL_PATTERN.test(address)) {
         throw invalid(`"${email}" is not a valid email address.`, { email: "Invalid" })
@@ -256,12 +389,16 @@ const admitOne = async (viewer, orgId, { email, role, vocation, fullName }) => {
     const handle = await deriveHandle(address)
 
     const membership = await prisma.$transaction(async (tx) => {
+        /* No name. An admin admits an address, not a person's given and family name, and
+         * inventing one from the email local part is worse than leaving it empty: it
+         * produces a plausible-looking "j.smith" in every byline that nobody ever corrects,
+         * because it does not look like a placeholder. Null renders as the handle until
+         * they complete orientation, and the roster can tell the two states apart. */
         await tx.profile.create({
             data: {
                 id: data.user.id,
                 email: address,
                 handle,
-                fullName: String(fullName ?? "").trim() || address.split("@")[0],
                 vocation,
             },
         })

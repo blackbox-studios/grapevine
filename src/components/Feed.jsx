@@ -17,6 +17,7 @@ import Ripple from "@/assets/svg/ripple.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
+import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
@@ -80,7 +81,10 @@ const PostCard = ({ post }) => {
     const { toggleLike } = usePostLike()
     const { liked } = post
 
-    const { handle, name, avatar, verified } = post.author
+    const { handle, verified } = post.author
+    /* Composed here, not sent composed: the API ships name parts and a vocation, and this
+     * is what turns them into "Dn. Paul". See lib/name.js. */
+    const name = displayName(post.author)
 
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
@@ -115,7 +119,7 @@ const PostCard = ({ post }) => {
     return (
         <article className="flex flex-col">
             <header className="flex items-center gap-3 pb-3">
-                <Avatar name={name} src={avatar} className="size-9" />
+                <Avatar person={post.author} className="size-9" />
                 <div className="flex min-w-0 flex-col leading-tight">
                     <div className="flex items-center gap-1">
                         <span className="truncate text-sm font-semibold">
@@ -248,10 +252,10 @@ const PostCard = ({ post }) => {
 
             {post.likedBy && (
                 <div className="flex items-center gap-2 py-2 text-sm">
-                    <Avatar name={post.likedBy} className="size-5" />
+                    <Avatar person={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}
-                        <span className="font-semibold">{post.likedBy}</span>
+                        <span className="font-semibold">{displayName(post.likedBy)}</span>
                         {/* "and 1 others" was reachable the moment like counts became real
                           * rather than seeded prose — a post with exactly two likes hits it. */}
                         {post.likes > 1 && (

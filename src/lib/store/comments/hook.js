@@ -13,7 +13,7 @@ export const useComments = (postId) => {
      * optimistic row is stamped with. Comes off the session now rather than a seed
      * constant, so the row that appears is the one the server will confirm. */
     const viewer = useViewerAuthor()
-    const [items, ready, hasMore, loadingMore, load, loadMore, toggleLike, add, reset] =
+    const [items, ready, hasMore, loadingMore, load, loadMore, toggleLike, add, remove, reset] =
         useCommentsStore(useShallow(state => ([
             state.items,
             state.ready,
@@ -23,6 +23,7 @@ export const useComments = (postId) => {
             state.loadMore,
             state.toggleLike,
             state.add,
+            state.remove,
             state.reset,
         ])))
 
@@ -45,5 +46,6 @@ export const useComments = (postId) => {
         loadMore,
         toggleLike,
         add,
-    }), [items, hasMore, skeleton, loadingMore, viewer, loadMore, toggleLike, add])
+        remove,
+    }), [items, hasMore, skeleton, loadingMore, viewer, loadMore, toggleLike, add, remove])
 }

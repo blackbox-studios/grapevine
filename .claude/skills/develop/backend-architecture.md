@@ -188,6 +188,7 @@ completed (offline, DNS, CORS, aborted connection).
 | `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread oldest-first |
 | `POST` | `/api/posts/:postId/comments` | member of its group | `201` + the created comment, `Location` set |
 | `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
+| `DELETE` | `/api/comments/:commentId` | its author, **or** an admin of the post's group | `204` |
 | `POST` | `/api/comments/:commentId/likes` | member of its group | `{ liked, likes }` |
 
 **Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
@@ -206,6 +207,14 @@ the corpus can be millions of UUIDs minted a second ago. See **Dynamic routes at
 needs the authoritative result to reconcile against; returning nothing would force it to
 re-fetch the post to find out what actually happened. Toggle endpoints should always return
 the resulting state.
+
+**Deleting a comment is authorized on two rules that are deliberately not merged** — a
+person owns what they wrote, and an admin moderates the group they administer. The second
+is per-group, resolved from the membership that authorized reading the parent post, so
+administering a diocese grants nothing over a parish's threads. The comment projection
+ships the composed answer as `canDelete` so a row does not have to re-derive a rule the
+server would enforce differently. It is a **soft** delete: `deletedAt` is stamped, which is
+what every read already filters on.
 
 ---
 
@@ -232,6 +241,7 @@ src/app/api/
   posts/[postId]/route.api.js
   posts/[postId]/comments/route.api.js
   posts/[postId]/likes/route.api.js
+  comments/[commentId]/route.api.js         # DELETE
   comments/[commentId]/likes/route.api.js
 ```
 
@@ -461,16 +471,23 @@ and is treated as "already liked", not as an error.
 
 ### Sequential transactions, not interactive ones
 
-Every write here uses the **array** form, `prisma.$transaction([...])`, and that is a
+Writes here default to the **array** form, `prisma.$transaction([...])`, and that is a
 deliberate choice rather than a style preference. An interactive transaction
 (`$transaction(async tx => ...)`) holds a pooled connection open across several
 client-server round trips; through Supabase's transaction pooler, on serverless, that is
 a connection held for the whole exchange rather than for one dispatch.
 
-None of these writes need it. A like toggle branches on state read *before* the
+Almost none of these writes need it. A like toggle branches on state read *before* the
 transaction opens, and a new comment's tally bump does not read anything the insert
 returns — so no statement depends on a previous one's result, which is the only thing the
-interactive form buys. Reach for it when that stops being true, and not before.
+interactive form buys.
+
+`deleteComment` is the one exception, and it is what the rule looks like when it genuinely
+stops holding: the tally may only be decremented if *this* request is the one that claimed
+the row. Two people can delete the same comment at once — its author and an admin — and the
+array form would run both decrements, permanently under-counting the thread. The claim is
+`updateMany` with `deletedAt: null` in its `where`, and the decrement depends on its
+`count`. Reach for the interactive form on that basis and no other.
 
 ### Locking out the Data API — `prisma/policies.sql`
 

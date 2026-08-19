@@ -38,15 +38,18 @@ import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
  * membership differently. The role is spelled out because it is the thing that changes when
  * you switch: an admin who reads their diocese needs to see *why* the composer disappeared.
  *
- * The selection is marked by a dot and a heavier name, not by a checkmark or a filled row.
- * A tick reads as "chosen from a set of options you are still choosing between", and a
- * highlighted row competes with the avatar beside it; a dot is a status light — this is the
- * one you are in right now.
+ * The selection is marked by a dot and a heavier name, not by a checkmark. A tick reads as
+ * "chosen from a set of options you are still choosing between"; a dot is a status light —
+ * this is the one you are in right now.
  *
  * The dot leads the row, and it is rendered on *every* row — transparent on the ones that
  * are not current, rather than omitted. A conditional element would let its width collapse,
  * so the avatars and names of the other groups would sit a few pixels left of the selected
- * one's; reserving the gutter keeps one column edge down the whole list. */
+ * one's; reserving the gutter keeps one column edge down the whole list.
+ *
+ * The text colours are important because `DropdownMenuItem` repaints every descendant on
+ * focus: the row takes the accent background on hover, but nothing in it should change
+ * colour. */
 const OrgRow = ({ org, active }) => (
     <>
         <span
@@ -56,12 +59,17 @@ const OrgRow = ({ org, active }) => (
                 active ? "bg-foreground" : "bg-transparent",
             )}
         />
-        <OrgAvatar org={org} className="size-10 text-sm" />
+        <OrgAvatar org={org} className="size-10 text-sm text-white!" />
         <span className="flex min-w-0 flex-1 flex-col items-start text-left">
-            <span className={cn("w-full truncate", active ? "font-semibold" : "font-medium")}>
+            <span
+                className={cn(
+                    "w-full truncate text-foreground!",
+                    active ? "font-semibold" : "font-medium",
+                )}
+            >
                 {org.name}
             </span>
-            <span className="w-full truncate text-xs text-muted-foreground">
+            <span className="w-full truncate text-xs text-muted-foreground!">
                 {org.role === ROLES.ADMIN ? "Administrator" : roleLabel(org.role)}
             </span>
         </span>
@@ -99,15 +107,12 @@ export const OrgSwitcher = () => {
                     <Icon size="sm" className="text-muted-foreground">expand_more</Icon>
                 </DropdownMenuTrigger>
 
-                {/* No hover or focus tint on the rows: the dot already says which group is
-                    current, and a second highlight moving under the pointer competes with it
-                    for the same meaning. */}
                 <DropdownMenuContent align="end" sideOffset={8} className="w-72">
                     {orgs.map(org => (
                         <DropdownMenuItem
                             key={org.id}
                             onSelect={() => select(org.id)}
-                            className="flex cursor-pointer items-center gap-3 rounded-xl py-2 focus:bg-transparent focus:text-foreground"
+                            className="flex cursor-pointer items-center gap-3 rounded-xl py-2"
                         >
                             <OrgRow org={org} active={org.id === current?.id} />
                         </DropdownMenuItem>

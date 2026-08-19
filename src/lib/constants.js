@@ -84,6 +84,8 @@ export const API_ENDPOINTS = {
     POST: (postId) => `/posts/${postId}`,
     POST_COMMENTS: (postId) => `/posts/${postId}/comments`,
     POST_LIKES: (postId) => `/posts/${postId}/likes`,
+    /* DELETE only — the author's own comment, or anyone's for an admin of the group. */
+    COMMENT: (commentId) => `/comments/${commentId}`,
     COMMENT_LIKES: (commentId) => `/comments/${commentId}/likes`,
 }
 

@@ -43,5 +43,9 @@ export class AppError extends Error {
 
 export const notFound = (message) => new AppError(ERROR_CODES.NOT_FOUND, message)
 
+/* Authenticated, and not permitted. Reach for `notFound` instead wherever confirming the
+ * resource exists would itself leak something — see the note on `requireMembership`. */
+export const forbidden = (message) => new AppError(ERROR_CODES.PERMISSION_DENIED, message)
+
 export const invalid = (message, fields) =>
     new AppError(ERROR_CODES.VALIDATION_FAILED, message, { fields })

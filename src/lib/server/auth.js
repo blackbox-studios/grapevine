@@ -1,7 +1,7 @@
 import "server-only"
 
 import { prisma } from "@/lib/db"
-import { AppError, ERROR_CODES, notFound } from "@/lib/server/errors"
+import { AppError, ERROR_CODES, forbidden, notFound } from "@/lib/server/errors"
 import { supabaseAnon } from "@/lib/server/supabase"
 
 /* Authentication and authorization for the API.
@@ -43,8 +43,6 @@ const bearerToken = (request) => {
 
 const unauthenticated = (message = "Sign in to continue.") =>
     new AppError(ERROR_CODES.UNAUTHENTICATED, message)
-
-const forbidden = (message) => new AppError(ERROR_CODES.PERMISSION_DENIED, message)
 
 const unavailable = (message) => new AppError(ERROR_CODES.UNAVAILABLE, message)
 

@@ -6,7 +6,6 @@ import { toast } from "sonner"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import { PrivilegedRoute } from "@/components/Auth"
-import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import Pagination from "@/components/Pagination"
@@ -72,12 +71,15 @@ import { cn, roleLabel, timeAgo } from "@/lib/utils"
  * The table answers three questions an admin actually has: who has never turned up, who is
  * still mid-orientation, and who is who. The last is why vocation is editable inline — a
  * priest sets it when admitting someone and adjusts it as people are tonsured or ordained;
- * the first two are what the Activity column is for. */
-
-const STATUS_VARIANT = {
-    [MEMBERSHIP_STATUS.APPROVED]: "success",
-    [MEMBERSHIP_STATUS.REVOKED]: "destructive",
-}
+ * the first two are what the Activity column is for.
+ *
+ * Role is editable inline for a related but distinct reason: an admin has to be able to
+ * make another one. A parish whose only admin is its priest has no way to hand the feed to
+ * a deacon while he travels, and no way to replace him at all — and because admission sets
+ * a role only at the moment somebody is added, the alternative would be removing a member
+ * and re-adding them to promote them. Note the two columns are the two axes the app keeps
+ * apart: promoting someone to ADMIN grants them the parish's feed, and says nothing about
+ * whether they are ordained. */
 
 const ROLE_OPTIONS = [ROLES.MEMBER, ROLES.ADMIN]
 
@@ -345,7 +347,7 @@ const Admissions = ({ org, invite, inviting }) => {
 const SettingsUsersPage = () => {
     const {
         members, org, skeleton: loading,
-        invite, inviting, updating, restore, revoke, setVocation,
+        invite, inviting, updating, restore, revoke, setVocation, setRole,
     } = useMembers()
 
     const [pageSize, setPageSize] = useState(10)
@@ -422,8 +424,8 @@ const SettingsUsersPage = () => {
                                         <TableRow>
                                             <TableHead>Name</TableHead>
                                             <TableHead className="w-44">Vocation</TableHead>
-                                            <TableHead className="w-24 text-center">isAdmin</TableHead>
-                                            <TableHead className="w-28">Status</TableHead>
+                                            <TableHead className="w-40">Role</TableHead>
+                                            <TableHead className="w-28 text-center">Has Access?</TableHead>
                                             <TableHead className="w-40">Activity</TableHead>
                                             <TableHead className="w-28 text-right">Actions</TableHead>
                                         </TableRow>
@@ -502,19 +504,53 @@ const SettingsUsersPage = () => {
                                                         </TableCell>
 
                                                         <TableCell>
-                                                            {/* The icon is an inline span, so
-                                                              * `text-center` on the cell alone
-                                                              * would not move it — it needs a
-                                                              * box to be centred within. */}
-                                                            <div className="flex justify-center">
-                                                                <YayOrNay value={member.role === ROLES.ADMIN} />
-                                                            </div>
+                                                            {/* An admin may not change their
+                                                              * own role — `updateMembership`
+                                                              * rejects it, because dropping
+                                                              * yourself to MEMBER in a
+                                                              * single-admin parish locks the
+                                                              * parish out of the roster that
+                                                              * could restore you. Their row
+                                                              * states the role instead of
+                                                              * offering a picker that can only
+                                                              * earn an error. */}
+                                                            {member.isSelf ? (
+                                                                <span className="text-sm text-muted-foreground">
+                                                                    {roleLabel(member.role)}
+                                                                </span>
+                                                            ) : (
+                                                                <Picker
+                                                                    value={member.role}
+                                                                    options={ROLE_OPTIONS}
+                                                                    onChange={(value) =>
+                                                                        setRole(member.membershipId, value)
+                                                                    }
+                                                                    disabled={busy}
+                                                                    label={`Role for ${fullName(member)}`}
+                                                                    className="w-36"
+                                                                />
+                                                            )}
                                                         </TableCell>
 
+                                                        {/* A check or an X rather than a
+                                                          * badge, because the column has only
+                                                          * ever had two values — APPROVED and
+                                                          * REVOKED, the whole enum — and a
+                                                          * word spelling out a boolean is
+                                                          * slower to scan down a roster than
+                                                          * the mark is. The icon is an inline
+                                                          * span, so `text-center` on the cell
+                                                          * alone would not move it; it needs a
+                                                          * box to be centred within. */}
                                                         <TableCell>
-                                                            <Badge variant={STATUS_VARIANT[member.status]}>
-                                                                {roleLabel(member.status)}
-                                                            </Badge>
+                                                            <div className="flex justify-center">
+                                                                <YayOrNay
+                                                                    value={
+                                                                        member.status ===
+                                                                        MEMBERSHIP_STATUS.APPROVED
+                                                                    }
+                                                                />
+                                                            </div>
                                                         </TableCell>
 
                                                         <TableCell

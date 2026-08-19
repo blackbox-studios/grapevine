@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { AnimatePresence } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
@@ -29,20 +29,40 @@ import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 /* Shared pieces                                                              */
 /* -------------------------------------------------------------------------- */
 
+/* A spring, not a duration: a row travels however tall the new comment turns out to be,
+ * and a fixed duration reads as hurried at one line and sluggish at six. */
+const ROW_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
+
 /* A single comment: author + relative time, body, and the like meter (heart
- * toggle + tally) in the right column. */
+ * toggle + tally) in the right column.
+ *
+ * `layout="position"` is what slides the thread down around a new comment instead of
+ * teleporting it — position only, so the text is never squashed mid-flight. Nothing here
+ * animates x/y/scale: a layout animation is itself a transform animation and a second one
+ * would fight it, so the arriving row only fades and all movement belongs to the rows
+ * making room. */
 const CommentRow = ({ comment, now, onToggleLike }) => {
-    const { author, text, created_at, likes, liked, pending } = comment
+    const { author, text, createdAt, likes, liked, pending } = comment
+    const reduceMotion = useReducedMotion()
+
     return (
         /* A comment the server hasn't confirmed yet reads as in-flight rather than settled,
-         * and can't be liked — it has no server id to like. */
-        <div className={cn("flex items-start gap-3 px-4 py-2.5", pending && "opacity-60")}>
-            <Avatar name={author.name} src={author.avatar} className="size-9" />
+         * and can't be liked — it has no server id to like. That dimming is an animated
+         * target rather than a class, so confirmation fades it up instead of snapping. */
+        <motion.div
+            layout={reduceMotion ? false : "position"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: pending ? 0.6 : 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ ...ROW_SPRING, opacity: { duration: 0.2, ease: "easeInOut" } }}
+            className="flex items-start gap-3 px-4 py-2.5"
+        >
+            <Avatar person={author} className="size-9" />
             <div className="min-w-0 flex flex-col gap-1 flex-1">
                 <p className="text-xs leading-snug">
                     <span className="font-semibold">{author.handle}</span>{" "}
                     <span className="text-muted-foreground">
-                        · {timeAgoCompact(now, new Date(created_at).getTime())}
+                        · {timeAgoCompact(now, new Date(createdAt).getTime())}
                     </span>
                 </p>
                 <p className="text-sm leading-snug wrap-break-word font-medium">{text}</p>
@@ -77,21 +97,37 @@ const CommentRow = ({ comment, now, onToggleLike }) => {
                     {likes > 0 ? formatCompact(likes) : ""}
                 </span>
             </div>
-        </div>
+        </motion.div>
     )
 }
 
-/* Empty state for a post that has no comments yet. */
+/* Empty state for a post that has no comments yet. A sibling of the rows inside the same
+ * `AnimatePresence`, so the first comment crossfades this out instead of collapsing a
+ * hundred pixels out from under the arriving row. */
 const NoComments = () => (
-    <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
+    <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15, ease: "easeInOut" }}
+        className="flex flex-col items-center gap-1 px-4 py-16 text-center"
+    >
         <p className="text-base font-semibold">No comments yet</p>
         <p className="text-sm text-muted-foreground">Start the conversation.</p>
-    </div>
+    </motion.div>
 )
 
 /* The scrollable comment thread — skeleton on first load, then the rows. `header`
  * is an optional pinned node (the post caption on desktop). Presentational: all
- * data/actions come from the owning body via props. */
+ * data/actions come from the owning body via props.
+ *
+ * The rows get their own `AnimatePresence` so a new comment fades in at the top while the
+ * thread below it — the "load more" button included — glides down. `initial={false}` keeps
+ * the first paint quiet; `popLayout` pulls a leaving row out of the flow as it starts to
+ * fade, so the thread closes over it rather than snapping shut afterwards.
+ *
+ * Keyed on `localId ?? id`: an optimistic comment is swapped for the server's row under a
+ * new id, and keying on `id` would replay the row's entrance on confirmation. */
 const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore, toggleLike, header }) => (
     <AnimatePresence mode="wait" initial={false}>
         {skeleton ? (
@@ -102,20 +138,24 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
             <Transition fast key="content">
                 <div className="flex flex-col py-2">
                     {header}
-                    {comments.length === 0 ? (
-                        <NoComments />
-                    ) : (
-                        comments.map((comment) => (
-                            <CommentRow
-                                key={comment.id}
-                                comment={comment}
-                                now={now}
-                                onToggleLike={() => toggleLike(comment.id)}
-                            />
-                        ))
-                    )}
+                    <AnimatePresence initial={false} mode="popLayout">
+                        {comments.length === 0 ? (
+                            <NoComments key="empty" />
+                        ) : (
+                            comments.map((comment) => (
+                                <CommentRow
+                                    key={comment.localId ?? comment.id}
+                                    comment={comment}
+                                    now={now}
+                                    onToggleLike={() => toggleLike(comment.id)}
+                                />
+                            ))
+                        )}
+                    </AnimatePresence>
                     {hasMore && (
-                        <button
+                        <motion.button
+                            layout="position"
+                            transition={ROW_SPRING}
                             type="button"
                             onClick={loadMore}
                             disabled={loadingMore}
@@ -127,7 +167,7 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
                             ) : (
                                 <More className="size-6" />
                             )}
-                        </button>
+                        </motion.button>
                     )}
                 </div>
             </Transition>
@@ -158,7 +198,7 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
             data-vaul-no-drag
             className="flex shrink-0 items-center gap-3 p-4 border-t"
         >
-            <Avatar name={viewer.name} src={viewer.avatar} className="size-9" />
+            <Avatar person={viewer} className="size-9" />
             <input
                 ref={inputRef}
                 value={text}
@@ -260,7 +300,7 @@ export const CommentsPanel = ({ post, className }) => {
 
     const caption = post.body ? (
         <div className="flex items-start gap-3 px-4 pb-2 pt-4">
-            <Avatar name={author.name} src={author.avatar} className="mt-0.5 size-9" />
+            <Avatar person={author} className="mt-0.5 size-9" />
             <p className="text-sm leading-snug">
                 <span className="font-semibold">{author.handle}</span> {post.body}
             </p>
@@ -270,7 +310,7 @@ export const CommentsPanel = ({ post, className }) => {
     return (
         <div className={cn("flex min-h-0 flex-col", className)}>
             <header className="flex shrink-0 items-center gap-3 px-4 py-3">
-                <Avatar name={author.name} src={author.avatar} className="size-8" />
+                <Avatar person={author} className="size-8" />
                 <span className="text-sm font-semibold">{author.handle}</span>
                 {author.verified && (
                     <Icon size="xs" className="text-sky-500 [font-variation-settings:'FILL'_1]">
@@ -338,7 +378,7 @@ export const CommentsPanel = ({ post, className }) => {
                     {formatCompact(post.likes)} likes
                 </p>
                 <p className="text-xs font-medium text-muted-foreground pb-2">
-                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                    {timeAgoMacro(now, new Date(post.createdAt).getTime())}
                 </p>
             </div>
 
@@ -367,13 +407,13 @@ export const PostCommentsThread = ({ post }) => {
 
     const caption = post.body ? (
         <div className="flex items-start gap-3 px-4 pb-3 pt-1">
-            <Avatar name={author.name} src={author.avatar} className="mt-0.5 size-9" />
+            <Avatar person={author} className="mt-0.5 size-9" />
             <div className="flex min-w-0 flex-col gap-1">
                 <p className="text-sm leading-snug">
                     <span className="font-semibold">{author.handle}</span> {post.body}
                 </p>
                 <span className="text-xs text-muted-foreground">
-                    {timeAgoMacro(now, new Date(post.created_at).getTime())}
+                    {timeAgoMacro(now, new Date(post.createdAt).getTime())}
                 </span>
             </div>
         </div>

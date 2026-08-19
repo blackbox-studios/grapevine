@@ -172,9 +172,9 @@ appears nowhere near posts.
 
 Two separate things get conflated here, so keep them apart:
 
-**1. Runtime data — no routing involvement whatsoever.** When the feed store swaps
-`metadata.js` for a real `fetch`, that's ordinary data loading. Nothing about the export
-cares, because no route is being resolved. This is the layer described in
+**1. Runtime data — no routing involvement whatsoever.** The feed store fetching a page of
+posts is ordinary data loading. Nothing about the export cares, because no route is being
+resolved. This is the layer described in
 `frontend-architecture.md`, and it works identically in both build targets.
 
 **2. Routing — deliberately kept out of the export's way.** Both ways of reaching a post
@@ -216,6 +216,68 @@ Two caveats to keep in mind:
   *separate*, explicitly bounded route for it (recent or featured only) — never
   re-enumerate the corpus, and never call your API from `generateStaticParams` to page
   through a whole table.
+
+---
+
+## Testing sign-in on a device
+
+**Magic links cannot work in the WebView.** Two mechanisms in this repo make that
+structural, not incidental:
+
+- the boot guard in `app/layout.jsx` rewrites any non-root URL to `/` **before hydration**,
+  so a callback URL is discarded before any script sees it;
+- `detectSessionInUrl: !isNative()` in `lib/supabase.js` is `false` there, so supabase-js
+  never looks for one anyway.
+
+So the **typed one-time code is the only way in on native**. On web you can fall back to a
+link; here you cannot.
+
+### The code, without sending any email
+
+`npm run dev:login [admin|member|<email>]` mints the same token through the Supabase Admin
+API and prints it. That code is valid for `verifyOtp` from anywhere — including a phone —
+so device sign-in needs no working email at all:
+
+1. On the device, enter the address and tap **Continue with email**.
+2. On the Mac, `npm run dev:login -- admin`, and read the code it prints.
+3. Type that code into the app.
+
+Step 1 still calls `signInWithOtp`, which is what puts the form on the code screen. If it
+is rate-limited (the built-in SMTP allows 2 messages an hour), the form **still advances**
+— a code lasts an hour, so a rate-limited viewer is likely holding a valid one, and
+stranding them on the email screen would throw it away. Every other failure keeps the form
+put, because there is no code to enter.
+
+### Wiring the device to the API
+
+`NEXT_PUBLIC_*` is inlined at build time, so `.env` must be right *before* `npm run sync`.
+Pointing `NEXT_PUBLIC_API_BASE_URL` at the Mac's LAN IP works for all three targets at once
+(the simulator and emulator can both reach it, and it is the only thing a physical device
+can reach).
+
+```bash
+pkill -f "next dev"     # a build and next dev fight over .next — see the gotchas below
+npm run ios             # or: npm run android   (build:native + cap sync + open the IDE)
+npm run dev             # restart: the device needs the API served
+```
+
+Android additionally needs three debug-scoped accommodations to reach an `http://` dev API,
+all of which live under `android/app/src/debug/` and in `MainActivity.onCreate` — cleartext
+permission, the debug manifest, and a mixed-content override (the WebView serves the app
+from `https://localhost`, so Chromium blocks plain-http fetches without it). **Run the debug
+variant**; a release build will not have them. iOS is unaffected, because its origin is
+`capacitor://localhost` rather than https.
+
+If the Mac's LAN IP changes, update it in **both** `.env` and
+`android/app/src/debug/res/xml/network_security_config.xml`, then re-sync.
+
+### Inspecting
+
+| Platform | How |
+|---|---|
+| iOS | Safari → Develop → *(simulator or device)* → the WebView console |
+| Android | `chrome://inspect` (`webContentsDebuggingEnabled: true` is already set) |
+| Android network failures | `adb logcat \| grep -i "Mixed Content"` is the usual smoking gun |
 
 ---
 
@@ -303,9 +365,10 @@ the inset.
 - **`out/` is a build artifact**, as are `android/app/src/main/assets/public` and
   `ios/App/App/public`. Never edit them; they are overwritten by `cap sync`. `out`,
   `android`, and `ios` are in `globalIgnores` in `eslint.config.js`.
-- **No `/api` in the native bundle.** A static export can't host route handlers. When a
-  real API lands, deploy it as the Node build (or any service) and point the native app
-  at its absolute URL.
+- **No `/api` in the native bundle.** A static export can't host route handlers, so the
+  native app must be pointed at a deployed Node build by absolute URL
+  (`NEXT_PUBLIC_API_BASE_URL`). The Supabase URL and anon key are inlined at build time
+  too — re-run `npm run sync` after changing any of them.
 - **Verify the export, not just `next dev`.** The dev server serves per-route HTML and
   runs middleware if present, so it hides both of the constraints above. Serve `out/`
   with an `index.html` fallback for extensionless paths to reproduce native routing.

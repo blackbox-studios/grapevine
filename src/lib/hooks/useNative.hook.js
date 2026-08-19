@@ -233,23 +233,119 @@ const useKeyboardDismiss = () => {
  * transition rides along with the keyboard instead of chasing it.
  *
  * Android is left alone — it resizes its own WebView as the keyboard opens (the `resize`
- * option is iOS-only), so the inset stays 0 and dvh-sized surfaces adapt on their own. */
+ * option is iOS-only), so the inset stays 0 and dvh-sized surfaces adapt on their own.
+ *
+ * **The web is not left alone, and it used to be.** The claim that "a browser shrinks its own
+ * viewport" holds for Android Chrome and for a desktop browser, and is false on **iOS
+ * Safari**: it shrinks only the *visual* viewport and leaves the layout viewport — and
+ * therefore every `dvh` — at full height. So on mobile web at synaxis.chat the keyboard
+ * covered anything pinned to the bottom, silently, while the same screen was correct in the
+ * native app. `useVisualViewportInset` below fills that in. */
+/* How long a keyboard has to stay gone before the layout believes it.
+ *
+ * A multi-step form unmounts the focused field and mounts the next one a beat later, and in
+ * that gap nothing on the page is focused — so the keyboard begins to dismiss and every
+ * surface sized against it lunges down, only to be shoved back up when the incoming step
+ * autofocuses. The keyboard never really left; the layout should not act as though it did.
+ *
+ * Longer than the step cross-fade, so a swap produces no movement at all, and short enough
+ * that a genuine dismissal still feels immediate. Growth is never delayed — a keyboard
+ * appearing must reach the layout at once, since that is the direction that hides things. */
+const KEYBOARD_SETTLE_MS = 320
+
+/* Writes --keyboard-inset, applying growth immediately and collapse only once it has held.
+ * Returns the writer plus a cancel for effect teardown. */
+const insetWriter = () => {
+    let timer = null
+
+    const write = (px) =>
+        document.documentElement.style.setProperty("--keyboard-inset", `${px}px`)
+
+    const cancel = () => {
+        if (timer) clearTimeout(timer)
+        timer = null
+    }
+
+    const current = () =>
+        parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue("--keyboard-inset"),
+        ) || 0
+
+    return {
+        set: (px) => {
+            cancel()
+            if (px >= current()) return write(px)
+            timer = setTimeout(() => write(px), KEYBOARD_SETTLE_MS)
+        },
+        cancel,
+        write,
+    }
+}
+
 const useKeyboardInset = () => {
     useEffect(() => {
         if (!isNative() || platform() !== "ios") return
 
-        const setInset = (px) =>
-            document.documentElement.style.setProperty("--keyboard-inset", `${px}px`)
+        const inset = insetWriter()
 
         const shown = Keyboard.addListener("keyboardWillShow", ({ keyboardHeight }) =>
-            setInset(keyboardHeight),
+            inset.set(keyboardHeight),
         )
-        const hidden = Keyboard.addListener("keyboardWillHide", () => setInset(0))
+        const hidden = Keyboard.addListener("keyboardWillHide", () => inset.set(0))
 
         return () => {
             shown.then((handle) => handle.remove()).catch(() => {})
             hidden.then((handle) => handle.remove()).catch(() => {})
-            setInset(0)
+            inset.cancel()
+            inset.write(0)
+        }
+    }, [])
+}
+
+/* The same inset, for the **web**, measured from `window.visualViewport`.
+ *
+ * The gap between the layout viewport and the visual one *is* the keyboard, and measuring it
+ * this way is self-correcting across platforms rather than a per-browser special case:
+ *
+ *   iOS Safari      layout stays, visual shrinks  → the difference is the keyboard ✔
+ *   Android Chrome  both shrink together          → difference ~0, and dvh already told the
+ *                                                   truth, so nothing is double-counted ✔
+ *   desktop         no keyboard, no difference    → 0 ✔
+ *
+ * Two guards, both for false positives that would shove the layout up with no keyboard on
+ * screen. **Pinch-zoom** shrinks the visual viewport exactly like a keyboard does, so a
+ * zoomed page is ignored. And a **threshold** absorbs the few dozen pixels iOS reclaims when
+ * its URL bar collapses on scroll, which would otherwise read as a very short keyboard.
+ *
+ * Skipped entirely on native, where `useKeyboardInset` already owns the property from the
+ * keyboard's own events — which are better, because they fire as the animation begins and
+ * carry the final height, where this can only observe the result. */
+const KEYBOARD_MIN_PX = 120
+
+const useVisualViewportInset = () => {
+    useEffect(() => {
+        if (isNative()) return
+        const viewport = window.visualViewport
+        if (!viewport) return
+
+        const inset = insetWriter()
+
+        const measure = () => {
+            if (viewport.scale > 1.01) return inset.set(0)
+
+            const covered = window.innerHeight - (viewport.height + viewport.offsetTop)
+            inset.set(covered > KEYBOARD_MIN_PX ? Math.round(covered) : 0)
+        }
+
+        measure()
+        viewport.addEventListener("resize", measure)
+        viewport.addEventListener("scroll", measure)
+
+        return () => {
+            viewport.removeEventListener("resize", measure)
+            viewport.removeEventListener("scroll", measure)
+            inset.cancel()
+            inset.write(0)
         }
     }, [])
 }
@@ -260,7 +356,10 @@ export const useNative = () => {
     useHardwareBack()
     useEdgeSwipeBack()
     useKeyboardDismiss()
+    /* Two halves of one job, and exactly one of them acts on any given platform: the native
+     * keyboard events where they exist, the visual viewport everywhere else. */
     useKeyboardInset()
+    useVisualViewportInset()
 }
 
 export default useNative

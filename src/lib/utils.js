@@ -201,10 +201,19 @@ export function formatCompact(n) {
     })
 }
 
-/* Display label for a role string. */
+/* Display label for an enum string.
+ *
+ * The API sends SCREAMING_SNAKE_CASE for roles, vocations, and membership statuses,
+ * because that is what the Prisma enums are; the UI wants "Admin", "Faithful", "Pending".
+ * Handles multi-word values ("HOLY_SYNOD" → "Holy Synod") so a new enum member does not
+ * need a lookup table. */
 export function roleLabel(role) {
     if (!role) return "User"
-    return role.charAt(0).toUpperCase() + role.slice(1)
+    return String(role)
+        .toLowerCase()
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
 }
 
 /* Deterministic per-value avatar gradient. Same input always maps to the same

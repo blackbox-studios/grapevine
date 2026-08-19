@@ -17,6 +17,7 @@ import Ripple from "@/assets/svg/ripple.svg"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
+import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
@@ -80,7 +81,10 @@ const PostCard = ({ post }) => {
     const { toggleLike } = usePostLike()
     const { liked } = post
 
-    const { handle, name, avatar, verified } = post.author
+    const { handle, verified } = post.author
+    /* Composed here, not sent composed: the API ships name parts and a vocation, and this
+     * is what turns them into "Dn. Paul". See lib/name.js. */
+    const name = displayName(post.author)
 
     /* A post carries either a single `image` or an `images` array (carousel). */
     const images = post.images ?? (post.image ? [post.image] : [])
@@ -115,7 +119,7 @@ const PostCard = ({ post }) => {
     return (
         <article className="flex flex-col">
             <header className="flex items-center gap-3 pb-3">
-                <Avatar name={name} src={avatar} className="size-9" />
+                <Avatar person={post.author} className="size-9" />
                 <div className="flex min-w-0 flex-col leading-tight">
                     <div className="flex items-center gap-1">
                         <span className="truncate text-sm font-semibold">
@@ -127,7 +131,7 @@ const PostCard = ({ post }) => {
                             </Icon>
                         )}
                         <span className="whitespace-nowrap text-sm text-muted-foreground">
-                            • {timeAgoCompact(now, new Date(post.created_at).getTime())}
+                            • {timeAgoCompact(now, new Date(post.createdAt).getTime())}
                         </span>
                     </div>
                     {post.group && (
@@ -248,15 +252,18 @@ const PostCard = ({ post }) => {
 
             {post.likedBy && (
                 <div className="flex items-center gap-2 py-2 text-sm">
-                    <Avatar name={post.likedBy} className="size-5" />
+                    <Avatar person={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}
-                        <span className="font-semibold">{post.likedBy}</span>
+                        <span className="font-semibold">{displayName(post.likedBy)}</span>
+                        {/* "and 1 others" was reachable the moment like counts became real
+                          * rather than seeded prose — a post with exactly two likes hits it. */}
                         {post.likes > 1 && (
                             <>
                                 {" "}and{" "}
                                 <span className="font-semibold">
-                                    {(post.likes - 1).toLocaleString()} others
+                                    {(post.likes - 1).toLocaleString()}{" "}
+                                    {post.likes === 2 ? "other" : "others"}
                                 </span>
                             </>
                         )}
@@ -296,11 +303,15 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
                  * in while the rows already on screen stay put — React keeps their motion state
                  * across the re-render. The whole first page mounts together and fades in as one. */
                 <motion.div
-                    key={post.id}
+                    key={post.localId ?? post.id}
                     initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    /* A just-published post is on screen before the server has confirmed
+                     * it, so it renders dimmed and inert until the created resource
+                     * replaces it — nothing should be likeable or openable while it still
+                     * has a temporary id. */
+                    animate={{ opacity: post.pending ? 0.5 : 1 }}
                     transition={{ duration: 0.35, ease: "easeOut" }}
-                    className="py-6 first:pt-0"
+                    className={cn("py-6 first:pt-0", post.pending && "pointer-events-none")}
                 >
                     <PostCard post={post} />
                 </motion.div>

@@ -13,6 +13,7 @@ import GroupOutlineIcon from "@/assets/svg/icons/group-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { ProtectedGate } from "@/components/AuthGate";
+import { MemberGate } from "@/components/MemberGate";
 import NavIcon from "@/components/NavIcon";
 import NotificationsMenu from "@/components/Notifications";
 import ProfileMenu from "@/components/Profile";
@@ -90,21 +91,30 @@ const NavSlot = ({ children }) => (
     </div>
 )
 
-/* Auth redirects are handled by <AuthGate/> (see it for the protected-route gate).
+/* The shell, rendered only once <ProtectedGate/> has opened.
+ *
+ * It is a separate component from the layout, and that is load-bearing: useVibing points
+ * framer-motion's useScroll at `scrollRef`, which is attached to <SlideBase/> below — a
+ * node the gate does not render until auth has settled. Hoist the hook into the layout,
+ * above the gate, and its first effect runs against a null container: motion throws
+ * "Container ref is defined but not hydrated", and because its start callback is memoized
+ * on the ref's *identity* (which never changes), it never retries once the gate opens. The
+ * mobile bar would then silently stop dimming for the rest of the session. Any future hook
+ * that reads the scroll container belongs here, not in the layout.
  *
  * Slide routes need nothing from this file beyond <SlideBase/> (the surface they push)
  * and <SlideRouter/> (the surface itself): they open by shallow history navigation, so
  * the route rendered here never changes while one is up. Everything slide-route-specific
  * lives in the SLIDE_ROUTES registry; nothing about a given slide route is hard-coded
  * here. */
-const ProtectedLayout = ({ children }) => {
+const ProtectedShell = ({ children }) => {
     const pathname = usePathname()
     const [navOpen, setNavOpen] = useState(false)
     const { scrollRef, scrollToTop } = useScroll()
     const vibing = useVibing()
 
     return (
-        <ProtectedGate>
+        <>
             <Grain />
 
             {/* Every layer here is a sibling stacked in one context, in z order: backdrop
@@ -196,8 +206,25 @@ const ProtectedLayout = ({ children }) => {
 
             {/* The slide-route surface. Last child so it stacks above the nav. */}
             <SlideRouter />
-        </ProtectedGate>
+        </>
     )
 }
+
+/* Two gates, in order, answering two different questions.
+ *
+ *   <ProtectedGate>  are you signed in at all?          → /login
+ *   <MemberGate>     signed in, but do you belong here? → /access or /welcome
+ *
+ * The order matters and the nesting is the enforcement: MemberGate reads the viewer, which
+ * only exists once there is a session, so it must never run first. Neither renders its
+ * children until it has an answer, so the shell below is only ever mounted for someone who
+ * is signed in, admitted, and through orientation. */
+const ProtectedLayout = ({ children }) => (
+    <ProtectedGate>
+        <MemberGate>
+            <ProtectedShell>{children}</ProtectedShell>
+        </MemberGate>
+    </ProtectedGate>
+)
 
 export default ProtectedLayout

@@ -3,13 +3,18 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
+import { Privileged } from "@/components/Auth"
 import PageTransition from "@/components/PageTransition"
-import { ROUTES } from "@/lib/constants"
+import { ROLES, ROUTES } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 
+/* `privileged` tabs only render for admins, via <Privileged>. The roster page redirects a
+ * member who reaches it anyway, but a tab that bounces you is a worse answer than a tab
+ * that was never there — and the API refuses the underlying read regardless, so a member
+ * following the link could only ever have been shown an error. */
 const TABS = [
     { title: "General", to: ROUTES.SETTINGS, end: true },
-    { title: "Users", to: ROUTES.SETTINGS_USERS },
+    { title: "Users", to: ROUTES.SETTINGS_USERS, privileged: true },
 ]
 
 const SettingsLayout = ({ children }) => {
@@ -18,9 +23,9 @@ const SettingsLayout = ({ children }) => {
     return (
         <div className="grid grid-cols-[10rem_1fr] gap-16 pb-10">
             <nav className="flex flex-col gap-3.5 sm:-ml-6">
-                {TABS.map(({ title, to, end }) => {
+                {TABS.map(({ title, to, end, privileged }) => {
                     const isActive = end ? pathname === to : pathname.startsWith(to)
-                    return (
+                    const link = (
                         <Link
                             key={to}
                             href={to}
@@ -36,6 +41,14 @@ const SettingsLayout = ({ children }) => {
                         >
                             {title}
                         </Link>
+                    )
+
+                    return privileged ? (
+                        <Privileged key={to} role={ROLES.ADMIN}>
+                            {link}
+                        </Privileged>
+                    ) : (
+                        link
                     )
                 })}
             </nav>

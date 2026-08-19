@@ -1,27 +1,553 @@
 // Prisma schema. Docs: https://pris.ly/d/prisma-schema
 //
-// Wired but idle: the app still runs entirely on the in-session mock data in
-// `src/lib/metadata.js`. Nothing imports the Prisma client (`src/lib/db.js`) yet,
-// so no database connection is opened until you start using it. When you are ready
-// to persist real data, model your domain here and run `npm run prisma:migrate`.
+// The domain behind Synaxis: invite-only, organization-scoped feeds for Orthodox
+// parishes and dioceses. Supabase owns credentials (auth.users); everything below
+// is application data, owned by this schema and reached only through the services
+// in `src/lib/server/*.service.js`.
 //
-// Uses the `prisma-client-js` generator (ready-to-run JS in node_modules) so app
-// code can `import { prisma } from "@/lib/db"` with no build/transpile step.
+// Two ideas carry most of the design and are worth reading before changing anything:
+//
+//  1. **Permission and vocation are different axes.** `Membership.role`
+//     (ADMIN | MEMBER) decides what you may *do*, and it is per-organization, so one
+//     person can administer their parish while being an ordinary member of the
+//     diocese. `Profile.vocation` (PRIEST | FAITHFUL) is who someone *is*, and it is
+//     global and purely presentational. A priest is usually the admin of their
+//     parish but not necessarily, and an admin need not be a priest — collapsing
+//     these into one field is the mistake this split exists to prevent.
+//
+//  2. **Access is a membership row, not a flag.** An APPROVED row is what makes an
+//     organization's posts visible in your feed. Revoking access is a status change,
+//     which keeps the history rather than deleting it.
+//
+// Sign-in itself is gated one level further up, by Supabase: the client calls
+// `signInWithOtp({ shouldCreateUser: false })`, so an email with no `auth.users` row
+// can never obtain a code. Provisioning a user is therefore the only way in, which
+// is what makes the app invite-only.
+//
+// ── Admission is one-directional ────────────────────────────────────────────
+//
+// **An admin admits people. A person never asks to join, and there is nothing to
+// approve.** This is a deliberate constraint on the domain, not a feature that has
+// not been built yet, and the schema is shaped to make the other shape impossible:
+// `MembershipStatus` is APPROVED | REVOKED, with no PENDING request and no REJECTED
+// refusal, so an unapproved membership is not a state that can be represented.
+//
+// It follows from the invite-only gate above. A request-to-join flow needs a public
+// entry point where a stranger identifies themselves, and `shouldCreateUser: false`
+// means that stranger can never receive a sign-in code anyway — so the request would
+// be from someone who by construction cannot act on the answer. Admission writes the
+// Supabase user, the Profile, and an APPROVED Membership in one step (`admitOne`);
+// the person simply signs in.
+//
+// If a parish ever does want people to be able to ask, that is a new model — a
+// JoinRequest with its own table and its own gate — not a third value on this enum.
+// Putting it back here is what produced a roster with an Approve button that nothing
+// could ever populate.
+//
+// ── Naming ──────────────────────────────────────────────────────────────────
+//
+// Models and fields are camelCase in the Prisma client (which is what app code
+// sees) and **snake_case in Postgres**, via `@@map` / `@map`. Postgres folds
+// unquoted identifiers to lowercase, so a mixed-case table has to be quoted
+// forever — in every raw query, every psql session, and every statement typed into
+// the Supabase SQL editor. `select * from post` failing with `relation "post" does
+// not exist` while `select * from "Post"` works is a papercut with no upside.
+// Adding a model means adding its `@@map`; the migration is where this is settled,
+// and changing it later means renaming every table in a live database.
+//
+// ── Row Level Security ──────────────────────────────────────────────────────
+//
+// Prisma cannot express RLS, and these tables live in `public`, which Supabase's
+// Data API can expose. `prisma/policies.sql` locks them down and MUST be applied
+// after every migration — see the header of that file for why this is not optional
+// even though nothing in this app talks to Supabase over the Data API.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooled connection (Supabase transaction pooler, port 6543) for the app at runtime.
+  // Must carry `?pgbouncer=true` so Prisma disables named prepared statements, which
+  // do not survive a transaction-mode pooler.
+  url       = env("DATABASE_URL")
+  // Direct connection (port 5432) for migrations. Prisma Migrate takes advisory locks
+  // and issues DDL, neither of which survives a transaction pooler, so it must bypass
+  // it. Only the CLI uses this.
+  directUrl = env("DIRECT_URL")
 }
 
-// Example model to bootstrap the schema and prove the wiring end to end.
-// Replace with the real domain as it is designed, then run `npm run prisma:migrate`.
-model ExampleNote {
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A user's application profile. `id` is the Supabase `auth.users.id` verbatim, so
+/// the JWT's `sub` claim resolves a profile with no lookup table in between.
+///
+/// There is deliberately no foreign key to `auth.users`: that table lives in the
+/// `auth` schema, which Prisma does not manage, and pointing a constraint at another
+/// service's table would make every migration depend on Supabase's internals. The
+/// rows are kept in step by the provisioning path in `prisma/seed.js` and the invite
+/// service instead — both create the auth user and the profile together.
+model Profile {
+  /// Mirrors auth.users.id.
+  id     String @id @db.Uuid
+  email  String @unique
+  /// Public @handle. Distinct from email so a display identity can change without
+  /// touching the credential. `@unique` already provides the lookup index.
+  ///
+  /// Chosen by the person during first-run orientation, not assigned. Admission still
+  /// derives a provisional one from the email local part, because an admin inviting
+  /// somebody knows only their address — orientation is where they replace it.
+  handle String @unique
+
+  /// The person's name, in two parts, supplied by them during orientation.
+  ///
+  /// **There is no `fullName` column, and adding one back would be a mistake.** A stored
+  /// display string cannot answer both of the questions this app asks of a name: the feed
+  /// addresses clergy as title + given name ("Dn. Paul"), while the roster sorts and
+  /// searches on the surname. One frozen string serves one of those and quietly corrupts
+  /// the other — which is what happened when an admin typed "Dn. Paul" into a full-name
+  /// box and the deacon's surname ceased to exist as data.
+  ///
+  /// The title is **not** stored here either. It is derived from `vocation` at render
+  /// time by `displayName()` in `lib/name.js`, so ordaining a reader as a deacon is a
+  /// vocation change rather than a name edit — and so nobody can be addressed as a rank
+  /// they do not hold.
+  ///
+  /// Nullable because admission provisions a Profile from an email address alone; both are
+  /// non-null from the moment orientation completes. A profile with no name yet renders as
+  /// its handle. See `completeOnboarding`.
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+
+  avatarUrl String?  @map("avatar_url")
+  /// Who the person is, not what they may do. See the header note.
+  vocation  Vocation @default(FAITHFUL)
+
+  /// **There is no `verified` column.** The check on a post card means "this person
+  /// administers the group you are reading this in", which is already recorded — it is
+  /// `Membership.role == ADMIN`. Storing it a second time as a profile flag created a fact
+  /// that could disagree with the permission it claimed to describe: revoking someone's
+  /// admin role left them wearing the check, because nothing connected the two.
+  ///
+  /// It is derived per post, against that post's organization, in `projectAuthor` — so the
+  /// same person can carry the check in the parish they administer and not in the diocese
+  /// where they are an ordinary member. A global flag could not express that.
+
+  /// Date of birth, collected during first-run orientation.
+  ///
+  /// `@db.Date` rather than a timestamp on purpose: a birthday is a calendar date, not an
+  /// instant. Stored as a timestamp it would acquire a time and a timezone, and someone
+  /// born on the 1st would start rendering as the 31st for readers west of the server.
+  birthday DateTime? @db.Date
+
+  /// When orientation was completed. Null means they have signed in but not finished it,
+  /// which is a state the roster shows and the gate acts on — see `access` in
+  /// `lib/server/projections.js`.
+  onboardedAt DateTime? @map("onboarded_at")
+
+  /// Last time this profile was seen by the API. **Null means they have never signed in**,
+  /// which is how an admin tells an invitation that has been taken up from one that has
+  /// not. Stamped by `touchProfile`, throttled so an active session is not a database
+  /// write per request.
+  ///
+  /// Kept here rather than read from `auth.users.last_sign_in_at`, which is visible today
+  /// but lives in a schema Supabase owns and has been progressively locking down.
+  lastSeenAt DateTime? @map("last_seen_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships      Membership[]
+  posts            Post[]
+  comments         Comment[]
+  postLikes        PostLike[]
+  commentLikes     CommentLike[]
+  invitesSent      Invite[]                  @relation("InviteInviter")
+  membershipsRuled Membership[]              @relation("MembershipDecider")
+  following        Follow[]                  @relation("FollowFollower")
+  followers        Follow[]                  @relation("FollowFollowing")
+  participations   ConversationParticipant[]
+  messages         Message[]
+
+  @@map("profile")
+}
+
+/// Where someone stands in the life of the parish. **Presentational only** — a vocation
+/// never grants a permission; that is `Membership.role`, and the two are deliberately
+/// separate (see the header). A parish can have a Reader who administers the feed and a
+/// Priest who does not.
+///
+/// One value per person, never a set: these are mutually exclusive standings, so a
+/// matushka is not also an ordained reader. That is why this is an enum column rather than
+/// a collection of flags — the schema makes the invalid combination unrepresentable
+/// instead of leaving it to validation.
+///
+/// Declared in ecclesiastical order, and that ordering is load-bearing: Postgres sorts an
+/// enum by declaration order, not alphabetically, so this is what the roster sorts on.
+/// Inserting a rank in the middle later means a type recreate, not an `ADD VALUE` — get
+/// the order right now.
+enum Vocation {
+  CATECHUMEN
+  FAITHFUL
+  READER
+  /// A priest's wife. Slavic usage deliberately, not the Greek "Presbytera".
+  MATUSHKA
+  DEACON
+  PRIEST
+  BISHOP
+
+  @@map("vocation")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Organizations ("Groups" in the UI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A parish, diocese, or monastery. The self-relation models the real hierarchy
+/// (a diocese contains parishes) so that "a diocese feed is its own posts plus its
+/// parishes'" becomes a query change later rather than a migration — walk `children`
+/// and widen the `orgId IN (...)` set in `listFeed`.
+model Organization {
   id        String   @id @default(cuid())
+  /// URL-safe identifier, e.g. "holy-trinity-cathedral".
+  slug      String   @unique
+  name      String
+  kind      OrgKind  @default(PARISH)
+  avatarUrl String?  @map("avatar_url")
+  /// Short description shown on the Groups surface.
+  bio       String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parentId String?       @map("parent_id")
+  parent   Organization? @relation("OrgHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+
+  children    Organization[] @relation("OrgHierarchy")
+  memberships Membership[]
+  posts       Post[]
+  invites     Invite[]
+
+  @@index([parentId])
+  @@map("organization")
+}
+
+enum OrgKind {
+  PARISH
+  DIOCESE
+  MONASTERY
+
+  @@map("org_kind")
+}
+
+/// The join between a person and an organization, and the app's central
+/// authorization record. Read it as a sentence: this profile has this role in this
+/// organization, and that grant is in this state.
+///
+/// `status` is the access gate — only APPROVED contributes an organization's posts to
+/// a viewer's feed. `role` is the permission — only ADMIN may post. Both are checked
+/// server-side in `requireMembership`.
+model Membership {
+  id          String           @id @default(cuid())
+  profileId   String           @map("profile_id") @db.Uuid
+  orgId       String           @map("org_id")
+  role        OrgRole          @default(MEMBER)
+  /// Defaults to APPROVED because admission is the only way a row is created, and
+  /// admission always grants access. A row that exists but does not grant anything
+  /// would be a member nobody can see and no screen can repair.
+  status      MembershipStatus @default(APPROVED)
+  /// When an admin added this person. Not "requested" — nobody asks to join; see the
+  /// admission note in the header.
+  admittedAt  DateTime         @default(now()) @map("admitted_at")
+  /// When an admin last changed `status` (revoked or restored), and which admin did it.
+  decidedAt   DateTime?        @map("decided_at")
+  decidedById String?          @map("decided_by_id") @db.Uuid
+
+  profile   Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  decidedBy Profile?     @relation("MembershipDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  /// One membership per person per organization; re-admitting updates the row, which
+  /// is the way back in for someone previously revoked.
+  @@unique([profileId, orgId])
+  /// Serves the feed's "which orgs may this viewer read" lookup.
+  @@index([profileId, status])
+  /// Serves the roster.
+  @@index([orgId, status])
+  /// Postgres does not index a foreign key automatically, and an unindexed one makes
+  /// the ON DELETE SetNull scan the whole table.
+  @@index([decidedById])
+  @@map("membership")
+}
+
+enum OrgRole {
+  ADMIN
+  MEMBER
+
+  @@map("org_role")
+}
+
+/// Two values, and deliberately only two: a person is in the parish or they have been
+/// removed from it. There is no PENDING, because nobody can ask to join, and no
+/// REJECTED, because there is no request to turn down — see the admission note in the
+/// header before adding a third.
+///
+/// Declaration order is the sort order: Postgres orders an enum by how it was
+/// declared, not alphabetically. `listMembers` relies on APPROVED sorting first, so
+/// the roster leads with the people actually in the parish.
+enum MembershipStatus {
+  APPROVED
+  REVOKED
+
+  @@map("membership_status")
+}
+
+/// The audit trail for an admission: who admitted this address, to what role and
+/// vocation, and when.
+///
+/// **Not a ticket.** There is no token to redeem, no expiry, and no acceptance —
+/// `admitOne` provisions the Supabase user, the Profile and an APPROVED Membership on
+/// the spot, and the person simply signs in. A redemption link could not work here
+/// anyway: it needs an origin to land on, and a Capacitor WebView has none.
+///
+/// The row is written after the admission and its failure is swallowed, because
+/// losing the audit line is not worth failing an admission over.
+model Invite {
+  id          String   @id @default(cuid())
+  email       String
+  orgId       String   @map("org_id")
+  /// The role and vocation the person was granted.
+  role        OrgRole  @default(MEMBER)
+  vocation    Vocation @default(FAITHFUL)
+  invitedById String   @map("invited_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy Profile      @relation("InviteInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  /// One row per email per organization; re-admitting updates it.
+  @@unique([email, orgId])
+  @@index([orgId])
+  @@index([invitedById])
+  @@map("invite")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A post is always authored *into* an organization — `orgId` is what scopes it to a
+/// feed, and there is no such thing as a post outside one. Only an ADMIN of that
+/// organization may create one; that is enforced in the service, not here.
+model Post {
+  id       String  @id @default(cuid())
+  orgId    String  @map("org_id")
+  authorId String  @map("author_id") @db.Uuid
+  title    String?
+  body     String
+
+  /// Denormalized tallies. Every feed card renders both, so counting rows per card
+  /// would be two extra queries per post per page. They are maintained inside the
+  /// same transaction as the like/comment write, so they cannot drift.
+  likeCount    Int @default(0) @map("like_count")
+  commentCount Int @default(0) @map("comment_count")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  /// Soft delete: a removed post must not take its comment thread with it, and
+  /// moderation wants an audit trail. Every read filters on `deletedAt: null`.
+  deletedAt DateTime? @map("deleted_at")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  author   Profile      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media    PostMedia[]
+  comments Comment[]
+  likes    PostLike[]
+
+  /// The feed's one hot query: posts across the viewer's organizations, newest
+  /// first, paged by keyset. The sort columns are in the index in the order the
+  /// cursor compares them, so a page is an index range scan rather than a sort.
+  @@index([orgId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([authorId])
+  @@map("post")
+}
+
+/// Media attached to a post, one row per item. This shape covers all four cases the
+/// feed renders without a discriminator column: no rows is a text-only announcement,
+/// one IMAGE row is a single photo, several IMAGE rows ordered by `position` is the
+/// swipeable carousel, and a DOCUMENT row is a PDF attachment.
+///
+/// `width`/`height` are the media's intrinsic pixel size and are not optional in
+/// practice for images: the feed card reserves the aspect-ratio box from them before
+/// the image decodes, and without them the img collapses to zero height on a cold
+/// cache and shifts the layout as it loads.
+model PostMedia {
+  id        String    @id @default(cuid())
+  postId    String    @map("post_id")
+  kind      MediaKind @default(IMAGE)
+  url       String
+  width     Int?
+  height    Int?
+  mimeType  String?   @map("mime_type")
+  /// Display name for a DOCUMENT; ignored for images.
+  fileName  String?   @map("file_name")
+  /// Byte size of a DOCUMENT. Stored raw and formatted for display at the edge, so the
+  /// number stays sortable and comparable instead of being frozen as "142 KB".
+  sizeBytes Int?      @map("size_bytes")
+  /// Carousel order, ascending.
+  position  Int       @default(0)
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, position])
+  @@map("post_media")
+}
+
+enum MediaKind {
+  IMAGE
+  DOCUMENT
+
+  @@map("media_kind")
+}
+
+/// A comment on a post. `parentId` is present but unused by the current UI — it is
+/// what makes threaded replies an additive change instead of a migration on a table
+/// that will by then hold every comment in the app.
+model Comment {
+  id        String    @id @default(cuid())
+  postId    String    @map("post_id")
+  authorId  String    @map("author_id") @db.Uuid
+  parentId  String?   @map("parent_id")
   body      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  likeCount Int       @default(0) @map("like_count")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author  Profile       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent  Comment?      @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[]     @relation("CommentThread")
+  likes   CommentLike[]
+
+  /// Matches the thread's keyset order (oldest first).
+  @@index([postId, createdAt, id])
+  @@index([parentId])
+  /// Without this, deleting a profile cascades with a sequential scan of every comment
+  /// in the app — the most expensive of the missing-FK-index cases here.
+  @@index([authorId])
+  @@map("comment")
+}
+
+/// Likes are rows, not counters, because the feed has to answer "did *this viewer*
+/// like it" per card. The composite primary key is what makes a double-tap idempotent
+/// at the database level rather than in application code.
+model PostLike {
+  profileId String   @map("profile_id") @db.Uuid
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  post    Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, postId])
+  @@index([postId])
+  @@map("post_like")
+}
+
+model CommentLike {
+  profileId String   @map("profile_id") @db.Uuid
+  commentId String   @map("comment_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, commentId])
+  @@index([commentId])
+  @@map("comment_like")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modeled now, no endpoints yet
+//
+// The following tables have no service or route behind them. They are here because
+// both features were specified up front, and settling their shape now is what keeps
+// the tables above honest — `Follow` is the reason the feed's organization scoping is
+// a set of ids rather than a single column, and the conversation/participant split is
+// the reason messaging will not need a schema rewrite to go from 1:1 to group.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An asymmetric follow between two people (Twitter-style, not a friendship).
+///
+/// When this ships, the feed becomes "posts from my APPROVED organizations, plus
+/// posts from people I follow" — which is why `listFeed` builds an id set instead of
+/// filtering on one organization.
+model Follow {
+  followerId  String   @map("follower_id") @db.Uuid
+  followingId String   @map("following_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  follower  Profile @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  following Profile @relation("FollowFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+  /// Serves "who follows me"; the primary key already serves "who do I follow".
+  @@index([followingId])
+  @@map("follow")
+}
+
+/// A message thread. Participants live in a join table rather than as `userAId` /
+/// `userBId`, so the same model serves a direct message and an N-way group thread
+/// with no change — that is the whole reason for the indirection.
+model Conversation {
+  id            String   @id @default(cuid())
+  /// Optional organization scope, so a parish can host a group thread. Deliberately
+  /// not a foreign key yet — the messaging feature will decide whether a deleted
+  /// group takes its threads with it.
+  orgId         String?  @map("org_id")
+  /// Denormalized so an inbox list can sort without touching the messages table.
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt(sort: Desc)])
+  @@map("conversation")
+}
+
+model ConversationParticipant {
+  conversationId String    @map("conversation_id")
+  profileId      String    @map("profile_id") @db.Uuid
+  /// Drives the unread badge: messages newer than this are unread.
+  lastReadAt     DateTime? @map("last_read_at")
+  joinedAt       DateTime  @default(now()) @map("joined_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  profile      Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, profileId])
+  /// Serves "my inbox".
+  @@index([profileId])
+  @@map("conversation_participant")
+}
+
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String    @map("conversation_id")
+  senderId       String    @map("sender_id") @db.Uuid
+  body           String
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Profile      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  /// Matches the thread's keyset pagination order.
+  @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([senderId])
+  @@map("message")
 }

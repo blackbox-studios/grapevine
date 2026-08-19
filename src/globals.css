@@ -84,10 +84,12 @@
     --bottombar: calc(var(--bottombar-height) + var(--safe-bottom));
 
     /* How much of the viewport's bottom edge the on-screen keyboard is covering, and 0
-       whenever it is down. Set from the native keyboard events on iOS only, where the
-       WebView is deliberately never resized; a browser and Android both shrink the
-       viewport themselves, so there it stays 0 and dvh already tells the truth. The
-       whole rationale is in useNative.hook.js. */
+       whenever it is down. Written by two hooks, of which exactly one acts per platform:
+       the native keyboard events on iOS (where the WebView is deliberately never resized),
+       and window.visualViewport on the web. The web half is not optional — iOS Safari
+       shrinks only the visual viewport, so dvh keeps reporting full height with a keyboard
+       on screen. Android and desktop resize themselves and measure ~0 here. The whole
+       rationale is in useNative.hook.js. */
     --keyboard-inset: 0px;
     /* What a surface pinned to the bottom of the screen has to clear: the home indicator,
        or the keyboard once it is up — never the sum of the two, since a raised keyboard
@@ -96,6 +98,17 @@
     /* The viewport minus whatever the keyboard is covering. Size against this rather than
        dvh wherever something has to fit in the room the keyboard leaves behind. */
     --viewport-height: calc(100dvh - var(--keyboard-inset));
+    /* Breathing room under a control at the foot of a --viewport-height column.
+       **Not --bottom-inset**, which would subtract the keyboard a second time: the height
+       above has already excluded it, so padding by it again leaves the control floating a
+       whole keyboard clear of the keyboard. With the keyboard down this is the home
+       indicator; with it up that inset is moot (the keyboard covers the indicator) and the
+       max() floor is all that remains, so the control rests just above the keys. */
+    --form-bottom: max(1rem, calc(var(--safe-bottom) - var(--keyboard-inset)));
+    /* The matching inset at the top of such a column. The notch and the Dynamic Island sit
+       *inside* the viewport, so a bare padding puts the first control — which on these
+       screens is the back arrow — underneath the hardware, where it cannot be tapped. */
+    --form-top: calc(var(--safe-top) + 1rem);
 
     --background: oklch(100% 0% 68deg);
     --foreground: oklch(17% 3% 236deg);
@@ -419,6 +432,18 @@
     }
   }
 
+}
+
+/* Hides the scrollbar without disabling scrolling. For surfaces where the scrollbar is
+ * chrome rather than affordance — the date drum, whose position is communicated by the
+ * selection pill instead. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @utility panel {

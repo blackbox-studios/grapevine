@@ -4,58 +4,132 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from 'zustand/react/shallow'
 
-import useAuthStore from "./store"
+import { ACCESS, OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES, ROUTES } from "@/lib/constants"
+import { useNow } from "@/lib/hooks/useNow.hook"
+import useAuthStore, { viewerAuthor } from "./store"
 
-/* Loads the full list of app users for the User Management table. */
-export const useAdmin = () => {
-    const [users, init] = useAuthStore(useShallow(state => ([
-        state.users,
-        state.init,
-    ])))
-
-    useEffect(() => {
-        init()
-    }, [init])
-
-    /* A loaded users list is never empty, so emptiness is a reliable "not loaded
-     * yet" signal — the skeleton paints on the first frame and clears once the list
-     * arrives (a background refresh keeps it populated, so it never re-flashes). */
-    const skeleton = users.length === 0
-
-    return useMemo(() => ({
-        users,
-        skeleton,
-    }), [users, skeleton])
-}
-
+/* The login form's whole surface: request a code, then verify it.
+ *
+ * Two steps, one hook, because they are one flow and the second needs the address the
+ * first used — which the store holds as `pendingEmail`, so the form never has to carry it
+ * across a re-render or a remount. `stage` is derived from that rather than being a
+ * separate piece of state, so the two can't disagree. */
 export const useLogin = () => {
-    const [loginUser, loading, loggedIn, init, error, clearError] = useAuthStore(useShallow(state => ([
-        state.login,
-        state.loading.login,
+    const [
+        requestCode,
+        verifyCode,
+        cancelCode,
+        pendingEmail,
+        codeSentAt,
+        loadingRequest,
+        loadingVerify,
+        errorRequest,
+        errorVerify,
+        loggedIn,
+        init,
+        clearError,
+    ] = useAuthStore(useShallow(state => ([
+        state.requestCode,
+        state.verifyCode,
+        state.cancelCode,
+        state.pendingEmail,
+        state.codeSentAt,
+        state.loading.request,
+        state.loading.verify,
+        state.error.request,
+        state.error.verify,
         state.loggedIn,
         state.init,
-        state.error.login,
         state.clearError,
     ])))
     const router = useRouter()
 
-    /* Hand the Next router to the store action, which redirects after signing in.
-     * Middleware keeps unauthenticated users out. */
-    const login = useCallback(async (email, password) => {
-        await loginUser(email, password, router)
-    }, [loginUser, router])
+    /* Ticks every second so the resend countdown actually counts down. Cheap, and only
+     * while the login screen is mounted. */
+    const now = useNow(1000)
 
     useEffect(() => {
         init()
     }, [init])
 
+    /* The router is handed to the store action, which redirects after the session and the
+     * profile are both in place — keeping the navigation next to the state change that
+     * justifies it. */
+    const verify = useCallback(
+        (code) => verifyCode(code, router),
+        [verifyCode, router],
+    )
+
+    /* Re-sends to the address already awaiting a code. */
+    const resend = useCallback(
+        () => requestCode(pendingEmail),
+        [requestCode, pendingEmail],
+    )
+
+    /* Seconds left before Supabase will accept another code for this address. It enforces
+     * one OTP request per user per 60 seconds, so resending inside that window is a
+     * guaranteed failure — the button waits it out instead of surfacing an error the user
+     * can do nothing about. */
+    const resendIn = useMemo(() => {
+        if (!codeSentAt) return 0
+        const elapsed = Math.floor((now - codeSentAt) / 1000)
+        return Math.max(0, OTP_RESEND_SECONDS - elapsed)
+    }, [codeSentAt, now])
+
     return useMemo(() => ({
-        login,
-        loading,
+        stage: pendingEmail ? "code" : "email",
+        email: pendingEmail,
+        requestCode,
+        verify,
+        resend,
+        resendIn,
+        back: cancelCode,
+        loading: loadingRequest || loadingVerify,
+        error: errorRequest || errorVerify,
         loggedIn,
+        clearError: () => {
+            clearError("request")
+            clearError("verify")
+        },
+    }), [
+        pendingEmail, requestCode, verify, resend, resendIn, cancelCode,
+        loadingRequest, loadingVerify, errorRequest, errorVerify, loggedIn, clearError,
+    ])
+}
+
+/* Orientation: submit the answers, and the viewer comes back onboarded.
+ *
+ * The updated viewer replaces the store's copy directly rather than triggering a re-fetch
+ * — `onboardedAt` is what the gate reads, so any gap between "saved" and "the client knows
+ * it saved" is a gap where the viewer sits on a completed form. */
+export const useOnboarding = () => {
+    const [user, completeOnboarding, checkHandle, loading, error, clearError] = useAuthStore(
+        useShallow(state => ([
+            state.user,
+            state.completeOnboarding,
+            state.checkHandle,
+            state.loading.onboarding,
+            state.error.onboarding,
+            state.clearError,
+        ])),
+    )
+    const router = useRouter()
+
+    const submit = useCallback(
+        (values) => completeOnboarding(values, router),
+        [completeOnboarding, router],
+    )
+
+    return useMemo(() => ({
+        user,
+        submit,
+        /* Passed straight through. The result is per-keystroke and belongs to the step that
+         * asked, so it is held there in local state rather than in the store. */
+        checkHandle,
+        loading,
         error,
-        clearError: () => clearError("login"),
-    }), [login, loading, loggedIn, error, clearError])
+        clearError: () => clearError("onboarding"),
+    }), [user, submit, checkHandle, loading, error, clearError])
 }
 
 export const useLogout = () => {
@@ -69,13 +143,151 @@ export const useLogout = () => {
     return useMemo(() => ({ logout }), [logout])
 }
 
+/* The signed-in viewer: profile, vocation, role, and groups. Null when signed out. */
 export const useUser = () => {
     return useAuthStore(state => state.user)
 }
 
-/* Whether anyone is signed in — the single fact the route gates need, kept separate from
- * useLogin so mounting a gate doesn't drag in the login form's loading/error surface.
- * Read by <ProtectedGate/> / <PublicGate/> (see components/AuthGate.jsx). */
+/* The viewer's identity as a post/comment author — the shape the API stamps on the server.
+ *
+ * Used for the optimistic comment row, which has to render before the server has replied
+ * with the authoritative resource. Built here so the projection lives in one place and the
+ * optimistic row cannot render a different author than the one that comes back.
+ *
+ * The shape itself is `viewerAuthor` in the store, shared with the comments store, which
+ * needs the same projection from a layer where no hook is available. */
+export const useViewerAuthor = () => {
+    return useAuthStore(useShallow(state => viewerAuthor(state.user)))
+}
+
+/* Whether anyone is signed in. Kept separate from useLogin so a consumer doesn't drag in
+ * the login form's loading/error surface. */
 export const useAuthed = () => {
     return useAuthStore(state => state.loggedIn)
+}
+
+/* What the route gates need: whether the session question has been *answered*, and what
+ * the answer is.
+ *
+ * Both halves matter. `loggedIn` alone is the persisted guess, and acting on it before
+ * `ready` makes the gate redirect out of a magic-link callback before the tokens in the
+ * URL have been read — see the header of components/AuthGate.jsx. */
+export const useAuthGate = () => {
+    return useAuthStore(useShallow(state => ({
+        ready: state.ready,
+        loggedIn: state.loggedIn,
+    })))
+}
+
+/* Whether the app still has no answer about who the viewer is — what the boot spinner in
+ * <ProtectedGate/> covers, since every gate renders `null` until this is false.
+ *
+ * `ready` is the right signal because `init()` publishes it only after `_loadProfile()` has
+ * awaited GET /api/me, so it means the *viewer* is loaded and not just that Supabase
+ * answered. `loggedIn && !user` is a guard on the persisted view, which writes the two
+ * together: if they ever disagree, holding the spinner beats showing an empty shell. */
+export const useBooting = () => {
+    return useAuthStore(state => !state.ready || (state.loggedIn && !state.user))
+}
+
+/* Where a signed-in viewer belongs, as a route — or `null` for "the app", or `undefined`
+ * for "not known yet".
+ *
+ * Three-valued on purpose. A gate that cannot tell "no redirect needed" from "the viewer
+ * has not loaded" will bounce someone out of the app for the fraction of a second before
+ * /api/me answers, and on a magic-link boot that is long enough to matter.
+ *
+ * This is the single source that both gates in components/MemberGate.jsx and the callback
+ * scrub in useAuthInit read, so they cannot disagree and fight over the same navigation. */
+export const useGatewayDestination = () => {
+    return useAuthStore(state => {
+        if (!state.ready || !state.loggedIn) return undefined
+        if (!state.user) return undefined
+        if (state.user.access !== ACCESS.ACTIVE) return ROUTES.ACCESS
+        if (!state.user.onboardedAt) return ROUTES.WELCOME
+        return null
+    })
+}
+
+/* Boots the auth store. Mounted once by <App/>, which sits in the root layout *outside*
+ * both route groups — so the session is resolved no matter which URL the app is opened at.
+ *
+ * It used to be called only by useLogin, which meant it ran only once the login page had
+ * mounted. A cold load of any protected route therefore redirected first and asked
+ * afterwards, and a magic-link callback lost its tokens to that redirect. */
+export const useAuthInit = () => {
+    const init = useAuthStore(state => state.init)
+    const destination = useGatewayDestination()
+    const router = useRouter()
+
+    useEffect(() => {
+        init()
+    }, [init])
+
+    /* Scrub the magic-link callback out of the address bar.
+     *
+     * `/auth/v1/verify` hands the session back as `#access_token=…&refresh_token=…`.
+     * supabase-js has read it by the time the session resolves, but the fragment stays in
+     * the URL — and therefore in the address bar, in browser history, and in anything the
+     * reader copies. A refresh token pasted into a chat is a live credential.
+     *
+     * **Only when nobody else is navigating.** This is gated on `destination === null`
+     * ("the viewer stays where they are") because the gates in components/MemberGate.jsx
+     * may be about to send them to /welcome or /access — and those navigations drop the
+     * fragment for free. Scrubbing unconditionally means two `router.replace` calls racing
+     * for the same tick: this one lands last, cancels the gate's redirect, and leaves the
+     * viewer on a route the gate has already decided to render nothing for. That is a
+     * blank page, and it is exactly what happened before this guard existed.
+     *
+     * `router.replace`, not `history.replaceState`: the App Router caches the URL it
+     * booted with and restores the fragment on the next render that touches the router. */
+    useEffect(() => {
+        if (destination !== null) return
+        if (typeof window === "undefined") return
+        if (!window.location.hash.includes("access_token")) return
+        router.replace(window.location.pathname + window.location.search)
+    }, [destination, router])
+}
+
+/* The viewer's role in a given group, or in their primary group when no id is passed.
+ *
+ * Roles are per-group, so this always resolves against one: being an admin of a parish
+ * grants nothing in another parish, and a hook that returned a single global "am I admin"
+ * would quietly paper over that the moment a second group exists. */
+export const useRole = (orgId) => {
+    return useAuthStore(state => {
+        if (!state.user) return null
+        if (!orgId) return state.user.role
+        return state.user.orgs?.find(org => org.id === orgId)?.role ?? null
+    })
+}
+
+/* Whether the viewer meets or exceeds `role` in the given group. The comparison is
+ * hierarchical via ROLE_LEVEL, so a control requiring MEMBER is satisfied by an ADMIN. */
+export const usePrivileged = (role = ROLES.ADMIN, orgId) => {
+    const current = useRole(orgId)
+    return useMemo(() => {
+        if (!current) return false
+        return (ROLE_LEVEL[current] ?? 0) >= (ROLE_LEVEL[role] ?? 0)
+    }, [current, role])
+}
+
+/* The viewer's groups, and the one the composer publishes into.
+ *
+ * `primary` is the first group the viewer administers, which for a single-parish
+ * deployment is simply their parish. When someone can administer several, this is the
+ * value a group picker replaces. */
+export const useGroups = () => {
+    const user = useAuthStore(state => state.user)
+
+    return useMemo(() => {
+        const orgs = user?.orgs ?? []
+        return {
+            orgs,
+            primary: orgs.find(org => org.role === ROLES.ADMIN) ?? orgs[0] ?? null,
+            /* A loaded viewer always has at least one group; emptiness is therefore a
+             * reliable "not loaded yet" rather than a real empty state. */
+            skeleton: !user,
+        }
+    }, [user])
 }

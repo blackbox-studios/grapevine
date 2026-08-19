@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import VerifiedIcon from "@/assets/svg/icons/verified.svg";
 import { useUser, useLogout } from "@/lib/store/auth/hook";
-import { ROUTES } from "@/lib/constants";
+import { ROLES, ROUTES } from "@/lib/constants";
+import { displayName, initials } from "@/lib/name";
 import { roleLabel } from "@/lib/utils";
 import {
     Popover,
@@ -41,7 +42,7 @@ export default function ProfilePopover() {
                     className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-current outline-hidden"
                 >
                     <p className="font-semibold uppercase">
-                        {user?.full_name ? user.full_name.trim()?.[0]?.toUpperCase() : "X"}
+                        {initials(user) || "X"}
                     </p>
                 </button>
             </PopoverTrigger>
@@ -58,14 +59,19 @@ export default function ProfilePopover() {
 
                 <div className="mt-5 flex items-baseline justify-center gap-2">
                     <h3 className="text-2xl font-semibold tracking-tight text-foreground">
-                        {user?.full_name ?? "—"}
+                        {displayName(user) || "—"}
                     </h3>
 
-                    <VerifiedIcon
-                        aria-label="Verified"
-                        className="shrink-0 text-foreground pb-px"
-                    />
-
+                    {/* The check is the admin badge, and it used to render for everyone —
+                      * it was hardcoded here rather than read from anything. It now follows
+                      * the viewer's role in their primary group, which is the same rule the
+                      * server applies to an author's check. */}
+                    {user?.role === ROLES.ADMIN && (
+                        <VerifiedIcon
+                            aria-label="Group administrator"
+                            className="shrink-0 text-foreground pb-px"
+                        />
+                    )}
                 </div>
 
 

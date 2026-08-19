@@ -185,7 +185,7 @@ const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
                             />
                         </span>
                     </button>
-                    <span className="min-h-3 text-xs tabular-nums text-muted-foreground font-bold">
+                    <span className="min-h-4 text-xs tabular-nums text-muted-foreground font-bold">
                         {likes > 0 ? formatCompact(likes) : ""}
                     </span>
                 </div>
@@ -569,7 +569,13 @@ export const CommentsPanel = ({ post, className }) => {
  *
  * The composer needs no keyboard padding of its own: PostSlide lifts the whole surface above
  * the keyboard, so the composer (pinned at the sheet's — and thus the surface's — bottom
- * edge) is already clear of it. */
+ * edge) is already clear of it. It does need the *home indicator* cleared, because the surface
+ * now runs to the very bottom of the screen rather than stopping above the mobile rail — hence
+ * the `--bottom-inset - --keyboard-inset` pad, which is the indicator's height with the keyboard
+ * down and zero once it is up (see the header comment in PostSlide). It sits here rather than on
+ * the sheet so that the sheet collapsed to `height: 0` stays genuinely invisible: padding on a
+ * border-box element survives a zero height, and would leave a strip of sheet background along
+ * the bottom of the photo. In here the sheet's own `overflow-hidden` clips it. */
 export const PostCommentsThread = ({ post }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, remove, viewer } =
         useComments(post.id)
@@ -591,7 +597,7 @@ export const PostCommentsThread = ({ post }) => {
     ) : null
 
     return (
-        <div className="flex h-full flex-col">
+        <div className="flex h-full flex-col pb-[calc(var(--bottom-inset)-var(--keyboard-inset))]">
             <div className="flex shrink-0 justify-center pb-1 pt-2">
                 <span className="h-1 w-9 rounded-full bg-muted-foreground/40" />
             </div>

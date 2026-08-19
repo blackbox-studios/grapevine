@@ -58,7 +58,7 @@ export const FocusLens = ({ active, rect, children, className }) => {
                 >
                     <div
                         className={cn(
-                            "absolute inset-0 bg-background/40 backdrop-blur-md",
+                            "absolute inset-0 bg-background/40 backdrop-blur-sm",
                             className,
                         )}
                     />

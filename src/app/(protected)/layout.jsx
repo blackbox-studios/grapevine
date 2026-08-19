@@ -127,8 +127,9 @@ const ProtectedShell = ({ children }) => {
                 The group panel shares z-0 with the backdrop and is mounted after it, so it
                 paints on top of it and under everything else — it is uncovered by the shell
                 sliding off it rather than by rising over anything. <OrgNavPanel/> also brings
-                its own cap over the status-bar strip at z-1, which the scroll container's
-                --safe-top offset leaves uncovered; the two share z-1 and never overlap. */}
+                its own opaque plate at z-1, covering the bands the scroll container's
+                --safe-top / --bottombar insets leave open; it is mounted before the container,
+                so the container paints over it. */}
             <div className="fixed inset-0 z-0 overflow-hidden bg-background pointer-events-none">
                 <div className="hidden lg:dark:block absolute -bottom-90 -right-100 w-250 h-250 bg-[#ffffff0d] rounded-full blur-3xl" />
             </div>

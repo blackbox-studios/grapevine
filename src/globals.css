@@ -214,6 +214,59 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Native only: the WebView's own text gestures, off.
+     `html.native` is set at build time by the root layout, so none of this ships to the web
+     — a browser is a place where selecting and copying a post is expected, and the app has
+     no business taking it away there. In the packaged app it is the opposite: a hold on a
+     paragraph raises WKWebView's selection handles and the Copy/Look Up/Share bar, and on
+     Android the same hold raises the system text menu. Both read as a bug in something that
+     presents itself as a native app, and both land *on top of* whatever a long press was
+     meant to open — which is why useLongPress already declines the context menu on the
+     elements it is attached to. This generalises that to everything the WebView paints.
+
+     CSS rather than a Capacitor setting because there is no such setting: the config exposes
+     `ios.allowsLinkPreview` and nothing else in this area, and Android exposes nothing at
+     all. Both shells hand the question to the web layer, and these three properties are the
+     platform-sanctioned answer on each.
+
+     useLongPress is untouched: it is built on pointer events, and this suppresses selection,
+     not pointers. Nothing here sets `pointer-events` — that would stop taps too, and the
+     selection UI is not what a pointer-events rule would remove anyway.
+
+     Written through :where() so every declaration lands at zero specificity, which leaves
+     Tailwind's `select-text` (or any explicit rule) able to hand a given element back
+     without an `!important` — see the .select-text rule below, which restores the iOS
+     callout alongside it so the escape hatch is complete. */
+  :where(html.native, html.native *) {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    /* The other way content leaves the app: hold an image and drag it into another app,
+       which iPadOS offers even with the callout suppressed. */
+    -webkit-user-drag: none;
+  }
+
+  /* Fields keep everything. Typing, the caret, the magnifier, double-tap-to-select and the
+     Paste callout are the whole point of an input, and the composer would be unusable
+     without them — the goal is that the app's *content* isn't selectable, not that text
+     entry is crippled. The explicit restore is also load-bearing on iOS: a `user-select:
+     none` inherited from an ancestor suppresses the Paste callout inside an input that
+     never opted out of it, so the field has to state its own value rather than rely on the
+     rule above not reaching it. */
+  :where(html.native)
+    :where(input, textarea, select, [contenteditable=""], [contenteditable="true"]) {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* The escape hatch, in full: `select-text` on any element makes it selectable again and
+     restores the long-press callout that goes with it. A class beats the zero-specificity
+     rule above, and Tailwind's own utility (later layer) supplies the user-select half. */
+  html.native .select-text {
+    -webkit-touch-callout: default;
+  }
+
   /* Vaul focuses the drawer surface itself when it opens; the WebView (and some browsers)
      then trace a focus ring around the whole sheet, hugging its rounded top — the blue
      outline you see the moment a drawer appears. The surface is a passive container, not a

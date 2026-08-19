@@ -185,26 +185,34 @@ export const OrgNavTrigger = () => {
  * so the label lands where the button that opened it was, rather than below it. That is the
  * only alignment the push makes visible, since the two are briefly side by side mid-slide.
  *
- * The panel runs to `inset-y-0`, under the notch, so the drawer reads as one edge-to-edge
- * surface rather than something that stops short of the hardware. The **cap** is what makes
- * that safe, and it is rendered here rather than in the shell precisely because the panel is
- * the only reason it has to exist.
+ * The panel runs to `inset-y-0`, under the notch and under the rail, so the drawer reads as
+ * one edge-to-edge surface rather than something that stops short of the hardware. The
+ * **plate** is what makes that safe, and it is rendered here rather than in the shell
+ * precisely because this panel is the only reason it has to exist.
  *
- * The shell's scroll container starts at --safe-top, so the status-bar strip above it is
- * left to whatever is behind — and that is this panel, at z-0, full height. Its bg-sidebar
- * therefore painted the strip across the panel's width permanently, drawer open *or* shut,
- * against bg-background for the rest: a two-tone status bar exactly as wide as the drawer.
- * That is easy to blame on whatever else is painted up there — it was first reported as the
- * grain overlay failing to blend, and the grain had nothing to do with it.
+ * What the shell relies on is that its scroll container is opaque on mobile. But that
+ * container does not cover the viewport: it is inset at the top by --safe-top and at the
+ * bottom by --bottombar. Anything in those two bands falls through to z-0 — which is this
+ * panel, full height. Its bg-sidebar therefore painted both bands across the panel's width
+ * permanently, drawer open *or* shut, against bg-background for the rest.
  *
- * So the cap covers the strip and travels with the shell on the same `shift`: closed, it
- * hides the panel; opening slides it off to uncover it. Same curve as everything else in the
- * push, because it touches the scroll container and a cap that lagged the surface it caps
- * would tear along the safe-area line. It sits at z-1 with that container and never overlaps
- * it — one starts where the other ends. `md:hidden` because desktop has no panel to leak,
- * and an opaque band there would paint over the rail's own translucent top.
+ * Neither band gives the leak away directly, which is what made this expensive to find. The
+ * top one reads as a two-tone status bar and got blamed on the grain overlay painted across
+ * it (the grain had nothing to do with it). The bottom one is normally hidden by the rail's
+ * own bg-background/80 — until the rail dims to opacity-35 while the reader is vibing, which
+ * takes its backdrop to roughly a quarter opaque and lets the drawer show straight through.
+ * Same single cause, two symptoms that look unrelated.
  *
- * If that strip ever looks wrong again, look here first, and do not "fix" it by pulling the
+ * So the plate is simply the shell's opaque surface, generalised to the whole viewport: it
+ * is what the scroll container's own bg-background would be if the container were not inset.
+ * It travels on the same `shift` and curve as the rest of the push — closed it hides the
+ * panel, opening slides it off to uncover it — because it abuts the container and a plate
+ * that lagged the surface it backs would tear along the safe-area line. Shares z-1 with the
+ * container and is mounted before it, so the container paints over it. `md:hidden`: desktop
+ * has no panel to leak, and an opaque plate there would cover the backdrop's gradient and
+ * paint under the rail's translucency.
+ *
+ * If either band ever looks wrong again, look here first, and do not "fix" it by pulling the
  * panel off the notch: that hides it and costs the continuity the full-height drawer is for.
  *
  * The scrim is the only piece that fades. It covers the shell, not the panel, so the strip
@@ -245,14 +253,14 @@ export const OrgNavPanel = () => {
                 </div>
             </div>
 
-            {/* The cap. See the note above — without it this panel leaks into the status bar
-                whether it is open or shut. */}
+            {/* The plate. See the note above — without it this panel leaks out wherever the
+                shell's own opaque surface has a gap, open or shut. */}
             <motion.div
                 aria-hidden="true"
                 initial={false}
                 animate={{ x: shift }}
                 transition={SLIDE_TRANSITION}
-                className="md:hidden fixed inset-x-0 top-0 h-(--safe-top) z-1 bg-background pointer-events-none"
+                className="md:hidden fixed inset-0 z-1 bg-background pointer-events-none"
             />
 
             <motion.button

@@ -49,9 +49,20 @@ if(!((c&&c.isNativePlatform&&c.isNativePlatform())||location.protocol==='capacit
 if(location.pathname!==${JSON.stringify(ROOT)})history.replaceState(null,'',${JSON.stringify(ROOT)});
 }catch(e){}})();`
 
+/* Marks the document as the packaged app, which globals.css keys the selection and callout
+ * suppression off (`html.native`). Build-time rather than the runtime `isNative()` the rest
+ * of the app branches on, because this has to be true on the very first paint: a class added
+ * from an effect would leave a window in which a hold on text still raised the WebView's
+ * selection handles. `NEXT_PUBLIC_NATIVE=1` is set only by `npm run build:native`, so the web
+ * build never sets the class and every one of those rules stays unmatched there.
+ *
+ * next-themes owns the light/dark class on the same element and adds/removes only its own
+ * values, so a second class here is safe. */
+const NATIVE = process.env.NEXT_PUBLIC_NATIVE === "1"
+
 export default function RootLayout({ children }) {
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang="en" className={NATIVE ? "native" : undefined} suppressHydrationWarning>
             <head>
                 <script dangerouslySetInnerHTML={{ __html: NATIVE_BOOT }} />
             </head>

@@ -1,7 +1,7 @@
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import { initials } from "@/lib/name"
-import { appPath, cn, gradientFor } from "@/lib/utils"
+import { appPath, cn, gradientFor, orgInitials } from "@/lib/utils"
 
 /* User/author avatar. Uses the profile image when one is provided; otherwise falls back to
  * a deterministic gradient (via gradientFor()) with the person's initials. Size it with a
@@ -31,6 +31,36 @@ export const Avatar = ({ person, className }) =>
             aria-hidden="true"
         >
             {initials(person)}
+        </span>
+    )
+
+/* A group's mark, for the switcher and anywhere else a parish is listed.
+ *
+ * Separate from <Avatar/> rather than a variant of it because the two derive their fallback
+ * from different things and neither derivation works on the other's shape: a person's
+ * initials come from name *parts* that an organization does not have, and an organization's
+ * come from words in a single name ("Holy Trinity Cathedral" → "HT"), which is exactly the
+ * split-the-display-name approach <Avatar/> exists to avoid for people. The gradient is
+ * keyed on the slug for the same reason a person's is keyed on their handle: one stable
+ * identifier per group, so renaming a parish does not recolour it. */
+export const OrgAvatar = ({ org, className }) =>
+    org?.avatar ? (
+        <img
+            src={appPath(org.avatar)}
+            alt=""
+            aria-hidden="true"
+            className={cn("shrink-0 rounded-full object-cover", className)}
+        />
+    ) : (
+        <span
+            className={cn(
+                "flex shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold text-white",
+                className,
+            )}
+            style={gradientFor(org?.slug ?? org?.id)}
+            aria-hidden="true"
+        >
+            {orgInitials(org?.name)}
         </span>
     )
 

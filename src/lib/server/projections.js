@@ -110,11 +110,19 @@ const projectMedia = (media = []) => {
  *
  * `likedBy` is the name *parts*, not a rendered string, for the same reason the author
  * block is — the card writes it with `displayName()` so the person who liked a post is
- * addressed exactly as they are in their own byline. */
+ * addressed exactly as they are in their own byline.
+ *
+ * The owning organization goes over as both `orgId` and `orgName` because the two answer
+ * different questions and only one of them is a label. `orgName` is what the card prints;
+ * `orgId` is what a surface resolves the viewer's role against, which matters because a
+ * post can belong to a group other than the one currently selected — a shared link opens
+ * by id, so the detail surface has to ask "am I an admin *here*" rather than assume the
+ * switcher's answer. */
 export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
     id: post.id,
     author: projectAuthor(post.author, post.orgId),
-    group: post.org?.name ?? null,
+    orgId: post.orgId,
+    orgName: post.org?.name ?? null,
     createdAt: post.createdAt.toISOString(),
     title: post.title,
     body: post.body,

@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "motion/react"
 import PostView from "@/components/PostView"
 import { ROUTES } from "@/lib/constants"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
 
 /* The surface each registered slide route renders, keyed by its prefix. This is the
@@ -32,15 +33,24 @@ const SURFACES = {
  * The push is a pure horizontal transform on the container, so it leaves the scroll
  * offset exactly where the reader left it: the offset lives on this node, and nothing
  * underneath moves while it's off-screen because there's no separate document scroll to
- * drift. The layout attaches the shared scroll ref here (see ScrollProvider). */
+ * drift. The layout attaches the shared scroll ref here (see ScrollProvider).
+ *
+ * **Two things can displace this container, and only one of them may win.** A slide route
+ * takes it a full viewport left; the group switcher takes it one panel-width right. They
+ * cannot compose — a sum would leave the base at an offset where neither surface lines up
+ * with it — so the slide route takes precedence: it is the surface actually being read, and
+ * a switcher panel is only ever open when nothing is over it anyway. Resolving that here,
+ * on the one node that owns this container's position, is what keeps a second opinion about
+ * its offset from ever existing. */
 export const SlideBase = ({ ref, className, children }) => {
     const { pushed } = useActiveSlide()
+    const { shift } = useOrgNav()
 
     return (
         <motion.div
             ref={ref}
             className={className}
-            animate={{ x: pushed ? "-100%" : 0 }}
+            animate={{ x: pushed ? "-100%" : shift }}
             transition={SLIDE_TRANSITION}
         >
             {children}

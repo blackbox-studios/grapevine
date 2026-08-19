@@ -1,7 +1,6 @@
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
-    GROUPS: "/groups",
     POST: "/p",
     SETTINGS: "/settings",
     SETTINGS_USERS: "/settings/users",

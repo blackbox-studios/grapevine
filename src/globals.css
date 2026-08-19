@@ -57,6 +57,11 @@
     --bumper: 16px;
     --bottombar-height: 64px;
     --mobile-menu-width: 260px;
+    /* How far the shell slides right when the mobile group switcher opens, and therefore
+       how wide the panel underneath it is — one value, because the two must agree exactly
+       or a strip of panel shows past the content's edge (or the content covers the last
+       rows of the list). The sliver left over is what stays tappable to dismiss. */
+    --org-nav-width: 88vw;
     --scrollbar-width: 6px;
     --commentbar-width: clamp(300px,33vw,490px);
 }
@@ -137,7 +142,7 @@
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    --sidebar: oklch(1 0 0);
+    --sidebar: oklch(0.97 0 none);
     --sidebar-foreground: oklch(17% 3% 236deg);
     --sidebar-primary: oklch(0.205 0 0);
     --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -174,7 +179,7 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(21% 10% 259deg);
+    --sidebar: oklch(0.2 0.0026 247.96);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);
     --sidebar-primary-foreground: oklch(0.985 0 0);

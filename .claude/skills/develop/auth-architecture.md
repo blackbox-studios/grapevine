@@ -415,7 +415,7 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 | Admissions, roster, onboarding, revoke | `src/lib/server/profile.service.js` |
 | `access` derivation | `accessFor` in `src/lib/server/projections.js` |
 | Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` | `src/lib/store/auth/store.js` |
-| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGroups`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
+| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
 | Roster store + hook (invite, approve, revoke, re-rank) | `src/lib/store/members/` |
 | Route guards (signed in vs not) | `src/components/AuthGate.jsx` |
 | Gateway guards (do you belong / orientation) | `src/components/MemberGate.jsx` |

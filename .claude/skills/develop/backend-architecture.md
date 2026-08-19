@@ -182,7 +182,7 @@ completed (offline, DNS, CORS, aborted connection).
 | `GET` | `/api/me/onboarding/handle?value=` | viewer | `{ handle, available, reason }` — advisory @handle check |
 | `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
 | `GET` | `/api/orgs/:orgId/members` | **group admin** | `{ items, nextCursor }` — the roster |
-| `GET` | `/api/feed?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first |
+| `GET` | `/api/feed?limit=&cursor=&orgId=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first. `orgId` narrows it to one group and is checked with `requireMembership`, so it can only subtract from the viewer's own scope; omitted, the feed is the union of every approved membership |
 | `POST` | `/api/posts` | **group admin** | `201` + the created post, `Location` set |
 | `GET` | `/api/posts/:postId` | member of its group | the post resource |
 | `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread oldest-first |

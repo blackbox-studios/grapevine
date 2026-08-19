@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
-import { MEMBERSHIP_STATUS, ROLES } from "@/lib/constants"
-import { useGroups, usePrivileged, useUser } from "@/lib/store/auth/hook"
+import { MEMBERSHIP_STATUS } from "@/lib/constants"
+import { useUser } from "@/lib/store/auth/hook"
+import { useCurrentOrg } from "@/lib/store/org/hook"
 import useMembersStore from "./store"
 
 /* The parish roster, and the admissions desk.
  *
- * Resolves the group from the viewer rather than taking it as a prop — the page already
- * knows who is signed in, so passing an id down would be prop drilling around a store that
- * is the cheaper source of truth. */
+ * Resolves the group from the switcher rather than taking it as a prop — the shell already
+ * knows which one is selected, so passing an id down would be prop drilling around a store
+ * that is the cheaper source of truth. Switching groups reloads the table, and an admin of
+ * two parishes admits people to whichever one they are looking at. */
 export const useMembers = () => {
     const [items, ready, load, invite, updateMember, loadingInvite, updating] =
         useMembersStore(useShallow(state => ([
@@ -23,12 +25,11 @@ export const useMembers = () => {
             state.loading.invite,
             state.loading.update,
         ])))
-    const { primary } = useGroups()
+    /* `isAdmin` is already resolved against the selected group, which is the only group
+     * this hook ever reads — a role is per-group, and being an admin elsewhere grants
+     * nothing here. */
+    const { current, orgId, isAdmin } = useCurrentOrg()
     const viewer = useUser()
-
-    /* Resolved against the group actually being loaded, not the viewer's default, because
-     * a role is per-group and this hook only ever reads one. */
-    const allowed = usePrivileged(ROLES.ADMIN, primary?.id)
 
     /* Gated on the role, so a member never sends the request at all.
      *
@@ -36,10 +37,11 @@ export const useMembers = () => {
      * cannot prevent: hooks run during render, so the fetch has already left before
      * <PrivilegedRoute> gets to redirect. Asking and being refused is what produced a
      * member being told "Only group admins can do that" while being bounced out of a page
-     * they never chose to open. */
+     * they never chose to open. Switching to a group the viewer only belongs to stops the
+     * request for the same reason. */
     useEffect(() => {
-        if (allowed && primary?.id) load(primary.id)
-    }, [allowed, primary?.id, load])
+        if (isAdmin && orgId) load(orgId)
+    }, [isAdmin, orgId, load])
 
     const revoke = useCallback(
         (membershipId) => updateMember(membershipId, { status: MEMBERSHIP_STATUS.REVOKED }),
@@ -80,7 +82,7 @@ export const useMembers = () => {
 
     return useMemo(() => ({
         members,
-        group: primary,
+        org: current,
         skeleton,
         invite,
         inviting: loadingInvite,
@@ -90,7 +92,7 @@ export const useMembers = () => {
         setVocation,
         setRole,
     }), [
-        members, primary, skeleton,
+        members, current, skeleton,
         invite, loadingInvite, updating, restore, revoke, setVocation, setRole,
     ])
 }

@@ -207,6 +207,19 @@ export function formatCompact(n) {
  * because that is what the Prisma enums are; the UI wants "Admin", "Faithful", "Pending".
  * Handles multi-word values ("HOLY_SYNOD" → "Holy Synod") so a new enum member does not
  * need a lookup table. */
+/* Up to two letters for a group's gradient mark — "Holy Trinity Cathedral" → "HT".
+ *
+ * Splitting the name is right here and wrong for a person (see `initials` in lib/name.js):
+ * an organization has one name and no parts to assemble it from, and the words in it are
+ * the only structure available. A single-word name takes its first two letters instead, so
+ * "Antiochian" reads as "AN" rather than a lone "A" that half the diocese would share. */
+export function orgInitials(name) {
+    const words = String(name ?? "").trim().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return ""
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+    return (words[0][0] + words[1][0]).toUpperCase()
+}
+
 export function roleLabel(role) {
     if (!role) return "User"
     return String(role)

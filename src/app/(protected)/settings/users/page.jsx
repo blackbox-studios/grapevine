@@ -147,7 +147,7 @@ const Picker = ({ value, options, onChange, disabled, label, className }) => (
 /* Admissions. Emails go over as one blob — the server splits on commas, semicolons and
  * whitespace — because that is how a list of parishioners actually arrives: pasted out of
  * a spreadsheet or an email, not typed one at a time. */
-const InviteForm = ({ group, invite, inviting, onDone }) => {
+const InviteForm = ({ org, invite, inviting, onDone }) => {
     const [emails, setEmails] = useState("")
     const [role, setRole] = useState(ROLES.MEMBER)
     const [vocation, setVocation] = useState(VOCATIONS.FAITHFUL)
@@ -173,7 +173,7 @@ const InviteForm = ({ group, invite, inviting, onDone }) => {
         const added = result.admitted.length
         if (added > 0) {
             toast.success(
-                `Added ${added} ${added === 1 ? "person" : "people"} to ${group?.name ?? "the parish"}.`,
+                `Added ${added} ${added === 1 ? "person" : "people"} to ${org?.name ?? "the parish"}.`,
             )
         }
 
@@ -266,7 +266,7 @@ const InviteForm = ({ group, invite, inviting, onDone }) => {
  * It closes itself on a clean run and stays open when anything failed — see the note on
  * `handleInvite`. Closing is `onDone`, passed down rather than decided in the form, because
  * the form does not know which of the two surfaces it is currently inside. */
-const Admissions = ({ group, invite, inviting }) => {
+const Admissions = ({ org, invite, inviting }) => {
     const [open, setOpen] = useState(false)
     const isDesktop = useIsDesktop()
 
@@ -274,7 +274,7 @@ const Admissions = ({ group, invite, inviting }) => {
      * and would otherwise close the app from on top of the sheet. */
     useBackHandler(open && !isDesktop, () => setOpen(false))
 
-    const title = `Add people to ${group?.name ?? "the parish"}`
+    const title = `Add people to ${org?.name ?? "the parish"}`
     const description =
         "They are whitelisted immediately and can sign in whenever they like. No email is sent — tell them however you normally would."
 
@@ -300,7 +300,7 @@ const Admissions = ({ group, invite, inviting }) => {
                             <DialogDescription>{description}</DialogDescription>
                         </DialogHeader>
                         <InviteForm
-                            group={group}
+                            org={org}
                             invite={invite}
                             inviting={inviting}
                             onDone={() => setOpen(false)}
@@ -328,7 +328,7 @@ const Admissions = ({ group, invite, inviting }) => {
                         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
                             {open && (
                                 <InviteForm
-                                    group={group}
+                                    org={org}
                                     invite={invite}
                                     inviting={inviting}
                                     onDone={() => setOpen(false)}
@@ -344,7 +344,7 @@ const Admissions = ({ group, invite, inviting }) => {
 
 const SettingsUsersPage = () => {
     const {
-        members, group, skeleton: loading,
+        members, org, skeleton: loading,
         invite, inviting, updating, restore, revoke, setVocation,
     } = useMembers()
 
@@ -375,8 +375,11 @@ const SettingsUsersPage = () => {
     const pageRows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize)
     const filtered = total !== members.length
 
+    /* Gated on the *selected* group, so switching to one the viewer only belongs to sends
+     * them out of the roster rather than showing them an empty table they have no way to
+     * fill. */
     return (
-        <PrivilegedRoute role={ROLES.ADMIN}>
+        <PrivilegedRoute role={ROLES.ADMIN} orgId={org?.id}>
             <section className="flex flex-col gap-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <h2 className="text-xl font-semibold text-foreground">
@@ -387,9 +390,9 @@ const SettingsUsersPage = () => {
                             ({total}
                             {filtered && ` of ${members.length}`})
                         </span>{" "}
-                        {group?.name ?? "Members"}
+                        {org?.name ?? "Members"}
                     </h2>
-                    <Admissions group={group} invite={invite} inviting={inviting} />
+                    <Admissions org={org} invite={invite} inviting={inviting} />
                 </div>
 
                 {/* Input renders its own relative wrapper for the leading icon, so the

@@ -41,15 +41,20 @@ const INIT = {
 const useStore = create(immer((set, get) => ({
     ...INIT,
 
-    /* Loads a group's roster. Called by the hook with the viewer's primary group, so it
-     * re-runs if that resolves after the first render. */
+    /* Loads a group's roster. Called by the hook with the selected group, so it re-runs
+     * when the switcher moves and when the selection resolves after the first render. */
     load: async (orgId) => {
         if (!orgId) return
         /* Already showing this group and not mid-flight: nothing to do. */
         if (get().orgId === orgId && get().ready) return
 
+        /* A different group is a different roster, so the old rows go now rather than when
+         * the request lands — otherwise one parish's members sit under another parish's
+         * heading, and every row's actions would write to the wrong membership if tapped. */
         set(state => {
             state.orgId = orgId
+            state.items = []
+            state.ready = false
             state.loading.list = true
         })
 

@@ -138,13 +138,26 @@ const loadReadablePost = async (viewerId, postId, { include } = {}) => {
 
 /* One page of the viewer's feed, newest first.
  *
- * The feed is the union of every organization the viewer has an APPROVED membership in —
- * which today is one parish, and is written as a set because it is about to be more than
- * one (a diocese contributing its parishes, and the planned follow feature contributing
- * people). A viewer with no approved memberships gets an empty page, not an error: they
- * are signed in and waiting on an admin, and the surface says so. */
-export const listFeed = async (viewer, { limit, cursor }) => {
-    const orgIds = await readableOrgIds(viewer.id)
+ * Scoped to one organization when `orgId` is given, and otherwise the union of every
+ * organization the viewer has an APPROVED membership in. The union is written as a set
+ * because it is about to be a wider one (a diocese contributing its parishes, and the
+ * planned follow feature contributing people). A viewer with no approved memberships gets
+ * an empty page, not an error: they are signed in and waiting on an admin, and the surface
+ * says so.
+ *
+ * **`orgId` is an id from the client, so it is checked and not trusted.**
+ * `requireMembership` is what makes it safe to interpolate into the query — without it the
+ * parameter would be a read of any parish in the system by anyone holding a session, which
+ * is the entire privacy boundary. It reports 404 for an organization the viewer was never
+ * approved into, so the filter cannot be used to probe which ids exist.
+ *
+ * The parameter is optional rather than required because the union is still the honest
+ * answer to "the viewer's feed", and keeping it reachable is what would let a future "All
+ * groups" entry in the switcher work with no change to this contract. The client always
+ * sends one today. */
+export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
+    if (orgId) await requireMembership(viewer.id, orgId)
+    const orgIds = orgId ? [orgId] : await readableOrgIds(viewer.id)
     if (orgIds.length === 0) return { items: [], nextCursor: null }
 
     const rows = await prisma.post.findMany({

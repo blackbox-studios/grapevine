@@ -9,6 +9,7 @@ import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import { ROLES } from "@/lib/constants"
 import { usePublish } from "@/lib/store/feed/hook"
+import { useCurrentOrg } from "@/lib/store/org/hook"
 
 /* The admin composer.
  *
@@ -21,7 +22,12 @@ import { usePublish } from "@/lib/store/feed/hook"
  *
  * Hidden from members by `<Privileged/>`. That is presentation only — the server runs
  * `requireMembership(..., { role: "ADMIN" })` before it writes anything, so a member who
- * calls the endpoint directly gets a 403 whether or not this button was ever rendered. */
+ * calls the endpoint directly gets a 403 whether or not this button was ever rendered.
+ *
+ * **The gate is per-group, and follows the switcher.** Someone who administers their parish
+ * and merely belongs to their diocese sees this in one and not the other, without signing
+ * out — which is the whole reason the role check takes an `orgId` rather than resolving
+ * against a single "primary" group. */
 
 /* Rotated through so repeated taps produce a readable feed rather than six identical
  * cards. Dimensions are the images' intrinsic size: the feed card reserves its
@@ -53,7 +59,7 @@ const EXAMPLES = [
 ]
 
 const ComposerButton = () => {
-    const { publish, group, loading, canPublish } = usePublish()
+    const { publish, org, loading, canPublish } = usePublish()
 
     /* Which example is next. A ref, not state: it must survive re-renders without causing
      * one, and nothing renders it. */
@@ -74,7 +80,7 @@ const ComposerButton = () => {
         <div className="mb-6 flex items-center gap-3 rounded-2xl border border-border/70 bg-card/40 p-4">
             <div className="flex min-w-0 flex-1 flex-col">
                 <span className="text-sm font-semibold text-foreground">
-                    Post to {group?.name ?? "your group"}
+                    Post to {org?.name ?? "your group"}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                     Publishes an example announcement to every approved member.
@@ -106,12 +112,17 @@ const ComposerButton = () => {
     )
 }
 
-/* Admin-only wrapper. A member renders nothing at all — they must not see an affordance
- * for a tier they cannot reach. */
-const Composer = () => (
-    <Privileged role={ROLES.ADMIN}>
-        <ComposerButton />
-    </Privileged>
-)
+/* Admin-only wrapper, resolved against the selected group. A member of that group renders
+ * nothing at all — they must not see an affordance for a tier they cannot reach — even if
+ * they administer a different one. */
+const Composer = () => {
+    const { orgId } = useCurrentOrg()
+
+    return (
+        <Privileged role={ROLES.ADMIN} orgId={orgId}>
+            <ComposerButton />
+        </Privileged>
+    )
+}
 
 export default Composer

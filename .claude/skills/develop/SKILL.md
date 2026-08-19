@@ -7,7 +7,9 @@ description: Core project rules, technology stack, coding guidelines, and archit
 
 This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app for Orthodox parishes and dioceses. Posts, comments, likes, and the viewer come over HTTP from a real `/api` backed by **Postgres on Supabase** through **Prisma**. The dashboard surface in the `app` store is the last thing without an endpoint.
 
-**It is invite-only and organization-scoped.** People belong to groups (a parish, a diocese) through a `Membership`, and a viewer's feed is the union of the groups they hold an **APPROVED** membership in — there is no unscoped read anywhere. Sign-in is an emailed one-time code with `shouldCreateUser: false`, so an address with no account can never be sent a code; provisioning is the only way in.
+**It is invite-only and organization-scoped.** People belong to groups (a parish, a diocese) through a `Membership`, and what a viewer may read is the union of the groups they hold an **APPROVED** membership in — there is no unscoped read anywhere. Sign-in is an emailed one-time code with `shouldCreateUser: false`, so an address with no account can never be sent a code; provisioning is the only way in.
+
+**One group is selected at a time.** The `org` store holds that selection and the group switcher changes it; the feed, the roster, and every admin control resolve against it, so a role is answered per-group rather than globally. In code a group is an **`org`**; in the interface it is always called a **Group**.
 
 ---
 
@@ -27,7 +29,7 @@ This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app
 
 ## Frontend
 
-**Everything but the dashboard is over the wire.** The `feed`, `post`, `comments`, `auth`, and `members` stores fetch from `/api` through `src/lib/api.js`, paginated, with optimistic writes. Only the `app` store is still in-session. All of them use the same store → hook → component layering, so moving a domain onto an endpoint is a store-level change.
+**Everything but the dashboard is over the wire.** The `feed`, `post`, `comments`, `auth`, and `members` stores fetch from `/api` through `src/lib/api.js`, paginated, with optimistic writes. Only the `app` store is still in-session, and `org` holds a selection rather than a resource and fetches nothing. All of them use the same store → hook → component layering, so moving a domain onto an endpoint is a store-level change.
 
 **Critical rules:**
 1. Read `frontend-architecture.md` before any frontend feature work, and `backend-architecture.md` before adding or changing an endpoint.

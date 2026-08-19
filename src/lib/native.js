@@ -23,12 +23,25 @@ export const platform = () => Capacitor.getPlatform()
 /* ------------------------------------------------------------------------- */
 
 /* A tactile tap for a confirmed user action — the like gesture uses it (on the like, not the
- * unlike). Fire-and-forget and safe to call from anywhere (a store action, an event handler):
- * it's a no-op off-device, so callers never branch on the platform, and any plugin rejection
- * (a device without a taptic engine, an OS that declines) is swallowed rather than surfaced. */
-export const haptic = () => {
+ * unlike), and the group switcher on every open and close. Fire-and-forget and safe to call
+ * from anywhere (a store action, an event handler): it's a no-op off-device, so callers
+ * never branch on the platform, and any plugin rejection (a device without a taptic engine,
+ * an OS that declines) is swallowed rather than surfaced.
+ *
+ * Weight is named rather than passed as an `ImpactStyle`, so nothing outside this file has
+ * to import a Capacitor symbol to ask for a softer tap. "medium" stays the default because
+ * it is what every existing caller means: a deliberate, consequential action. "light" is for
+ * chrome moving — a panel opening is worth confirming, but not with the same thump as
+ * committing to something. */
+const IMPACT = {
+    light: ImpactStyle.Light,
+    medium: ImpactStyle.Medium,
+    heavy: ImpactStyle.Heavy,
+}
+
+export const haptic = (weight = "medium") => {
     if (!isNative()) return
-    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {})
+    Haptics.impact({ style: IMPACT[weight] ?? ImpactStyle.Medium }).catch(() => {})
 }
 
 /* ------------------------------------------------------------------------- */

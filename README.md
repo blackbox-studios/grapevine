@@ -66,7 +66,7 @@ android/, ios/      Capacitor native projects (generated; hold a copy of out/)
 
 1. **Adjust seed data.** Edit `src/lib/metadata.js` to define your entities. Store hooks derive the app-visible shape, so most changes only touch that one file.
 2. **Swap the brand assets.** The logo/crest lives in `src/assets/svg/`. Replace those files to update the login artwork and sidebar mark.
-3. **Wire a real backend.** Replace `src/lib/mock.js`'s `mockDelay` with a `fetch`-based API client (or Prisma-backed route handlers), and swap store actions from in-memory mutations to real calls. The Zustand stores' shape (`loading`, `error`, `ready`, `refresh()`) already matches a networked implementation.
+3. **Wire a real backend.** Point store actions at a `fetch`-based API client (or Prisma-backed route handlers) instead of in-memory mutations. The Zustand stores' shape (`loading`, `error`, `ready`, `refresh()`) already matches a networked implementation.
 4. **Add real auth.** Have your login endpoint set an HTTP-only session cookie and point the gates in `src/components/AuthGate.jsx` at a real session check; their redirect logic stays unchanged.
 5. **Rename the app.** `capacitor.config.json` holds the native `appId` / `appName`.
 

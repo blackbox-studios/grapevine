@@ -45,7 +45,9 @@ export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS]
  * otherwise resolve in zero milliseconds and flash its skeleton. When that domain gets one,
  * this constant and `lib/mock.js` go with it.
  *
- * Stores that talk to the API must NOT add a floor of their own. */
+ * Stores that talk to the API must NOT add a floor of their own — and that rule got sharper
+ * once the API's own round trips were cut: a warm feed page now answers in a third of a
+ * second, so a floor there would be the slowest thing left in the request. */
 export const MOCK_LATENCY_MS = 1000
 
 /* ---------------------------------------------------------------------------

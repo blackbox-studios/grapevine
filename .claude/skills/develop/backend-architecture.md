@@ -305,13 +305,18 @@ Rules:
 
 ### Latency
 
-There is none to fake any more. The service layer's `mockDelay(MOCK_LATENCY_MS)` awaits
-went away with the mock corpus; every read is now a real query over a real connection.
+There is none to fake in the API. The service layer's `mockDelay(MOCK_LATENCY_MS)` awaits
+went away with the mock corpus; every read is now a real query over a real connection, and
+after the round-trip cuts above a warm feed page answers in about a third of a second.
 
 `MOCK_LATENCY_MS` still exists in `lib/constants.js` for exactly one consumer — the `app`
 store, whose dashboard surface has no endpoint yet and would otherwise resolve in zero
 milliseconds and flash its skeleton. When that domain gets one, the constant and
-`lib/mock.js` go with it.
+`lib/mock.js`'s `mockDelay` go with it.
+
+**A store with an endpoint must not add a floor.** That was true when a read took a second
+and it is more true now that one takes 0.3s: a floor would be the slowest thing in the
+request, and it would be spending the round trips this layer was just rewritten to save.
 
 > **Stores must still not add a floor of their own.** If a skeleton flashes because a query
 > is genuinely fast, that is a UI timing problem to solve in the transition, not a reason to
@@ -425,8 +430,37 @@ Two URLs, and the split is required rather than an optimization:
 
 | Var | Port | Used by | Why |
 |---|---|---|---|
-| `DATABASE_URL` | 6543 | the app at runtime | Supabase's transaction pooler. Serverless opens a connection per invocation; direct connections exhaust Postgres' limit under any real traffic. |
-| `DIRECT_URL` | 5432 | `prisma migrate` only | Migrate takes advisory locks and issues DDL, neither of which survives a pooler. Point migrations at 6543 and they hang or fail with prepared-statement errors. |
+| `DATABASE_URL` | 5432 | the app at runtime | Supabase's **session** pooler. One long-lived Node server with a bounded Prisma pool, so it gets prepared statements and one round trip per query. |
+| `DIRECT_URL` | 5432 | `prisma migrate` only | Migrate takes advisory locks and issues DDL, neither of which survives a transaction pooler. Point migrations at 6543 and they hang or fail with prepared-statement errors. |
+
+**Why not the transaction pooler (6543).** It hands out a connection per statement, so
+Prisma must disable named prepared statements (`?pgbouncer=true`) and wrap *every single
+query* in its own transaction: `BEGIN`, `DEALLOCATE ALL`, the `SELECT`, `COMMIT` — four
+round trips to run one. Measured on one page of comments: 23 statements / 1.28s through
+6543 against 8 statements / 0.59s through 5432, identical SQL. Session mode is correct
+here **because of how this deploys** — `next start`, one process. If this app ever moves
+to serverless functions or the edge, where each invocation opens its own connection, it
+must go back to 6543 with `?pgbouncer=true`; that is what transaction mode is for.
+
+### Round trips are the cost, not the SQL
+
+Every statement pays a full network round trip, and against a pooler in another region
+that is tens of milliseconds against a query that runs in under one. The rule that follows:
+**count statements, not query complexity.** Three things enforce it —
+
+- **`relationLoadStrategy: "join"`** (the `JOIN` constant in `posts.service.js`, enabled by
+  `previewFeatures = ["relationJoins"]`). Prisma's default issues one `SELECT` per
+  `include` and stitches the rows in the client — a feed page was six statements. `join`
+  compiles the same shape into one statement with lateral joins. Use it on any read that
+  fans out; a write's `include` is one row's relations and not worth the thought.
+- **The viewer snapshot.** `requireViewer` loads the Profile *and* its memberships in one
+  statement, and `requireMembership` / `membershipIn` / `readableOrgIds` / `getViewer` /
+  `listOrgs` all read it in memory. Nothing may re-query the viewer's own memberships.
+- **Local token verification** (`jose` against the project JWKS), so an authenticated read
+  makes no HTTP call to Supabase at all. See auth-architecture.md.
+
+Together those took a warm `/api/posts/:id/comments` from 1.9s to 0.44s, and `/api/feed`
+from 1.5s to 0.34s, on the same machine and the same data.
 
 ### Pagination is keyset, not offset
 

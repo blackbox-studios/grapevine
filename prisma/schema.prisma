@@ -64,13 +64,29 @@
 
 generator client {
   provider = "prisma-client-js"
+  // relationJoins lets a query opt into `relationLoadStrategy: "join"`, which resolves an
+  // `include` with lateral joins in one statement instead of one SELECT per relation.
+  // The services use it on the reads that fan out (the feed page, a comment page, the
+  // viewer + their memberships) — see the JOIN note in lib/server/posts.service.js.
+  // Postgres-only, which is what this project is.
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
   provider  = "postgresql"
-  // Pooled connection (Supabase transaction pooler, port 6543) for the app at runtime.
-  // Must carry `?pgbouncer=true` so Prisma disables named prepared statements, which
-  // do not survive a transaction-mode pooler.
+  // Pooled connection for the app at runtime — Supabase's **session** pooler, port 5432.
+  //
+  // Not the transaction pooler (6543), and the difference is worth real latency. Transaction
+  // mode hands out a connection per statement, so Prisma must disable named prepared
+  // statements (`?pgbouncer=true`) and bracket every single query in its own transaction:
+  // BEGIN, DEALLOCATE ALL, the SELECT, COMMIT — four round trips to run one. A page of
+  // comments measured 23 statements and 1.28s that way, against 8 statements and 0.59s on
+  // the session pooler, with identical SQL.
+  //
+  // Session mode is correct *because of how this app deploys*: one long-lived Node server
+  // (`next start`) with a bounded Prisma pool. If it ever moves to serverless functions or
+  // the edge, where every invocation opens its own connection, this must go back to 6543
+  // with `?pgbouncer=true` — that is what transaction mode is for.
   url       = env("DATABASE_URL")
   // Direct connection (port 5432) for migrations. Prisma Migrate takes advisory locks
   // and issues DDL, neither of which survives a transaction pooler, so it must bypass

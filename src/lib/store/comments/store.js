@@ -202,8 +202,11 @@ const useStore = create(immer((set, get) => ({
      * snapshot is the whole row *and its index*, so a failure puts it back where it was
      * rather than at the top of the thread, which is where a re-fetch would place it.
      *
-     * The success toast fires on the server's answer, not on the optimistic removal —
-     * saying "deleted" and then restoring the row a beat later would be a lie. */
+     * The toast is optimistic too, and deliberately so: it is the acknowledgement of the
+     * gesture, and arriving a round-trip after the row has already gone reads as a second,
+     * unrelated event. On failure it is dismissed by id rather than left to expire, so the
+     * restored row and the error toast are never accompanied by a toast still claiming the
+     * comment was deleted. */
     remove: async (commentId) => {
         const postId = get().post
         const index = get().items.findIndex(item => item.id === commentId)
@@ -215,11 +218,12 @@ const useStore = create(immer((set, get) => ({
 
         set(state => { state.items.splice(index, 1) })
         usePostStore.getState().bumpCommentCount(postId, -1)
+        const toastId = toast('Comment deleted')
 
         try {
             await api.delete(API_ENDPOINTS.COMMENT(commentId))
-            toast('Comment deleted')
         } catch (error) {
+            toast.dismiss(toastId)
             set(state => {
                 state.items.splice(index, 0, removed)
                 state.error.remove = toErrorList(error, 'Could not delete that comment.')

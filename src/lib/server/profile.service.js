@@ -4,7 +4,7 @@ import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
 import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { requireMembership } from "@/lib/server/auth"
+import { approvedMemberships, requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
 import { projectOrg, projectViewer } from "@/lib/server/projections"
 import { supabaseAdmin } from "@/lib/server/supabase"
@@ -27,25 +27,15 @@ import { supabaseAdmin } from "@/lib/server/supabase"
  * per app boot for information nobody reads at that resolution, so it is throttled. */
 const LAST_SEEN_THROTTLE_MS = 10 * 60 * 1000
 
-/* Memberships with their organizations.
+/* The viewer's own memberships are not queried here at all — `requireViewer` loads them
+ * with the profile (see `viewerMemberships` in `lib/server/auth.js`), every status, with
+ * each organization, already ordered APPROVED-first. Nothing in this file should ask the
+ * database for them again: the viewer probe, the Groups list, and every admin check read
+ * that one snapshot. `membershipsFor` used to live here and was the second and third round
+ * trip of a request that had already loaded the answer.
  *
- * `includeInactive` is the difference between "which groups is this person in" and "what
- * happened to this person". The viewer probe needs the second — a removed member whose
- * REVOKED row is filtered out looks identical to someone who was never in a parish at
- * all, and the app would show them the wrong screen. Every other caller wants the first.
- *
- * Ordered so the primary group is first: APPROVED before REVOKED, oldest first within
- * that, so the group someone has belonged to longest wins rather than whichever they were
- * most recently added to. */
-const membershipsFor = (profileId, { includeInactive = false } = {}) =>
-    prisma.membership.findMany({
-        where: {
-            profileId,
-            ...(includeInactive ? {} : { status: "APPROVED" }),
-        },
-        include: { org: true },
-        orderBy: [{ status: "asc" }, { admittedAt: "asc" }],
-    })
+ * The roster below is a different question — *other* people's memberships in one group —
+ * and that one is still a query. */
 
 /* Records that the viewer was here, at most once per throttle window.
  *
@@ -63,9 +53,10 @@ const touchProfile = (profile) => {
 /* The signed-in viewer, with every group they belong to and why they may or may not be
  * here. */
 export const getViewer = async (viewer) => {
-    const memberships = await membershipsFor(viewer.id, { includeInactive: true })
+    /* `requireViewer` already loaded these — every status, with its organization, in the
+     * order this needs — so the probe costs one statement rather than two. */
     touchProfile(viewer)
-    return projectViewer(viewer, memberships)
+    return projectViewer(viewer, viewer.memberships)
 }
 
 /* A client string checked against a generated Prisma enum, or `undefined` if absent.
@@ -215,8 +206,10 @@ export const completeOnboarding = async (viewer, { firstName, lastName, handle, 
             },
         })
 
-        const memberships = await membershipsFor(profile.id, { includeInactive: true })
-        return projectViewer(profile, memberships)
+        /* Naming yourself does not change which groups you are in, so the snapshot
+         * `requireViewer` loaded is still accurate — and re-reading it would be a round
+         * trip to learn nothing. */
+        return projectViewer(profile, viewer.memberships)
     } catch (error) {
         /* The unique constraint is the real arbiter of a handle, not the availability check
          * that ran while they typed — two people can pick the same name in the seconds
@@ -277,7 +270,7 @@ const projectMember = (membership) => ({
  * actually in the parish lead, and removed members settle at the bottom. Reordering those
  * values in the schema silently reorders this. */
 export const listMembers = async (viewer, orgId) => {
-    await requireMembership(viewer.id, orgId, { role: "ADMIN" })
+    requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const memberships = await prisma.membership.findMany({
         where: { orgId },
@@ -296,7 +289,7 @@ export const listMembers = async (viewer, orgId) => {
  * unnecessary — adding a key to an object is non-breaking, turning an array into one is
  * not. */
 export const listOrgs = async (viewer) => {
-    const memberships = await membershipsFor(viewer.id)
+    const memberships = approvedMemberships(viewer)
     return {
         items: memberships.map((membership) => projectOrg(membership.org, membership)),
         nextCursor: null,
@@ -444,7 +437,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
  * rather than aborting the rest — a priest pasting in thirty emails should not lose
  * twenty-nine of them to one typo. */
 export const inviteMembers = async (viewer, orgId, { emails, ...input }) => {
-    await requireMembership(viewer.id, orgId, { role: "ADMIN" })
+    requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const role = readEnum(OrgRole, input.role, "role") ?? "MEMBER"
     const vocation = readEnum(Vocation, input.vocation, "vocation") ?? "FAITHFUL"
@@ -504,7 +497,7 @@ export const updateMembership = async (viewer, membershipId, input) => {
     })
     if (!membership) throw notFound("Member not found.")
 
-    await requireMembership(viewer.id, membership.orgId, { role: "ADMIN" })
+    requireMembership(viewer, membership.orgId, { role: "ADMIN" })
 
     /* An admin cannot demote or remove themselves.
      *

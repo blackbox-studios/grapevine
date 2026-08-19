@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
-import { requireMembership, readableOrgIds } from "@/lib/server/auth"
+import { membershipIn, requireMembership, readableOrgIds } from "@/lib/server/auth"
 import { projectComment, projectPost } from "@/lib/server/projections"
 
 /* Posts and comments: all business logic and all data access.
@@ -41,6 +41,19 @@ const authorSelect = {
         select: { orgId: true },
     },
 }
+
+/* Load every relation in the query that asks for them, rather than one statement per
+ * relation.
+ *
+ * Prisma's default strategy issues a separate SELECT for each `include` and stitches the
+ * rows together in the client — six statements for one page of the feed, each paying a
+ * full round trip to the pooler. `join` compiles the same shape into one statement with
+ * lateral joins. It is a Postgres-only strategy, which this project is, and it needs the
+ * `relationJoins` preview feature in schema.prisma.
+ *
+ * Applied to reads that fan out. A write's `include` is one row's relations and not worth
+ * thinking about either way — those are left on the default. */
+const JOIN = { relationLoadStrategy: "join" }
 
 /* The relations every post projection needs. Declared once so the feed, the detail
  * fetch, and a freshly-created post cannot drift into returning different shapes for the
@@ -119,17 +132,15 @@ const likedByNames = async (postIds, viewerId) => {
  * A post in an organization the viewer has no APPROVED membership in reports 404 rather
  * than 403 — the same reasoning as `requireMembership`: confirming the post exists would
  * leak the contents of a parish the viewer was never admitted to. */
-const loadReadablePost = async (viewerId, postId, { include } = {}) => {
+const loadReadablePost = async (viewer, postId, { include } = {}) => {
     const post = await prisma.post.findFirst({
         where: { id: postId, deletedAt: null },
-        ...(include ? { include } : {}),
+        ...(include ? { ...JOIN, include } : {}),
     })
     if (!post) throw notFound("Post not found.")
 
-    const membership = await prisma.membership.findUnique({
-        where: { profileId_orgId: { profileId: viewerId, orgId: post.orgId } },
-        select: { status: true, role: true },
-    })
+    /* From the viewer `requireViewer` already loaded, not a second query. */
+    const membership = membershipIn(viewer, post.orgId)
     if (membership?.status !== "APPROVED") throw notFound("Post not found.")
 
     return { post, membership }
@@ -168,8 +179,8 @@ const canDeleteComment = (viewerId, membership, comment) =>
  * groups" entry in the switcher work with no change to this contract. The client always
  * sends one today. */
 export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
-    if (orgId) await requireMembership(viewer.id, orgId)
-    const orgIds = orgId ? [orgId] : await readableOrgIds(viewer.id)
+    if (orgId) requireMembership(viewer, orgId)
+    const orgIds = orgId ? [orgId] : readableOrgIds(viewer)
     if (orgIds.length === 0) return { items: [], nextCursor: null }
 
     const rows = await prisma.post.findMany({
@@ -177,6 +188,7 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
         orderBy: keysetOrder("desc"),
         take: limit + 1,
         include: postInclude(viewer.id),
+        ...JOIN,
     })
 
     /* Resolve social proof for the page only — after the slice, so the extra
@@ -202,7 +214,7 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
  * is what the static export requires. See native-architecture.md → Dynamic routes at
  * scale. */
 export const getPost = async (viewer, postId) => {
-    const { post } = await loadReadablePost(viewer.id, postId, {
+    const { post } = await loadReadablePost(viewer, postId, {
         include: postInclude(viewer.id),
     })
 
@@ -234,13 +246,14 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
      * commenters wear the admin check, and the membership that authorized it decides which
      * rows the viewer may delete. Both are carried into the projection rather than
      * re-queried per comment. */
-    const { post, membership } = await loadReadablePost(viewer.id, postId)
+    const { post, membership } = await loadReadablePost(viewer, postId)
 
     const own = await prisma.comment.findMany({
         where: { postId, authorId: viewer.id, deletedAt: null },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: PINNED_OWN_COMMENTS,
         include: commentInclude(viewer.id),
+        ...JOIN,
     })
     const pinnedIds = own.map((comment) => comment.id)
 
@@ -254,6 +267,7 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
         orderBy: keysetOrder("asc"),
         take: limit + 1,
         include: commentInclude(viewer.id),
+        ...JOIN,
     })
 
     const project = (comment) =>
@@ -283,7 +297,7 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
  * Media is written in the same call so a post is never briefly visible without its
  * photos. `position` is assigned from array order, which is the carousel's order. */
 export const createPost = async (viewer, { orgId, title, body, media = [] }) => {
-    await requireMembership(viewer.id, orgId, { role: "ADMIN" })
+    requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const text = String(body ?? "").trim()
     if (!text) throw invalid("Post body is required.", { body: "Required" })
@@ -333,7 +347,7 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
  * `$transaction(async tx => ...)` only when a later statement genuinely depends on an
  * earlier one's return value. */
 export const togglePostLike = async (viewer, postId) => {
-    await loadReadablePost(viewer.id, postId)
+    await loadReadablePost(viewer, postId)
 
     const key = { profileId_postId: { profileId: viewer.id, postId } }
     const existing = await prisma.postLike.findUnique({ where: key })
@@ -389,7 +403,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
     })
     if (!comment) throw notFound("Comment not found.")
 
-    await loadReadablePost(viewer.id, comment.postId)
+    await loadReadablePost(viewer, comment.postId)
 
     const key = { profileId_commentId: { profileId: viewer.id, commentId } }
     const existing = await prisma.commentLike.findUnique({ where: key })
@@ -448,7 +462,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
  * created resource returned here is the authoritative row the client swaps its optimistic
  * one for. The post's tally moves in the same transaction as the insert. */
 export const addComment = async (viewer, postId, text) => {
-    const { post } = await loadReadablePost(viewer.id, postId)
+    const { post } = await loadReadablePost(viewer, postId)
 
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
@@ -489,7 +503,7 @@ export const deleteComment = async (viewer, commentId) => {
     /* Readability is the parent post's, so this is also what resolves the viewer's role in
      * the group — and it 404s first for a post they may not read, so an outsider cannot
      * learn a comment id exists by being refused. */
-    const { membership } = await loadReadablePost(viewer.id, comment.postId)
+    const { membership } = await loadReadablePost(viewer, comment.postId)
 
     if (!canDeleteComment(viewer.id, membership, comment)) {
         throw forbidden("You can only delete your own comments.")

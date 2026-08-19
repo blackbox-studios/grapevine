@@ -181,8 +181,9 @@ an endpoint. Two things from it that bite here:
 - **Every request carries a bearer token.** `lib/api.js` reads the Supabase access token
   per request and sends `Authorization: Bearer …`; a 401 signs the app out. Stores do not
   think about auth at all.
-- **No latency floor.** Reads hit Postgres now. Stores must **not** race a `mockDelay` floor
-  of their own (see the store template below).
+- **No latency floor on anything API-backed.** Reads hit Postgres now, and a warm feed page
+  answers in ~0.3s. Stores must **not** race a `mockDelay` floor of their own (see the store
+  template below). The one floor left is the `app` store's, which has no endpoint to wait on.
 
 All routes and endpoints live in `lib/constants.js`. Parameterized paths are functions, so
 no caller ever builds a URL by hand:

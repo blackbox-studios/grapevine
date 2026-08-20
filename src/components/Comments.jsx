@@ -244,6 +244,27 @@ const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
                 align="start"
                 side="bottom"
                 sideOffset={4}
+                /* **Focus leaving this menu is not a dismissal, inside the drawer.**
+                 *
+                 * The hold opens the menu mid-gesture, and Radix moves focus into it. When the
+                 * finger lifts, the compatibility mousedown a touch screen emits lands on a
+                 * plain div and Chrome blurs whatever was focused — so the menu loses focus
+                 * with nothing to hand it to. On the post page that is the end of it. Inside
+                 * the comments drawer it is not: the drawer is a modal Radix dialog with a
+                 * focus trap, the trap sees focus go nowhere and pulls it back to the drawer
+                 * surface, and that focusin lands outside this menu, which reads it as an
+                 * interaction elsewhere and closes. The blur fades in and reverses, ~50ms
+                 * after the haptic said the hold took.
+                 *
+                 * Which is why the same code was right on iOS and wrong on Android: WebKit
+                 * does not move focus on a tap on a non-focusable element, so nothing is ever
+                 * blurred and the trap never fires. Chrome does, so it does — and the drawer is
+                 * the only surface here with a trap to fire.
+                 *
+                 * Declining the focus half only. `onPointerDownOutside` is untouched, so a tap
+                 * on the scrim still dismisses; the menu simply stops treating the trap's own
+                 * housekeeping as the reader's decision. */
+                onFocusOutside={(event) => event.preventDefault()}
                 /* The menu is the one thing the blur must not take. */
                 className={cn(ABOVE_LENS, "w-auto min-w-40 gap-0 rounded-3xl p-1.5")}
             >

@@ -81,8 +81,13 @@ export const API_ENDPOINTS = {
     ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
     MEMBERSHIP: (membershipId) => `/memberships/${membershipId}`,
     FEED: "/feed",
+    /* Where the client asks for permission to upload a file. Answers with a short-lived
+     * signed upload URL, which the browser then sends the bytes to directly — see
+     * `lib/store/uploads/store.js`. */
+    UPLOADS: "/uploads",
     /* Collection root — POST here to publish (admin only). */
     POSTS: "/posts",
+    /* GET for detail; DELETE to remove it (admin of the post's group). */
     POST: (postId) => `/posts/${postId}`,
     POST_COMMENTS: (postId) => `/posts/${postId}/comments`,
     POST_LIKES: (postId) => `/posts/${postId}/likes`,
@@ -96,6 +101,57 @@ export const PAGE_SIZE = {
     FEED: 5,
     COMMENTS: 8,
 }
+
+/* ---------------------------------------------------------------------------
+ * Uploads
+ *
+ * Shared by both halves on purpose — the picker enforces these so a file that cannot
+ * possibly be accepted is rejected before a byte leaves the device, and
+ * `lib/server/uploads.service.js` enforces them again because the client is not a
+ * control. Unlike ERROR_CODES these are one object read from both sides rather than two
+ * copies, because there is nothing here the wire needs to keep stable independently.
+ * ------------------------------------------------------------------------- */
+
+/* What a file is being uploaded *for*, which is what decides where it lands and who may
+ * ask. A purpose rather than a caller-supplied path: a client that named its own path
+ * could write into another group's folder, or overwrite an existing object. */
+export const UPLOAD_PURPOSES = {
+    /* A photo on a post. Requires ADMIN of the target group, and lands under it. */
+    POST_MEDIA: "POST_MEDIA",
+    /* The viewer's own profile picture. Requires nothing beyond being signed in. */
+    AVATAR: "AVATAR",
+}
+
+/* What the file picker accepts and the server admits.
+ *
+ * HEIC is on the list because that is what an iPhone hands over, and it is *not* a problem
+ * for the canvas re-encode on iOS (WebKit decodes it) — on Android the picker never
+ * produces one. Everything is re-encoded to WebP client-side before it is sent, so the mime
+ * type that actually reaches storage is almost always `image/webp`; the rest of the list is
+ * what the re-encoder is allowed to read. */
+export const IMAGE_MIME_TYPES = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/heic",
+    "image/heif",
+]
+
+/* The ceiling on a single upload, checked against the file the browser is about to send —
+ * i.e. after the re-encode, not before. A 12MP phone photo lands well under this once it has
+ * been scaled to IMAGE_MAX_DIMENSION and re-encoded, so hitting it means something is wrong
+ * rather than merely large. */
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+/* The longest edge a photo is scaled down to before upload. Twice the widest column the app
+ * ever renders one in, so it still has a retina's worth of detail, and small enough that a
+ * parish on a phone connection is not uploading 6MB per photo. */
+export const IMAGE_MAX_DIMENSION = 2048
+
+/* How many photos one post may carry. The carousel is the only thing that renders more than
+ * one, and past this a reader is scrolling rather than looking. */
+export const MAX_POST_IMAGES = 10
 
 /* How many digits the emailed sign-in code has.
  *

@@ -1,13 +1,15 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 
+import HoldMenu from "@/components/HoldMenu"
 import Icon from "@/components/Icon"
+import { PostMenuTrigger } from "@/components/PostMenu"
+import { Reflow, useReflowMotion } from "@/components/Reflow"
 import Transition from "@/components/Transition"
-import FocusLens, { ABOVE_LENS } from "@/components/FocusLens"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
-import { Avatar } from "@/components/Widgets"
+import { Avatar, ConfirmDialog } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -15,71 +17,21 @@ import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import More from "@/assets/svg/icons/more.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import {
     Drawer,
     DrawerContent,
     DrawerHeader,
     DrawerTitle,
 } from "@/components/ui/drawer"
-import {
-    Popover,
-    PopoverAnchor,
-    PopoverContent,
-} from "@/components/ui/popover"
-import { Button } from "@/components/ui/button"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { useLongPress } from "@/lib/hooks/useLongPress.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useComments } from "@/lib/store/comments/hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
+import { ROW_SPRING, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
 /* -------------------------------------------------------------------------- */
-
-/* A spring, not a duration: a row travels however tall the new comment turns out to be,
- * and a fixed duration reads as hurried at one line and sluggish at six. */
-const ROW_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
-
-/* Confirmation for a delete on a pointer device. Its own component so the row's markup
- * stays about the comment, and because only the desktop path asks a question — the mobile
- * one holds to reveal a single destructive item, and that hold *is* the deliberate act a
- * dialog would otherwise be asking for. */
-const DeleteCommentDialog = ({ open, onOpenChange, onConfirm }) => (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-sm" showCloseButton={false}>
-            <DialogHeader>
-                <DialogTitle>Delete comment?</DialogTitle>
-                <DialogDescription>
-                    This removes it from the thread for everyone. It cannot be undone.
-                </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-                <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                    Cancel
-                </Button>
-                <Button
-                    variant="destructive"
-                    onClick={() => {
-                        onOpenChange(false)
-                        onConfirm()
-                    }}
-                >
-                    Delete
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-)
 
 /* A single comment: author + relative time, body, and the like meter (heart
  * toggle + tally) in the right column.
@@ -100,36 +52,22 @@ const DeleteCommentDialog = ({ open, onOpenChange, onConfirm }) => (
  * `canDelete` is the server's answer (own comment, or an admin of the post's group), so
  * this only ever decides *how* to offer the action, never *whether* the viewer may.
  *
- * **A held row is drawn twice.** `<FocusLens/>` blurs the entire viewport and redraws this
- * row on top of it at its measured box, because nothing inside a Vaul drawer can be raised
- * above a viewport-wide scrim — read the widget for why. So the content is a variable used
- * in both places, and the real row hides itself while the copy stands in for it. */
+ * The hold, the blur, the copy of the row drawn on top of it, and the menu anchored to it
+ * are all `<HoldMenu/>` — read that component for why the row's content is rendered twice. */
 const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
     const { author, text, createdAt, likes, liked, pending, canDelete } = comment
-    const reduceMotion = useReducedMotion()
     const isDesktop = useIsDesktop()
-    const [menuOpen, setMenuOpen] = useState(false)
     const [confirming, setConfirming] = useState(false)
-    /* Where the row sits in the viewport, sampled at the moment of the press — which is the
-     * only moment it can be, since the lens draws its copy in viewport coordinates. */
-    const [rect, setRect] = useState(null)
-    const rowRef = useRef(null)
+    /* HoldMenu owns this row's element, so the list motion is handed to it rather than
+     * applied here. Same values the composer's photo strip uses — see components/Reflow.jsx. */
+    const reflow = useReflowMotion()
 
     /* An optimistic row has no server id to delete by, so it carries no affordance until
      * the create it is standing in for comes back. */
     const deletable = Boolean(canDelete) && !pending
-    const held = useLongPress(
-        () => {
-            if (!rowRef.current) return
-            setRect(rowRef.current.getBoundingClientRect())
-            setMenuOpen(true)
-        },
-        { enabled: deletable && !isDesktop },
-    )
 
-    /* Both are open/closed React state rather than a URL, so Android's back gesture has
-     * nothing to unwind and would close the app from on top of them. */
-    useBackHandler(menuOpen, () => setMenuOpen(false))
+    /* React state rather than a URL, so Android's back gesture has nothing to unwind and
+     * would close the app from on top of it. (HoldMenu claims the gesture for its own menu.) */
     useBackHandler(confirming, () => setConfirming(false))
 
     const content = (
@@ -194,99 +132,32 @@ const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
     )
 
     return (
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-            <PopoverAnchor asChild>
-                {/* A comment the server hasn't confirmed yet reads as in-flight rather than
-                  * settled, and can't be liked — it has no server id to like. That dimming
-                  * is an animated target rather than a class, so confirmation fades it up
-                  * instead of snapping.
-                  *
-                  * Held, it drops to fully transparent but keeps its place in the thread:
-                  * the lens is drawing this row at these exact coordinates, and the copy has
-                  * to be the only one of the two that is visible. */}
-                <motion.div
-                    ref={rowRef}
-                    layout={reduceMotion ? false : "position"}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: menuOpen ? 0 : pending ? 0.6 : 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ ...ROW_SPRING, opacity: { duration: 0.2, ease: "easeInOut" } }}
-                    {...held}
-                    className={cn(
-                        "group flex items-start gap-3 px-4 py-2.5",
-                        /* A hold on a paragraph is otherwise the WebView's gesture for
-                          * selecting it, and the selection callout lands on top of the
-                          * popover. Only rows that actually take the hold give it up. */
-                        deletable && !isDesktop && "select-none",
-                    )}
-                >
-                    {content}
-                </motion.div>
-            </PopoverAnchor>
-
-            {/* The rest of the screen goes soft and this row does not. Anchored by the real
-              * row's box, so the copy lands precisely where the reader pressed rather than
-              * animating in from somewhere. */}
-            <FocusLens active={menuOpen} rect={rect}>
-                <div className="flex items-start gap-3 bg-muted px-4 py-2.5 shadow-lg">
-                    {content}
-                </div>
-            </FocusLens>
-
-            {/* Anchored to the row rather than floating in the middle of the sheet, the way a
-              * held-item menu reads on a phone — it has to stay visibly attached to the thing
-              * being acted on. Offset clear of the row instead of over it, because the row is
-              * highlighted to show what the Delete would apply to and a menu covering that
-              * text hides the very thing the reader is confirming. One item, and it is the
-              * destructive one: there is nothing else to do to a comment from here, so a menu
-              * of one is the whole question. */}
-            <PopoverContent
-                align="start"
-                side="bottom"
-                sideOffset={4}
-                /* **Focus leaving this menu is not a dismissal, inside the drawer.**
-                 *
-                 * The hold opens the menu mid-gesture, and Radix moves focus into it. When the
-                 * finger lifts, the compatibility mousedown a touch screen emits lands on a
-                 * plain div and Chrome blurs whatever was focused — so the menu loses focus
-                 * with nothing to hand it to. On the post page that is the end of it. Inside
-                 * the comments drawer it is not: the drawer is a modal Radix dialog with a
-                 * focus trap, the trap sees focus go nowhere and pulls it back to the drawer
-                 * surface, and that focusin lands outside this menu, which reads it as an
-                 * interaction elsewhere and closes. The blur fades in and reverses, ~50ms
-                 * after the haptic said the hold took.
-                 *
-                 * Which is why the same code was right on iOS and wrong on Android: WebKit
-                 * does not move focus on a tap on a non-focusable element, so nothing is ever
-                 * blurred and the trap never fires. Chrome does, so it does — and the drawer is
-                 * the only surface here with a trap to fire.
-                 *
-                 * Declining the focus half only. `onPointerDownOutside` is untouched, so a tap
-                 * on the scrim still dismisses; the menu simply stops treating the trap's own
-                 * housekeeping as the reader's decision. */
-                onFocusOutside={(event) => event.preventDefault()}
-                /* The menu is the one thing the blur must not take. */
-                className={cn(ABOVE_LENS, "w-auto min-w-40 gap-0 rounded-3xl p-1.5")}
+        <>
+            {/* A comment the server hasn't confirmed yet reads as in-flight rather than
+              * settled, and can't be liked — it has no server id to like. That dimming is an
+              * animated target rather than a class, so confirmation fades it up instead of
+              * snapping, and it is HoldMenu's `opacity` because the hold has to override it.
+              *
+              * One item in the menu, and it is the destructive one: there is nothing else to
+              * do to a comment from here, so a menu of one is the whole question. */}
+            <HoldMenu
+                enabled={deletable && !isDesktop}
+                items={[{ label: "Delete", icon: "delete", destructive: true, onSelect: onDelete }]}
+                opacity={pending ? 0.6 : 1}
+                motionProps={reflow}
+                className="group flex items-start gap-3 px-4 py-2.5"
             >
-                <button
-                    type="button"
-                    onClick={() => {
-                        setMenuOpen(false)
-                        onDelete()
-                    }}
-                    className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium text-destructive transition-colors hover:bg-destructive/10"
-                >
-                    <Icon size="md">delete</Icon>
-                    Delete
-                </button>
-            </PopoverContent>
+                {content}
+            </HoldMenu>
 
-            <DeleteCommentDialog
+            <ConfirmDialog
                 open={confirming}
                 onOpenChange={setConfirming}
+                title="Delete comment?"
+                description="This removes it from the thread for everyone. It cannot be undone."
                 onConfirm={onDelete}
             />
-        </Popover>
+        </>
     )
 }
 
@@ -310,10 +181,9 @@ const NoComments = () => (
  * is an optional pinned node (the post caption on desktop). Presentational: all
  * data/actions come from the owning body via props.
  *
- * The rows get their own `AnimatePresence` so a new comment fades in at the top while the
- * thread below it — the "load more" button included — glides down. `initial={false}` keeps
- * the first paint quiet; `popLayout` pulls a leaving row out of the flow as it starts to
- * fade, so the thread closes over it rather than snapping shut afterwards.
+ * The rows sit in a `<Reflow/>` so a new comment fades in at the top while the thread below
+ * it — the "load more" button included — glides down, and a deleted one is closed over
+ * rather than snapped shut afterwards. See that component for what it is doing and why.
  *
  * Keyed on `localId ?? id`: an optimistic comment is swapped for the server's row under a
  * new id, and keying on `id` would replay the row's entrance on confirmation. */
@@ -325,9 +195,10 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
             </Transition>
         ) : (
             <Transition fast key="content">
-                <div className="flex flex-col py-2">
+                {/* `relative` is <Reflow/>'s requirement — read that component. */}
+                <div className="relative flex flex-col py-2">
                     {header}
-                    <AnimatePresence initial={false} mode="popLayout">
+                    <Reflow>
                         {comments.length === 0 ? (
                             <NoComments key="empty" />
                         ) : (
@@ -341,7 +212,7 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
                                 />
                             ))
                         )}
-                    </AnimatePresence>
+                    </Reflow>
                     {hasMore && (
                         <motion.button
                             layout="position"
@@ -421,8 +292,8 @@ const DrawerBody = ({ post }) => {
         /* KeyboardAwareColumn keeps the composer on top of the on-screen keyboard: the
          * thread (the scroll region) yields the room, the composer rides up. */
         <KeyboardAwareColumn>
-            <DrawerHeader className="shrink-0 border-b py-3.5">
-                <DrawerTitle className="text-center text-base font-semibold">
+            <DrawerHeader className="shrink-0 border-b pt-3 pb-4">
+                <DrawerTitle className="text-center font-semibold">
                     Comments
                 </DrawerTitle>
             </DrawerHeader>
@@ -479,7 +350,7 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => {
  * post surface — the desktop dialog's right rail and the mobile sheet, both in
  * `PostView` (`/p/:id`) — pass a `className` (e.g. `flex-1`) to size it inside its
  * parent. */
-export const CommentsPanel = ({ post, className }) => {
+export const CommentsPanel = ({ post, dismiss, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, remove, viewer } =
         useComments(post.id)
     const now = useNow()
@@ -508,13 +379,9 @@ export const CommentsPanel = ({ post, className }) => {
                         verified
                     </Icon>
                 )}
-                <button
-                    type="button"
-                    aria-label="Post options"
-                    className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-                >
-                    <Icon>more_horiz</Icon>
-                </button>
+                {/* Deleting from here takes the dialog with it — `dismiss` is why this
+                  * surface's copy of the menu is not the same instance as the feed card's. */}
+                <PostMenuTrigger post={post} dismiss={dismiss} className="ml-auto" />
             </header>
 
             <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-gutter-stable">

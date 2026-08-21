@@ -162,13 +162,17 @@ const useStore = create(immer((set, get) => ({
      * carries the real id, the server's timestamp, and the author it stamped. A failure
      * removes the row and parks the error.
      *
-     * The target must be the group on screen. It always is — the composer publishes into
-     * the selection — but the list is scoped now, so an insert into any other group would
-     * put a post in a feed that does not contain it and would vanish on the next refresh. */
+     * **Only when the target is the group on screen.** The composer lets an admin of two
+     * parishes publish into whichever they choose, which need not be the one they are
+     * reading — and this list is scoped, so inserting a post into a feed that does not
+     * contain it would show a row that vanishes on the next refresh. So the optimistic row
+     * is conditional, and `usePublish` selects the target group afterwards: the feed reloads
+     * on that group and the new post is simply at the top of it, a beat later than it would
+     * have appeared but genuinely there. */
     publish: async ({ orgId, title, body, media = [] }) => {
         if (!orgId || !body?.trim()) return null
-        if (get().orgId !== orgId) return null
 
+        const optimistic = get().orgId === orgId
         const user = useAuthStore.getState().user
         const tempId = mockId('pending')
         /* The group's display name, resolved from the viewer's own memberships rather than
@@ -179,6 +183,7 @@ const useStore = create(immer((set, get) => ({
         set(state => {
             state.loading.publish = true
             state.error.publish = false
+            if (!optimistic) return
             state.items.unshift({
                 id: tempId,
                 localId: tempId,
@@ -213,6 +218,10 @@ const useStore = create(immer((set, get) => ({
                 likedBy: null,
                 comments: 0,
                 liked: false,
+                /* Publishing requires ADMIN of this group, and deleting requires the same
+                 * role — so the answer is known here without asking, and the optimistic row
+                 * offers the same options menu the confirmed one will. */
+                canDelete: true,
                 pending: true,
             })
         })
@@ -254,6 +263,32 @@ const useStore = create(immer((set, get) => ({
     patchPost: (postId, patch) => set(state => {
         const row = state.items.find(post => post.id === postId)
         if (row) Object.assign(row, patch)
+    }),
+
+    /* Takes a post out of the loaded pages, and hands back what it removed so the caller can
+     * put it back. The third of this store's surface to the `post` store, alongside
+     * `cachedPost` and `patchPost`, and the reason it is shaped this way rather than as a
+     * plain delete: a failed removal has to restore the row *at its index*, which is where a
+     * reader last saw it and not where a refresh would place it.
+     *
+     * Returns `{ row, index }`, or null if this page doesn't hold the post — which is a
+     * normal outcome, not a failure: a post opened from a shared link has no feed behind it.
+     *
+     * The delete itself lives in the `post` store, which owns writes to a post that already
+     * exists. This is only the list's half of it. */
+    removePost: (postId) => {
+        const index = get().items.findIndex(post => post.id === postId)
+        if (index === -1) return null
+
+        const row = get().items[index]
+        set(state => { state.items.splice(index, 1) })
+        return { row, index }
+    },
+
+    /* Puts a removed row back where it was. Only ever called with what `removePost`
+     * returned. */
+    restorePost: (index, row) => set(state => {
+        state.items.splice(index, 0, row)
     }),
 
     reset: () => set(() => ({ ...INIT })),

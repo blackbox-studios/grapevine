@@ -47,3 +47,21 @@ export const usePostLike = () => {
 
     return useMemo(() => ({ toggleLike }), [toggleLike])
 }
+
+/* Deleting, for the options menu — which is rendered on every surface a post appears on and
+ * owns the post no more than the heart does. Same reasoning as `usePostLike`: the action
+ * belongs to the store that owns the entity, and every surface reaches for the same one so
+ * the feed's card and the open overlay cannot disagree about whether a post still exists.
+ *
+ * `dismiss` is passed through to the store rather than run here, because the surface has to
+ * close *with* the removal and not a round trip after it. Omit it from the feed card, where
+ * there is nothing to close. */
+export const usePostDelete = () => {
+    const removePost = usePostStore(state => state.remove)
+    const remove = useCallback(
+        (postId, dismiss) => removePost(postId, dismiss),
+        [removePost],
+    )
+
+    return useMemo(() => ({ remove }), [remove])
+}

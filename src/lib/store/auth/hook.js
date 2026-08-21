@@ -271,3 +271,22 @@ export const usePrivileged = (role = ROLES.ADMIN, orgId) => {
         return (ROLE_LEVEL[current] ?? 0) >= (ROLE_LEVEL[role] ?? 0)
     }, [current, role])
 }
+
+/* Whether the viewer meets `role` in **any** group they belong to.
+ *
+ * A different question from `usePrivileged`, not a convenience over it, and the two must not
+ * be confused. That one answers "may I act *here*", which is what every control inside a
+ * group asks. This answers "does this capability exist for me at all", which is what an
+ * entrance asks — the compose button lives in the app's chrome, above the group switcher, and
+ * an admin of one parish reading their diocese should still see it. What they then post
+ * *into* is the composer's own question, and it is asked again per group at publish time.
+ *
+ * Reach for this only for an affordance that is genuinely outside a group's scope. Anything
+ * rendered within one wants `usePrivileged(role, orgId)`. */
+export const usePrivilegedAnywhere = (role = ROLES.ADMIN) => {
+    return useAuthStore(state =>
+        (state.user?.orgs ?? []).some(
+            org => (ROLE_LEVEL[org.role] ?? 0) >= (ROLE_LEVEL[role] ?? 0),
+        ),
+    )
+}

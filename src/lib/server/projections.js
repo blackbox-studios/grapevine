@@ -112,13 +112,23 @@ const projectMedia = (media = []) => {
  * block is — the card writes it with `displayName()` so the person who liked a post is
  * addressed exactly as they are in their own byline.
  *
+ * `canDelete` is whether this viewer may remove the post — ADMIN of the group it belongs
+ * to, and only that (see `canDeletePost`). Composed here for the same reason a comment's is:
+ * a rule the client re-derives can disagree with the one the server enforces, and the answer
+ * is per-group, so a page of posts can carry both answers at once. Defaults false, the safe
+ * answer. It is also what decides whether the options menu appears at all — a menu with
+ * nothing in it must not be offered.
+ *
  * The owning organization goes over as both `orgId` and `orgName` because the two answer
  * different questions and only one of them is a label. `orgName` is what the card prints;
  * `orgId` is what a surface resolves the viewer's role against, which matters because a
  * post can belong to a group other than the one currently selected — a shared link opens
  * by id, so the detail surface has to ask "am I an admin *here*" rather than assume the
  * switcher's answer. */
-export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
+export const projectPost = (
+    post,
+    { liked = false, likedBy = null, canDelete = false } = {},
+) => ({
     id: post.id,
     author: projectAuthor(post.author, post.orgId),
     orgId: post.orgId,
@@ -131,6 +141,7 @@ export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
     comments: post.commentCount,
     liked,
     likedBy,
+    canDelete,
 })
 
 /* A comment in an open thread. `text`, not `body` — the client has always called it that,

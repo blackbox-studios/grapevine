@@ -8,6 +8,8 @@ import Carousel from "@/components/Carousel"
 import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
+import { PostMenuTrigger } from "@/components/PostMenu"
+import { Reflow, ReflowItem } from "@/components/Reflow"
 import { Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -20,7 +22,7 @@ import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
+import { CARD_SPRING, appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
@@ -140,13 +142,7 @@ const PostCard = ({ post }) => {
                         </span>
                     )}
                 </div>
-                <button
-                    type="button"
-                    aria-label="Post options"
-                    className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
-                >
-                    <Icon>more_horiz</Icon>
-                </button>
+                <PostMenuTrigger post={post} className="ml-auto" />
             </header>
 
             {post.title && (
@@ -297,28 +293,49 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
     useInfiniteScroll(onLoadMore, { enabled: hasMore })
 
     return (
-        <div className="flex flex-col">
-            {posts.map((post) => (
-                /* `initial`/`animate` only run when a node first mounts, so appended pages fade
-                 * in while the rows already on screen stay put — React keeps their motion state
-                 * across the re-render. The whole first page mounts together and fades in as one. */
-                <motion.div
-                    key={post.localId ?? post.id}
-                    initial={{ opacity: 0 }}
-                    /* A just-published post is on screen before the server has confirmed
-                     * it, so it renders dimmed and inert until the created resource
-                     * replaces it — nothing should be likeable or openable while it still
-                     * has a temporary id. */
-                    animate={{ opacity: post.pending ? 0.5 : 1 }}
-                    transition={{ duration: 0.35, ease: "easeOut" }}
-                    className={cn("py-6 first:pt-0", post.pending && "pointer-events-none")}
-                >
-                    <PostCard post={post} />
-                </motion.div>
-            ))}
+        /* `relative` is <Reflow/>'s requirement, not decoration — read that component.
+         *
+         * **`-mt-6` cancels the first card's top padding, and it is here rather than on the
+         * card because `first:pt-0` was a bug.** A CSS positional selector answers to *DOM*
+         * order, and a card being removed stays in the DOM for the length of its exit — so
+         * `:first-child` still matched the departing card the whole way through, and only
+         * handed over on the frame it unmounted. The column travelled smoothly and then
+         * snapped 24px upward at the end, because the new first card lost its top padding in
+         * one frame with nothing animating it. Every card now carries identical padding and
+         * the offset is a constant on the container, so nothing about an item's spacing
+         * depends on where it sits. */
+        <div className="relative -mt-6 flex flex-col">
+            {/* Publishing and deleting both change what is in this list while the reader is
+                looking at it, so the cards below have to travel rather than jump: a new post
+                arrives at the top and everything eases down around it, a deleted one is lifted
+                out and the column closes over the gap. Same component as the comment thread,
+                on the softer of its two springs — a spring settles in about the same time
+                whatever the distance, so the one tuned for a comment row would cover a whole
+                post card in the same instant and read as the snap it is meant to replace. */}
+            <Reflow>
+                {posts.map((post) => (
+                    <ReflowItem
+                        key={post.localId ?? post.id}
+                        spring={CARD_SPRING}
+                        /* A just-published post is on screen before the server has confirmed
+                         * it, so it rests dimmed and inert until the created resource replaces
+                         * it — nothing should be likeable or openable while it still has a
+                         * temporary id. */
+                        opacity={post.pending ? 0.5 : 1}
+                        className={cn("py-6", post.pending && "pointer-events-none")}
+                    >
+                        <PostCard post={post} />
+                    </ReflowItem>
+                ))}
+            </Reflow>
 
             {hasMore && (
-                <button
+                /* Outside the presence list but on its layout: it is the foot of the same
+                   column, and a button that stayed put while the cards above it moved would
+                   read as belonging to something else. */
+                <motion.button
+                    layout="position"
+                    transition={CARD_SPRING}
                     type="button"
                     onClick={onLoadMore}
                     disabled={loadingMore}
@@ -330,7 +347,7 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
                     ) : (
                         <More className="size-6" />
                     )}
-                </button>
+                </motion.button>
             )}
         </div>
     )

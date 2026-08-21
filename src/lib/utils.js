@@ -138,8 +138,14 @@ export function timeAgoCompact(current, previous) {
 export const basePath = () => (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(/\/$/, '')
 
 /* Prefix a router route with the base path so redirects that bypass the router
- * still resolve when the SPA is served under a subpath. */
-export const appPath = (route) => `${basePath()}${route}`
+ * still resolve when the SPA is served under a subpath.
+ *
+ * An absolute URL passes through untouched. Uploaded media lives in Supabase Storage and is
+ * addressed by its full https:// URL, while the seeded corpus is root-relative — both go
+ * through the same `<img src={appPath(...)}>`, and prefixing the first would produce
+ * "/app/https://…". Protocol-relative ("//host/…") counts as absolute for the same reason. */
+export const appPath = (route) =>
+    /^([a-z][a-z0-9+.-]*:)?\/\//i.test(route) ? route : `${basePath()}${route}`
 
 /* The deep-link route for a single post's detail page (`/p/:id`). Built off
  * ROUTES.POST so the path prefix lives in one place. */
@@ -192,6 +198,24 @@ export const isRouteActive = (pathname, href) => {
  * exact same distance — so their touching edges stay locked together for the whole
  * gesture instead of one outrunning the other. iOS-like ease. */
 export const SLIDE_TRANSITION = { duration: 0.34, ease: [0.32, 0.72, 0, 1] }
+
+/* Shared timing for a row making room in a list — the comment thread closing over a deleted
+ * comment, or sliding down around a new one.
+ *
+ * A spring, not a duration: a row travels however tall its neighbour turns out to be, and a
+ * fixed duration reads as hurried at one line and sluggish at six. Shared so that everything
+ * moving in the same list moves together — the rows and the "load more" button below them are
+ * one column, and two curves make them visibly separate. Both are just past critically damped,
+ * so they settle without overshooting; a list correcting itself should not bounce. */
+export const ROW_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0.7 }
+
+/* The same idea at the scale of a feed card.
+ *
+ * **A spring settles in roughly the same time whatever the distance**, so one tuned to a
+ * 60px comment row covers a 600px post card in the same fraction of a second — which is the
+ * definition of a snap. This is the softer end of the same family, for lists whose items are
+ * a screenful rather than a line. Reach for `ROW_SPRING` for anything smaller. */
+export const CARD_SPRING = { type: "spring", stiffness: 260, damping: 34, mass: 1 }
 
 /* Compact tally for like/comment counts: 182 → "182", 2629 → "2.6K". */
 export function formatCompact(n) {

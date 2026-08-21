@@ -9,8 +9,12 @@ import usePostStore from '@/lib/store/post/store'
 import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
 import useOrgStore from '@/lib/store/org/store'
+import useUploadsStore from '@/lib/store/uploads/store'
 
-/* `post`, `comments`, and `members` are lazy, transient stores — loaded when a post (or its comment
+/* `uploads` holds no remote state — it is a write path with a loading flag — so it has
+ * nothing to boot and nothing for readiness to wait on. It still resets and reports errors.
+ *
+ * `post`, `comments`, and `members` are lazy, transient stores — loaded when a post (or its comment
  * thread) opens and cleared on close — so they are intentionally left out of
  * initAuthorizedStores / useReady: they have no boot fetch, and global readiness must not
  * wait on a surface that may never open. `members` is additionally admin-only, so booting
@@ -34,6 +38,7 @@ const useStore = create(() => ({
         usePostStore.getState().reset()
         useCommentsStore.getState().reset()
         useMembersStore.getState().reset()
+        useUploadsStore.getState().reset()
     },
     clearErrors: () => {
         useAppStore.getState().clearErrors()
@@ -43,6 +48,7 @@ const useStore = create(() => ({
         usePostStore.getState().clearErrors()
         useCommentsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
+        useUploadsStore.getState().clearErrors()
     },
 }))
 

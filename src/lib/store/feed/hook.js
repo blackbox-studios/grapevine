@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from 'zustand/react/shallow'
 
+import { ROLES } from "@/lib/constants"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import useFeedStore from "./store"
 
@@ -54,29 +55,50 @@ export const useFeed = () => {
 
 /* Publishing, for the composer.
  *
- * Publishes into the **selected** group, which is the whole reason the switcher exists: an
- * admin of two parishes writes to whichever one they are looking at, and the same session
- * offers no composer at all in a group where they are only a member.
+ * **The composer names its target; it does not inherit the selection.** That is the one
+ * place in the app where the switcher is not the answer: someone who administers two
+ * parishes is often reading one and writing to the other, and making them switch first turns
+ * one action into three. So this hands back `orgs` — the groups they may *publish into*,
+ * which is a subset of the groups they belong to — and takes the chosen id back on submit.
  *
- * `canPublish` covers both halves — a group has been resolved, and the viewer administers
- * that one. The composer is hidden from a member by `<Privileged/>` anyway and the server
- * refuses regardless (`requireMembership(..., { role: "ADMIN" })`); this keeps the button
- * from being tapped in the window before the selection settles. */
+ * `defaultOrgId` is the selection when they administer it, and otherwise the first group
+ * they do. That covers the common case (write where you are) without ever preselecting a
+ * group the publish would be refused for.
+ *
+ * Publishing elsewhere then **switches to it**, which is not a side effect but the point: a
+ * post the author cannot see is indistinguishable from one that failed. The switch also
+ * makes the feed's own reload the thing that shows it, which is why `publish` skips its
+ * optimistic row in that case — see the store.
+ *
+ * `canPublish` is "there is at least one group to publish into". The button above this is
+ * hidden from a member by `<Privileged anyOrg/>` anyway and the server refuses regardless
+ * (`requireMembership(..., { role: "ADMIN" })`); this is what keeps Post from firing in the
+ * window before the viewer has loaded. */
 export const usePublish = () => {
     const [publish, loading] = useFeedStore(
         useShallow(state => ([state.publish, state.loading.publish])),
     )
-    const { current, orgId, isAdmin } = useCurrentOrg()
+    const { orgId, orgs, isAdmin, select } = useCurrentOrg()
+
+    const publishable = useMemo(
+        () => orgs.filter(org => org.role === ROLES.ADMIN),
+        [orgs],
+    )
 
     const submit = useCallback(
-        ({ title, body, media } = {}) => publish({ orgId, title, body, media }),
-        [publish, orgId],
+        async ({ orgId: target, title, body, media } = {}) => {
+            const post = await publish({ orgId: target, title, body, media })
+            if (post && target !== orgId) select(target)
+            return post
+        },
+        [publish, orgId, select],
     )
 
     return useMemo(() => ({
         publish: submit,
-        org: current,
+        orgs: publishable,
+        defaultOrgId: (isAdmin ? orgId : publishable[0]?.id) ?? null,
         loading,
-        canPublish: Boolean(orgId) && isAdmin,
-    }), [submit, current, orgId, isAdmin, loading])
+        canPublish: publishable.length > 0,
+    }), [submit, publishable, isAdmin, orgId, loading])
 }

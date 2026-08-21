@@ -64,6 +64,8 @@ npm run prisma:seed      # Holy Trinity Cathedral, its people, and the post corp
 npm run db:reset         # DESTRUCTIVE: drop, re-migrate, re-secure, re-seed
 npm run prisma:studio    # open Prisma Studio
 
+npm run storage:setup    # create/reconcile the "media" Storage bucket — once per environment
+
 npm run dev:login              # print a sign-in link for the seeded admin (no email sent)
 npm run dev:login -- member    # ...or the seeded member
 ```

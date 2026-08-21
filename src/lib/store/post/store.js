@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS, ERROR_CODES } from '@/lib/constants'
@@ -27,6 +28,7 @@ import { toErrorList } from '@/lib/utils'
 const ERROR_INIT = {
     detail: false,
     like: false,
+    remove: false,
 }
 
 const LOADING_INIT = {
@@ -163,6 +165,54 @@ const useStore = create(immer((set, get) => {
                 })
             } finally {
                 set(state => { delete state.liking[postId] })
+            }
+        },
+
+        /* Removes a post — an admin of its group, which is what `canDelete` on the row
+         * reports and what the server enforces regardless.
+         *
+         * **It lives here rather than in `feed`, unlike `publish`.** Publishing is an
+         * insertion into a list and that list owns its own contents; deleting is a write to a
+         * post that already exists, which is this store's whole second job — and it is a
+         * write with two copies to move, because the post may be open over the very feed it
+         * is being removed from. Keeping it here is also what keeps the imports
+         * one-directional: `post` already reaches into `feed`, and `feed` must never reach
+         * back.
+         *
+         * Optimistic, on the same reasoning as a comment's: the reader has already confirmed,
+         * and a card that lingers after they say delete reads as broken. The snapshot is the
+         * row *and its index* so a failure puts it back where they last saw it. The toast is
+         * optimistic too, and dismissed by id on failure so a restored post is never
+         * accompanied by one still claiming it was deleted.
+         *
+         * `dismiss` is the surface's own way out — supplied by the caller when the post being
+         * removed is the one on screen, because the overlay must not be left sitting on a
+         * post that no longer exists. Called before the request rather than after it, so the
+         * dismissal animation and the round trip overlap. */
+        remove: async (postId, dismiss) => {
+            if (!postId) return false
+
+            const removed = useFeedStore.getState().removePost(postId)
+            if (get().currentId === postId) {
+                set(state => { state.current = null })
+                dismiss?.()
+            }
+            const toastId = toast('Post deleted')
+
+            try {
+                await api.delete(API_ENDPOINTS.POST(postId))
+                return true
+            } catch (error) {
+                toast.dismiss(toastId)
+                if (removed) {
+                    useFeedStore.getState().restorePost(removed.index, removed.row)
+                }
+                set(state => {
+                    /* The surface is already gone, so the toast is the only way this is
+                     * reported — which is exactly what the error listener is for. */
+                    state.error.remove = toErrorList(error, 'Could not delete that post.')
+                })
+                return false
             }
         },
 

@@ -7,6 +7,7 @@ import usePostStore from "@/lib/store/post/store"
 import useCommentsStore from "@/lib/store/comments/store"
 import useMembersStore from "@/lib/store/members/store"
 import useOrgStore from "@/lib/store/org/store"
+import useUploadsStore from "@/lib/store/uploads/store"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* Aggregates errors from every store. Error values may be primitives
@@ -20,6 +21,7 @@ export const useErrors = () => {
     const commentsError = useCommentsStore(state => state.error)
     const membersError = useMembersStore(state => state.error)
     const orgError = useOrgStore(state => state.error)
+    const uploadsError = useUploadsStore(state => state.error)
     const clearErrors = useGlobalStore(state => state.clearErrors)
 
     return useMemo(() => ({
@@ -31,10 +33,11 @@ export const useErrors = () => {
             post: postError,
             comments: commentsError,
             members: membersError,
+            uploads: uploadsError,
         },
         clearErrors,
     }), [
         appError, authError, orgError, feedError,
-        postError, commentsError, membersError, clearErrors,
+        postError, commentsError, membersError, uploadsError, clearErrors,
     ])
 }

@@ -8,6 +8,7 @@ import Carousel from "@/components/Carousel"
 import PinchZoom from "@/components/PinchZoom"
 import { PostCommentsThread } from "@/components/Comments"
 import Icon from "@/components/Icon"
+import { PostMenuTrigger } from "@/components/PostMenu"
 import { PostMediaSkeleton } from "@/components/Skeleton"
 import { Avatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
@@ -162,6 +163,16 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                 >
                     <Icon>arrow_back</Icon>
                 </Button>
+                {/* The ellipsis, on a touch screen, because this surface has nothing to hold:
+                  * the media fills it, and the media has its own gestures. The feed card's
+                  * hold works because a card has a header block sitting in flow; here the
+                  * only chrome is this bar, so the affordance belongs in it. Renders nothing
+                  * for a reader who may not act on the post. */}
+                <PostMenuTrigger
+                    post={post}
+                    dismiss={dismiss}
+                    className="ml-auto mr-2 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] hover:text-white/80"
+                />
             </header>
 
             {/* Media region — fills whatever the sheet leaves it. Tapping it while the sheet

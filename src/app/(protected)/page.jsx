@@ -3,7 +3,6 @@
 import { AnimatePresence } from "motion/react"
 
 import Transition from "@/components/Transition"
-import Composer from "@/components/Composer"
 import Feed from "@/components/Feed"
 import { OrgNavTrigger } from "@/components/OrgNav"
 import PullToRefresh from "@/components/PullToRefresh"
@@ -34,8 +33,10 @@ const HomePage = () => {
                         </Transition>
                     ) : (
                         <Transition fast key="content">
-                            {/* Admin-only; renders nothing for a member. */}
-                            <Composer />
+                            {/* Writing a post is reached from the nav (<Compose/>), not from
+                                here: a composer that lived on the feed could only ever write
+                                to the group being read, and it sat in the way of the reading
+                                this surface is for. */}
                             <Feed
                                 posts={posts}
                                 hasMore={hasMore}

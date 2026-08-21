@@ -879,7 +879,7 @@ Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/con
 | `ROLES.MEMBER` | visible | visible |
 | `ROLES.ADMIN` | **hidden** | visible |
 
-- **Members** must not see admin-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden). The composer on the feed is the worked example.
+- **Members** must not see admin-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden). The compose button in the nav is the worked example.
 - Pass `disabled` only to signal that an action exists at a higher tier to someone plausibly close to it: the control stays visible but dimmed and non-interactive (`opacity-50`, `pointer-events-none`). Do not use it for a tier the viewer can never reach.
 
 ```jsx
@@ -892,16 +892,23 @@ import { useCurrentOrg } from '@/lib/store/org/hook'
 const { orgId } = useCurrentOrg()
 
 <Privileged role={ROLES.ADMIN} orgId={orgId}>
-    <Button onClick={handlePublish}>New post</Button>
+    <Button onClick={handleEdit}>Edit group</Button>
 </Privileged>
 
 /* Admin of one specific group, named rather than selected — a row in a list of groups */
 <Privileged role={ROLES.ADMIN} orgId={org.id}>
     <Button onClick={handleApprove}>Approve</Button>
 </Privileged>
+
+/* Admin of ANY group. Only for an affordance that sits outside a group's scope — today
+   just the compose button, which lives in the nav above the switcher and asks which
+   group to publish into itself. Anything rendered *inside* a group wants `orgId`. */
+<Privileged role={ROLES.ADMIN} anyOrg>
+    <ComposeButton />
+</Privileged>
 ```
 
-Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Composer.jsx` (the admin-only feed composer). The underlying hooks are `useRole(orgId)` and `usePrivileged(role, orgId)` in `lib/store/auth/hook.js`; `useCurrentOrg()` already exposes `isAdmin` resolved against the selection, so prefer that over calling `usePrivileged` again with the same id.
+Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Compose.jsx` (the admin-only compose entry point). The underlying hooks are `useRole(orgId)`, `usePrivileged(role, orgId)`, and `usePrivilegedAnywhere(role)` in `lib/store/auth/hook.js`; `useCurrentOrg()` already exposes `isAdmin` resolved against the selection, so prefer that over calling `usePrivileged` again with the same id.
 
 ### The selected group — `lib/store/org/`
 

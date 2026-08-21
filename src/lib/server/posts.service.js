@@ -155,6 +155,21 @@ const loadReadablePost = async (viewer, postId, { include } = {}) => {
 const canDeleteComment = (viewerId, membership, comment) =>
     comment.authorId === viewerId || membership.role === "ADMIN"
 
+/* May this viewer remove this post?
+ *
+ * **One rule, not two, and that is the difference from a comment.** A comment is a person
+ * speaking, so its author owns it; a post is the *group* speaking, published under the
+ * authority that publishing requires. So the answer is the same as the answer to "may you
+ * publish here" — ADMIN of the post's organization — and it deliberately does not include
+ * "the person who wrote it". An admin whose role is revoked stops being able to remove what
+ * they posted, which is correct: they no longer speak for the parish. And any admin may
+ * remove any other admin's post, which is what makes a parish with two priests workable.
+ *
+ * `membership` is the viewer's membership in the *post's* organization, resolved by the read
+ * that authorized loading it — so administering a diocese grants nothing over a parish's
+ * posts. */
+const canDeletePost = (membership) => membership?.role === "ADMIN"
+
 /* ---------------------------------------------------------------------------
  * Reads
  * ------------------------------------------------------------------------- */
@@ -203,6 +218,10 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
         projectPost(post, {
             liked: post.likes.length > 0,
             likedBy: likedBy.get(post.id) ?? null,
+            /* Per post, because a page can span several groups and the viewer may
+             * administer one of them and not another. An in-memory scan of the viewer's
+             * own memberships — a handful of rows already loaded — not a query. */
+            canDelete: canDeletePost(membershipIn(viewer, post.orgId)),
         }),
     )
 }
@@ -214,7 +233,7 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
  * is what the static export requires. See native-architecture.md → Dynamic routes at
  * scale. */
 export const getPost = async (viewer, postId) => {
-    const { post } = await loadReadablePost(viewer, postId, {
+    const { post, membership } = await loadReadablePost(viewer, postId, {
         include: postInclude(viewer.id),
     })
 
@@ -223,6 +242,7 @@ export const getPost = async (viewer, postId) => {
     return projectPost(post, {
         liked: post.likes.length > 0,
         likedBy: likedBy.get(post.id) ?? null,
+        canDelete: canDeletePost(membership),
     })
 }
 
@@ -324,8 +344,37 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
         include: postInclude(viewer.id),
     })
 
-    /* Freshly created: the author cannot have liked it, and nobody else has seen it. */
-    return projectPost(post, { liked: false, likedBy: null })
+    /* Freshly created: the author cannot have liked it, and nobody else has seen it. Whoever
+     * just published it administers this group by definition of having got here, so it is
+     * theirs to remove. */
+    return projectPost(post, { liked: false, likedBy: null, canDelete: true })
+}
+
+/* Removes a post. Only an admin of the group it was published into — see `canDeletePost`
+ * for why authorship grants nothing here.
+ *
+ * **A soft delete**, the same as a comment's and for a sharper reason: `Post.deletedAt` is
+ * what every read already filters on, and stamping it leaves the thread, the likes, and the
+ * record that something was moderated away intact. A hard delete would cascade the whole
+ * conversation out of the database, which is not recoverable and is not what "remove this
+ * from the feed" means. The media in storage is left alone for the same reason — the row
+ * still points at it, and restoring a post that has lost its photos is not a restore.
+ *
+ * `updateMany` with `deletedAt: null` in its `where` rather than `update` by id: two admins
+ * can reach for the same post at once, and a claim that has already been made should be a
+ * no-op rather than an error. There is no tally to decrement — unlike a comment, nothing
+ * counts posts — so this needs no transaction at all. */
+export const deletePost = async (viewer, postId) => {
+    const { membership } = await loadReadablePost(viewer, postId)
+
+    if (!canDeletePost(membership)) {
+        throw forbidden("Only group admins can delete a post.")
+    }
+
+    await prisma.post.updateMany({
+        where: { id: postId, deletedAt: null },
+        data: { deletedAt: new Date() },
+    })
 }
 
 /* Toggles the viewer's like on a post and returns the resulting state.

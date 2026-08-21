@@ -41,7 +41,13 @@ const SURFACES = {
  * with it — so the slide route takes precedence: it is the surface actually being read, and
  * a switcher panel is only ever open when nothing is over it anyway. Resolving that here,
  * on the one node that owns this container's position, is what keeps a second opinion about
- * its offset from ever existing. */
+ * its offset from ever existing.
+ *
+ * **This node cannot be the projection root that shields its contents from that movement**,
+ * even though it is the thing doing the moving — `layoutRoot` needs a projection node, only
+ * `layout`/`layoutId` create one, and `layout` on an element that also animates `x` is the
+ * conflict framer explicitly warns about. The root is therefore the wrapper immediately
+ * inside this one, in `(protected)/layout.jsx`; read the note there. */
 export const SlideBase = ({ ref, className, children }) => {
     const { pushed } = useActiveSlide()
     const { shift } = useOrgNav()

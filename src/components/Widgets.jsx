@@ -1,5 +1,13 @@
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import { initials } from "@/lib/name"
 import { appPath, cn, gradientFor, orgInitials } from "@/lib/utils"
 
@@ -77,6 +85,49 @@ export const Close = ({ className, children, ...props }) => (
     >
         {children ?? <Icon>close</Icon>}
     </Button>
+)
+
+/* "Are you sure?" for a destructive action reached by a tap or a click.
+ *
+ * **A press-and-hold does not ask.** The one path that skips this is a held comment row
+ * revealing a single destructive item (`components/HoldMenu.jsx`): that hold *is* the
+ * deliberate act a dialog would otherwise be asking for, so asking again afterwards is one
+ * confirmation too many. Everything reached by a menu item does ask, on every platform — a tap
+ * is not deliberate in the way a hold is.
+ *
+ * Generic on purpose: it takes the wording rather than owning any, so a comment and a post
+ * can ask different questions through the same component. Whatever the wording says, it must
+ * be true — every caller here removes something for everyone and cannot be undone. */
+export const ConfirmDialog = ({
+    open,
+    onOpenChange,
+    title,
+    description,
+    confirmLabel = "Delete",
+    onConfirm,
+}) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+            <DialogHeader>
+                <DialogTitle>{title}</DialogTitle>
+                <DialogDescription>{description}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                    Cancel
+                </Button>
+                <Button
+                    variant="destructive"
+                    onClick={() => {
+                        onOpenChange(false)
+                        onConfirm()
+                    }}
+                >
+                    {confirmLabel}
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
 )
 
 export const YayOrNay = ({ value }) =>

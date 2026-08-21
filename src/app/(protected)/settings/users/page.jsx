@@ -6,7 +6,6 @@ import { toast } from "sonner"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import { PrivilegedRoute } from "@/components/Auth"
-import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import Pagination from "@/components/Pagination"
@@ -72,12 +71,15 @@ import { cn, roleLabel, timeAgo } from "@/lib/utils"
  * The table answers three questions an admin actually has: who has never turned up, who is
  * still mid-orientation, and who is who. The last is why vocation is editable inline — a
  * priest sets it when admitting someone and adjusts it as people are tonsured or ordained;
- * the first two are what the Activity column is for. */
-
-const STATUS_VARIANT = {
-    [MEMBERSHIP_STATUS.APPROVED]: "success",
-    [MEMBERSHIP_STATUS.REVOKED]: "destructive",
-}
+ * the first two are what the Activity column is for.
+ *
+ * Role is editable inline for a related but distinct reason: an admin has to be able to
+ * make another one. A parish whose only admin is its priest has no way to hand the feed to
+ * a deacon while he travels, and no way to replace him at all — and because admission sets
+ * a role only at the moment somebody is added, the alternative would be removing a member
+ * and re-adding them to promote them. Note the two columns are the two axes the app keeps
+ * apart: promoting someone to ADMIN grants them the parish's feed, and says nothing about
+ * whether they are ordained. */
 
 const ROLE_OPTIONS = [ROLES.MEMBER, ROLES.ADMIN]
 
@@ -147,7 +149,7 @@ const Picker = ({ value, options, onChange, disabled, label, className }) => (
 /* Admissions. Emails go over as one blob — the server splits on commas, semicolons and
  * whitespace — because that is how a list of parishioners actually arrives: pasted out of
  * a spreadsheet or an email, not typed one at a time. */
-const InviteForm = ({ group, invite, inviting, onDone }) => {
+const InviteForm = ({ org, invite, inviting, onDone }) => {
     const [emails, setEmails] = useState("")
     const [role, setRole] = useState(ROLES.MEMBER)
     const [vocation, setVocation] = useState(VOCATIONS.FAITHFUL)
@@ -173,7 +175,7 @@ const InviteForm = ({ group, invite, inviting, onDone }) => {
         const added = result.admitted.length
         if (added > 0) {
             toast.success(
-                `Added ${added} ${added === 1 ? "person" : "people"} to ${group?.name ?? "the parish"}.`,
+                `Added ${added} ${added === 1 ? "person" : "people"} to ${org?.name ?? "the parish"}.`,
             )
         }
 
@@ -266,7 +268,7 @@ const InviteForm = ({ group, invite, inviting, onDone }) => {
  * It closes itself on a clean run and stays open when anything failed — see the note on
  * `handleInvite`. Closing is `onDone`, passed down rather than decided in the form, because
  * the form does not know which of the two surfaces it is currently inside. */
-const Admissions = ({ group, invite, inviting }) => {
+const Admissions = ({ org, invite, inviting }) => {
     const [open, setOpen] = useState(false)
     const isDesktop = useIsDesktop()
 
@@ -274,7 +276,7 @@ const Admissions = ({ group, invite, inviting }) => {
      * and would otherwise close the app from on top of the sheet. */
     useBackHandler(open && !isDesktop, () => setOpen(false))
 
-    const title = `Add people to ${group?.name ?? "the parish"}`
+    const title = `Add people to ${org?.name ?? "the parish"}`
     const description =
         "They are whitelisted immediately and can sign in whenever they like. No email is sent — tell them however you normally would."
 
@@ -300,7 +302,7 @@ const Admissions = ({ group, invite, inviting }) => {
                             <DialogDescription>{description}</DialogDescription>
                         </DialogHeader>
                         <InviteForm
-                            group={group}
+                            org={org}
                             invite={invite}
                             inviting={inviting}
                             onDone={() => setOpen(false)}
@@ -328,7 +330,7 @@ const Admissions = ({ group, invite, inviting }) => {
                         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
                             {open && (
                                 <InviteForm
-                                    group={group}
+                                    org={org}
                                     invite={invite}
                                     inviting={inviting}
                                     onDone={() => setOpen(false)}
@@ -344,8 +346,8 @@ const Admissions = ({ group, invite, inviting }) => {
 
 const SettingsUsersPage = () => {
     const {
-        members, group, skeleton: loading,
-        invite, inviting, updating, restore, revoke, setVocation,
+        members, org, skeleton: loading,
+        invite, inviting, updating, restore, revoke, setVocation, setRole,
     } = useMembers()
 
     const [pageSize, setPageSize] = useState(10)
@@ -375,8 +377,11 @@ const SettingsUsersPage = () => {
     const pageRows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize)
     const filtered = total !== members.length
 
+    /* Gated on the *selected* group, so switching to one the viewer only belongs to sends
+     * them out of the roster rather than showing them an empty table they have no way to
+     * fill. */
     return (
-        <PrivilegedRoute role={ROLES.ADMIN}>
+        <PrivilegedRoute role={ROLES.ADMIN} orgId={org?.id}>
             <section className="flex flex-col gap-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <h2 className="text-xl font-semibold text-foreground">
@@ -387,9 +392,9 @@ const SettingsUsersPage = () => {
                             ({total}
                             {filtered && ` of ${members.length}`})
                         </span>{" "}
-                        {group?.name ?? "Members"}
+                        {org?.name ?? "Members"}
                     </h2>
-                    <Admissions group={group} invite={invite} inviting={inviting} />
+                    <Admissions org={org} invite={invite} inviting={inviting} />
                 </div>
 
                 {/* Input renders its own relative wrapper for the leading icon, so the
@@ -419,8 +424,8 @@ const SettingsUsersPage = () => {
                                         <TableRow>
                                             <TableHead>Name</TableHead>
                                             <TableHead className="w-44">Vocation</TableHead>
-                                            <TableHead className="w-24 text-center">isAdmin</TableHead>
-                                            <TableHead className="w-28">Status</TableHead>
+                                            <TableHead className="w-40">Role</TableHead>
+                                            <TableHead className="w-28 text-center">Has Access?</TableHead>
                                             <TableHead className="w-40">Activity</TableHead>
                                             <TableHead className="w-28 text-right">Actions</TableHead>
                                         </TableRow>
@@ -499,19 +504,53 @@ const SettingsUsersPage = () => {
                                                         </TableCell>
 
                                                         <TableCell>
-                                                            {/* The icon is an inline span, so
-                                                              * `text-center` on the cell alone
-                                                              * would not move it — it needs a
-                                                              * box to be centred within. */}
-                                                            <div className="flex justify-center">
-                                                                <YayOrNay value={member.role === ROLES.ADMIN} />
-                                                            </div>
+                                                            {/* An admin may not change their
+                                                              * own role — `updateMembership`
+                                                              * rejects it, because dropping
+                                                              * yourself to MEMBER in a
+                                                              * single-admin parish locks the
+                                                              * parish out of the roster that
+                                                              * could restore you. Their row
+                                                              * states the role instead of
+                                                              * offering a picker that can only
+                                                              * earn an error. */}
+                                                            {member.isSelf ? (
+                                                                <span className="text-sm text-muted-foreground">
+                                                                    {roleLabel(member.role)}
+                                                                </span>
+                                                            ) : (
+                                                                <Picker
+                                                                    value={member.role}
+                                                                    options={ROLE_OPTIONS}
+                                                                    onChange={(value) =>
+                                                                        setRole(member.membershipId, value)
+                                                                    }
+                                                                    disabled={busy}
+                                                                    label={`Role for ${fullName(member)}`}
+                                                                    className="w-36"
+                                                                />
+                                                            )}
                                                         </TableCell>
 
+                                                        {/* A check or an X rather than a
+                                                          * badge, because the column has only
+                                                          * ever had two values — APPROVED and
+                                                          * REVOKED, the whole enum — and a
+                                                          * word spelling out a boolean is
+                                                          * slower to scan down a roster than
+                                                          * the mark is. The icon is an inline
+                                                          * span, so `text-center` on the cell
+                                                          * alone would not move it; it needs a
+                                                          * box to be centred within. */}
                                                         <TableCell>
-                                                            <Badge variant={STATUS_VARIANT[member.status]}>
-                                                                {roleLabel(member.status)}
-                                                            </Badge>
+                                                            <div className="flex justify-center">
+                                                                <YayOrNay
+                                                                    value={
+                                                                        member.status ===
+                                                                        MEMBERSHIP_STATUS.APPROVED
+                                                                    }
+                                                                />
+                                                            </div>
                                                         </TableCell>
 
                                                         <TableCell

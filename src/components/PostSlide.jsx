@@ -114,10 +114,19 @@ const NotFound = () => (
  * while the media region (a `flex-1` sibling) gives up exactly that room, so the photo
  * smoothly shrinks and re-centers into place rather than being covered.
  *
- * The surface lifts to sit above the keyboard (`bottom: max(bottombar, keyboard-inset)`), so
- * the sheet's composer — pinned at the surface's own bottom edge — rides up with it and needs
- * no keyboard padding of its own. The sheet height tracks the (shrinking) surface, so it
- * follows along too. */
+ * The surface lifts to sit above the keyboard (`bottom: var(--keyboard-inset)`), so the sheet's
+ * composer — pinned at the surface's own bottom edge — rides up with it and needs no keyboard
+ * padding of its own. The sheet height tracks the (shrinking) surface, so it follows along too.
+ *
+ * **It covers the mobile rail rather than stopping above it.** The bottom is the keyboard alone,
+ * not `max(--bottombar, --keyboard-inset)`: a post is the one surface that owns the whole screen,
+ * and leaving the rail showing under it read as the page ending early. z-50 already clears the
+ * rail's z-20, so the inset was the only thing holding it back. What `--bottombar` was quietly
+ * providing, though, was clearance over the home indicator — so the two things that now sit on
+ * the surface's bottom edge (the caption overlay and the raised sheet) each pad by
+ * `--bottom-inset - --keyboard-inset`: the indicator's height while the keyboard is down, and
+ * zero once it is up, because the surface has already been lifted clear by exactly that much and
+ * a raised keyboard covers the indicator anyway. */
 const PostSlide = ({ variant, post, skeleton, dismiss }) => {
     const [commentsOpen, setCommentsOpen] = useState(false)
     const [surfaceRef, { height: surfaceHeight }] = useMeasure()
@@ -139,7 +148,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
     return (
         <motion.div
             ref={surfaceRef}
-            className="fixed inset-x-0 top-0 bottom-[max(var(--bottombar),var(--keyboard-inset))] z-50 flex flex-col overflow-hidden bg-black pt-(--safe-top) transition-[bottom] duration-250 ease-out"
+            className="fixed inset-x-0 top-0 bottom-(--keyboard-inset) z-50 flex flex-col overflow-hidden bg-black pt-(--safe-top) transition-[bottom] duration-250 ease-out"
             {...anim}
         >
             <header className="absolute inset-x-0 top-(--safe-top) z-20 flex items-center px-2 py-2">
@@ -183,7 +192,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                             type="button"
                             onClick={() => setCommentsOpen(true)}
                             aria-label="Open comments"
-                            className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-left text-white"
+                            className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 pb-[calc(1rem+var(--bottom-inset)-var(--keyboard-inset))] text-left text-white"
                         >
                             <div className="flex items-center gap-2">
                                 <Avatar person={post.author} className="size-8" />

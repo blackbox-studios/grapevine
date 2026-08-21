@@ -62,6 +62,65 @@ const ORG = {
     bio: "The Cathedral parish community — announcements, feasts, and parish life.",
 }
 
+/* ── The diocese ─────────────────────────────────────────────────────────── *
+ *
+ * A second group, and it exists to make the group switcher's central claim testable: that
+ * a role is per-group. The seeded admin is the Cathedral's ADMIN and the diocese's MEMBER,
+ * so signing in as him and switching groups must visibly take away the composer and the
+ * roster — the same session, the same person, different permissions. With one organization
+ * seeded, every per-group check would pass trivially and a regression to a global "am I
+ * admin" would go unnoticed.
+ *
+ * It is also the Cathedral's `parent`, which is the shape the hierarchy is for. Nothing
+ * reads that relation yet — the feed is scoped to memberships, not to the tree — but
+ * seeding the parish under its diocese keeps the fixture honest about what the two are to
+ * each other. */
+const DIOCESE = {
+    slug: "diocese-of-the-south",
+    name: "Diocese of the South",
+    kind: "DIOCESE",
+    bio: "Announcements from His Grace and the diocesan chancery.",
+}
+
+/* Who is in the diocese, and as what.
+ *
+ * The bishop is its ADMIN and exists nowhere else. The two sign-innable people join as
+ * MEMBERs by handle — they already have Profiles from the parish loop, and a person is one
+ * Profile with several memberships, never a second row per group. */
+const DIOCESE_BISHOP = {
+    handle: "bp.nicholas",
+    firstName: "Nicholas",
+    lastName: "Sokolov",
+    vocation: "BISHOP",
+    role: "ADMIN",
+}
+
+const DIOCESE_MEMBER_HANDLES = ["cathedraldean", "j.rivera", "deacon.paul", "reader.michael"]
+
+/* Enough of a corpus that switching to the diocese lands on a real feed rather than an
+ * empty state. Ids are prefixed like the parish fixtures so a re-seed replaces them
+ * wholesale and anything published through the app (a cuid) is left alone. */
+const DIOCESE_POSTS = [
+    {
+        id: "dio-post-001",
+        title: "Archpastoral Visit to Holy Trinity",
+        body: "His Grace will serve the Divine Liturgy at Holy Trinity Cathedral on the Sunday of Orthodoxy. Clergy of the deanery are asked to arrive by 8:30am for vesting.",
+        daysAgo: 2,
+    },
+    {
+        id: "dio-post-002",
+        title: "Diocesan Assembly — Registration Open",
+        body: "Registration for this year's Diocesan Assembly is now open. Parish delegates should be elected and their names submitted to the chancery before the end of the month.",
+        daysAgo: 9,
+    },
+    {
+        id: "dio-post-003",
+        title: "Ordination to the Holy Diaconate",
+        body: "With thanksgiving to God we announce the ordination of Reader Michael Cross to the Holy Diaconate. Axios! Please keep him and his family in your prayers.",
+        daysAgo: 21,
+    },
+]
+
 /* ── People ──────────────────────────────────────────────────────────────── *
  *
  * `signIn: true` provisions a Supabase auth user, which is what makes an account usable.
@@ -260,7 +319,10 @@ const main = async () => {
     /* handle → profile id, so comments and posts can be attached by handle below. */
     const byHandle = new Map()
 
-    for (const person of PEOPLE) {
+    /* One Profile per person, whichever group brought them in. A person who belongs to both
+     * the parish and the diocese is one row with two memberships — creating a second
+     * Profile per group is the mistake this shared helper exists to make impossible. */
+    const upsertProfile = async (person) => {
         const id = person.signIn
             ? await provisionAuthUser(supabase, person)
             : syntheticId(person.handle)
@@ -270,40 +332,37 @@ const main = async () => {
          * mail, which is exactly the property wanted here. */
         const email = person.email ?? `${person.handle}@seed.invalid`
 
+        const fields = {
+            email,
+            handle: person.handle,
+            firstName: person.firstName,
+            lastName: person.lastName,
+            avatarUrl: person.avatarUrl ?? null,
+            vocation: person.vocation,
+        }
+
         const profile = await prisma.profile.upsert({
             where: { id },
-            update: {
-                email,
-                handle: person.handle,
-                firstName: person.firstName,
-                lastName: person.lastName,
-                avatarUrl: person.avatarUrl ?? null,
-                vocation: person.vocation,
-            },
-            create: {
-                id,
-                email,
-                handle: person.handle,
-                firstName: person.firstName,
-                lastName: person.lastName,
-                avatarUrl: person.avatarUrl ?? null,
-                vocation: person.vocation,
-            },
+            update: fields,
+            create: { id, ...fields },
         })
 
         byHandle.set(person.handle, profile.id)
+        return profile.id
+    }
 
-        const status = person.status ?? "APPROVED"
-        await prisma.membership.upsert({
-            where: { profileId_orgId: { profileId: profile.id, orgId: org.id } },
-            update: { role: person.role, status },
-            create: {
-                profileId: profile.id,
-                orgId: org.id,
-                role: person.role,
-                status,
-                decidedAt: new Date(),
-            },
+    const upsertMembership = async (profileId, orgId, { role, status = "APPROVED" }) =>
+        prisma.membership.upsert({
+            where: { profileId_orgId: { profileId, orgId } },
+            update: { role, status },
+            create: { profileId, orgId, role, status, decidedAt: new Date() },
+        })
+
+    for (const person of PEOPLE) {
+        const profileId = await upsertProfile(person)
+        await upsertMembership(profileId, org.id, {
+            role: person.role,
+            status: person.status ?? "APPROVED",
         })
     }
 
@@ -405,17 +464,73 @@ const main = async () => {
         }
     }
 
-    const [posts, comments, members] = await Promise.all([
+    console.log("→ Diocese")
+    const diocese = await prisma.organization.upsert({
+        where: { slug: DIOCESE.slug },
+        update: { name: DIOCESE.name, kind: DIOCESE.kind, bio: DIOCESE.bio },
+        create: DIOCESE,
+    })
+
+    /* The parish sits under the diocese. Written after both exist rather than as part of
+     * either create, because the relation needs the other side's id. */
+    await prisma.organization.update({
+        where: { id: org.id },
+        data: { parentId: diocese.id },
+    })
+
+    const bishopId = await upsertProfile(DIOCESE_BISHOP)
+    await upsertMembership(bishopId, diocese.id, { role: DIOCESE_BISHOP.role })
+
+    /* Everyone else joins as a MEMBER — including the parish's own admin, which is the
+     * whole point: the same account administers one group and merely belongs to the other,
+     * so the switcher has a real permission difference to demonstrate. */
+    for (const handle of DIOCESE_MEMBER_HANDLES) {
+        const profileId = byHandle.get(handle)
+        if (!profileId) {
+            console.warn(`  ! skipping diocese membership: unknown @${handle}`)
+            continue
+        }
+        await upsertMembership(profileId, diocese.id, { role: "MEMBER" })
+    }
+
+    for (const fixture of DIOCESE_POSTS) {
+        const createdAt = new Date(Date.now() - fixture.daysAgo * 24 * 60 * 60 * 1000)
+        await prisma.post.deleteMany({ where: { id: fixture.id } })
+        await prisma.post.create({
+            data: {
+                id: fixture.id,
+                orgId: diocese.id,
+                authorId: bishopId,
+                title: fixture.title,
+                body: fixture.body,
+                createdAt,
+                updatedAt: createdAt,
+                /* No likes and no comments seeded here, and the counters say so. The
+                 * parish corpus is what exercises social proof; this feed exists to prove
+                 * the scope switch, and a tally with no rows behind it would be the exact
+                 * invariant break the parish loop takes care to avoid. */
+                likeCount: 0,
+                commentCount: 0,
+            },
+        })
+    }
+
+    const [posts, comments, parishMembers, dioceseMembers] = await Promise.all([
         prisma.post.count(),
         prisma.comment.count(),
         prisma.membership.count({ where: { orgId: org.id } }),
+        prisma.membership.count({ where: { orgId: diocese.id } }),
     ])
 
-    console.log(`\n✓ ${ORG.name}: ${members} members, ${posts} posts, ${comments} comments`)
+    console.log(`\n✓ ${posts} posts, ${comments} comments across two groups:`)
+    console.log(`    ${ORG.name.padEnd(24)} ${parishMembers} members`)
+    console.log(`    ${DIOCESE.name.padEnd(24)} ${dioceseMembers} members`)
     console.log("\n  Sign in with either address — the code arrives by email:")
     for (const person of PEOPLE.filter((p) => p.signIn)) {
         console.log(`    ${person.email.padEnd(22)} ${person.role.padEnd(7)} ${person.firstName} ${person.lastName}`)
     }
+    console.log(`\n  Both are MEMBERs of ${DIOCESE.name} — switch groups to watch the`)
+    console.log("  admin controls appear and disappear.")
 }
 
 main()

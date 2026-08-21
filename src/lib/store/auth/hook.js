@@ -271,23 +271,3 @@ export const usePrivileged = (role = ROLES.ADMIN, orgId) => {
         return (ROLE_LEVEL[current] ?? 0) >= (ROLE_LEVEL[role] ?? 0)
     }, [current, role])
 }
-
-/* The viewer's groups, and the one the composer publishes into.
- *
- * `primary` is the first group the viewer administers, which for a single-parish
- * deployment is simply their parish. When someone can administer several, this is the
- * value a group picker replaces. */
-export const useGroups = () => {
-    const user = useAuthStore(state => state.user)
-
-    return useMemo(() => {
-        const orgs = user?.orgs ?? []
-        return {
-            orgs,
-            primary: orgs.find(org => org.role === ROLES.ADMIN) ?? orgs[0] ?? null,
-            /* A loaded viewer always has at least one group; emptiness is therefore a
-             * reliable "not loaded yet" rather than a real empty state. */
-            skeleton: !user,
-        }
-    }, [user])
-}

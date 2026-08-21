@@ -110,11 +110,19 @@ const projectMedia = (media = []) => {
  *
  * `likedBy` is the name *parts*, not a rendered string, for the same reason the author
  * block is — the card writes it with `displayName()` so the person who liked a post is
- * addressed exactly as they are in their own byline. */
+ * addressed exactly as they are in their own byline.
+ *
+ * The owning organization goes over as both `orgId` and `orgName` because the two answer
+ * different questions and only one of them is a label. `orgName` is what the card prints;
+ * `orgId` is what a surface resolves the viewer's role against, which matters because a
+ * post can belong to a group other than the one currently selected — a shared link opens
+ * by id, so the detail surface has to ask "am I an admin *here*" rather than assume the
+ * switcher's answer. */
 export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
     id: post.id,
     author: projectAuthor(post.author, post.orgId),
-    group: post.org?.name ?? null,
+    orgId: post.orgId,
+    orgName: post.org?.name ?? null,
     createdAt: post.createdAt.toISOString(),
     title: post.title,
     body: post.body,
@@ -130,14 +138,24 @@ export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
  *
  * `orgId` is the organization of the *post* the comment hangs under, which is what decides
  * whether its author wears the admin check. A comment has no organization of its own, so
- * the caller — which had to load the post to authorize the read anyway — passes it down. */
-export const projectComment = (comment, { liked = false, orgId = null } = {}) => ({
+ * the caller — which had to load the post to authorize the read anyway — passes it down.
+ *
+ * `canDelete` composes two separate rules — anyone may remove their own comment, and an
+ * admin may remove anyone's in the group they administer — into the one boolean the row
+ * needs to decide whether to offer the affordance. Derived here rather than left to the
+ * client for the same reason `access` is: a rule the UI works out for itself can disagree
+ * with what `deleteComment` would actually enforce. Defaults false, the safe answer. */
+export const projectComment = (
+    comment,
+    { liked = false, orgId = null, canDelete = false } = {},
+) => ({
     id: comment.id,
     author: projectAuthor(comment.author, orgId),
     text: comment.body,
     createdAt: comment.createdAt.toISOString(),
     likes: comment.likeCount,
     liked,
+    canDelete,
 })
 
 /* An organization, as the Groups surface and the viewer's profile read it. `role` and

@@ -24,9 +24,11 @@ function Skeleton({ className, ...props }) {
     )
 }
 
-/* Columns for the User Management table skeleton. Mirrors the shape used on
- * the settings user-management page: Name (avatar + stacked name/email), Role
- * (badge), Status (dot + label), Joined date. */
+/* Columns for the User Management table skeleton — one entry per column of the roster on
+ * the settings user-management page, in its order and at its widths: Name (avatar +
+ * stacked name/email), Vocation and Role (both inline pickers), Access (a check or an X),
+ * Activity, and the row's action button. Widths that disagree with the real table are what
+ * makes the columns jump as the rows land, so change these together. */
 export const USER_TABLE_COLUMNS = [
     {
         head: <Skeleton className="h-4 w-12" />,
@@ -41,25 +43,31 @@ export const USER_TABLE_COLUMNS = [
         ),
     },
     {
-        headClassName: "w-28",
-        head: <Skeleton className="h-4 w-12" />,
-        cell: <Skeleton className="h-6 w-16 rounded-full" />,
+        headClassName: "w-44",
+        head: <Skeleton className="h-4 w-16" />,
+        cell: <Skeleton className="h-11 w-40 rounded-lg" />,
     },
     {
-        headClassName: "w-32 text-center",
+        headClassName: "w-40",
+        head: <Skeleton className="h-4 w-10" />,
+        cell: <Skeleton className="h-11 w-36 rounded-lg" />,
+    },
+    {
+        headClassName: "w-28 text-center",
         head: <Skeleton className="mx-auto h-4 w-14" />,
         cellClassName: "text-center",
         cell: <Skeleton className="mx-auto size-6 rounded-full" />,
     },
     {
-        headClassName: "w-32",
+        headClassName: "w-40",
         head: <Skeleton className="h-4 w-16" />,
         cell: <Skeleton className="h-4 w-24" />,
     },
     {
-        headClassName: "w-32",
-        head: <Skeleton className="h-4 w-20" />,
-        cell: <Skeleton className="h-4 w-24" />,
+        headClassName: "w-28 text-right",
+        head: <Skeleton className="ml-auto h-4 w-14" />,
+        cellClassName: "text-right",
+        cell: <Skeleton className="ml-auto h-11 w-24 rounded-lg" />,
     },
 ]
 

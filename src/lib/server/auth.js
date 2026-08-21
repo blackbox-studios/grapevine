@@ -1,7 +1,9 @@
 import "server-only"
 
+import { createRemoteJWKSet, jwtVerify } from "jose"
+
 import { prisma } from "@/lib/db"
-import { AppError, ERROR_CODES, notFound } from "@/lib/server/errors"
+import { AppError, ERROR_CODES, forbidden, notFound } from "@/lib/server/errors"
 import { supabaseAnon } from "@/lib/server/supabase"
 
 /* Authentication and authorization for the API.
@@ -44,8 +46,6 @@ const bearerToken = (request) => {
 const unauthenticated = (message = "Sign in to continue.") =>
     new AppError(ERROR_CODES.UNAUTHENTICATED, message)
 
-const forbidden = (message) => new AppError(ERROR_CODES.PERMISSION_DENIED, message)
-
 const unavailable = (message) => new AppError(ERROR_CODES.UNAVAILABLE, message)
 
 /* Did the token verification fail, or did it never happen?
@@ -64,44 +64,156 @@ const unavailable = (message) => new AppError(ERROR_CODES.UNAVAILABLE, message)
  * package; the name is the stable part of the contract. */
 const isUnreachable = (error) => error?.name === "AuthRetryableFetchError"
 
+const UNREACHABLE_MESSAGE =
+    "Can't reach the sign-in service just now. Please try again in a moment."
+
+/* The project's public signing keys, fetched once and cached by `jose` (it re-fetches on
+ * an unknown `kid`, rate-limited, which is exactly the behaviour key rotation needs).
+ * Module scope so the cache is per process rather than per request. */
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+let jwks = null
+const signingKeys = () => {
+    if (!SUPABASE_URL) throw new Error("Supabase is not configured: set NEXT_PUBLIC_SUPABASE_URL.")
+    jwks ??= createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
+    return jwks
+}
+
+/* jose's codes for "this token is not valid", as opposed to "the check could not run".
+ * The distinction is the same one `isUnreachable` draws and matters for the same reason:
+ * only the first list may produce a 401, because a 401 signs the viewer out. */
+const INVALID_TOKEN = new Set([
+    "ERR_JWT_EXPIRED",
+    "ERR_JWT_CLAIM_VALIDATION_FAILED",
+    "ERR_JWT_INVALID",
+    "ERR_JWS_INVALID",
+    "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+])
+
+/* Verifies the token against Supabase over HTTP. The slow path, kept for two cases the
+ * local check cannot answer: a project still signing with the legacy shared HS256 secret
+ * (no public key exists to verify against), and the window during a key rotation where a
+ * token was signed by a key the JWKS has not published yet. */
+const verifyRemotely = async (token) => {
+    const { data, error } = await supabaseAnon().auth.getUser(token)
+    if (isUnreachable(error)) throw unavailable(UNREACHABLE_MESSAGE)
+    if (error || !data?.user) throw unauthenticated("Your session has expired.")
+    return data.user.id
+}
+
+/* The caller's user id, from a token proven to have been issued by this project.
+ *
+ * Verified **locally** against the project's published JWKS — Supabase signs with ES256,
+ * so the signature can be checked with a public key and needs no round trip to the auth
+ * server. Issuer and audience are checked too: a signature alone would accept a token
+ * minted by the same project for a different purpose.
+ *
+ * This used to be `auth.getUser(jwt)` on every single request — a second network service
+ * in the path of every read, ~80ms each, and an outage there took the whole API down with
+ * it. What is given up is *instant* revocation: a session signed out elsewhere stays
+ * verifiable until the access token expires (an hour by default, and the refresh token is
+ * already dead, so it cannot be extended). Two things keep that honest — the Profile
+ * lookup below, which cuts off anyone deprovisioned, and `Membership.status`, which is
+ * read from the database on every authorization decision. If a parish ever needs
+ * revocation to bite sooner than the token's lifetime, shorten the JWT expiry in the
+ * Supabase dashboard rather than putting an HTTP call back in this path.
+ *
+ * Never decode without verifying. A JWT payload is base64, not a proof of anything. */
+const verifyToken = async (token) => {
+    try {
+        const { payload } = await jwtVerify(token, signingKeys(), {
+            issuer: `${SUPABASE_URL}/auth/v1`,
+            audience: "authenticated",
+        })
+        if (!payload.sub) throw unauthenticated("Your session has expired.")
+        return payload.sub
+    } catch (error) {
+        if (error instanceof AppError) throw error
+
+        /* No public key matches, or the token is signed with an algorithm this project's
+         * JWKS cannot describe (legacy HS256). Not a verdict on the token — ask Supabase. */
+        if (
+            error?.code === "ERR_JWKS_NO_MATCHING_KEY" ||
+            error?.code === "ERR_JOSE_ALG_NOT_ALLOWED"
+        ) {
+            return verifyRemotely(token)
+        }
+
+        if (INVALID_TOKEN.has(error?.code)) throw unauthenticated("Your session has expired.")
+
+        /* Everything left is the check failing to run — a JWKS fetch that timed out, DNS,
+         * a paused project. The viewer's session is very probably fine and signing them
+         * out over an outage would turn a blip into a forced re-authentication for
+         * everybody, so this is a 503 and explicitly not a 401. */
+        throw unavailable(UNREACHABLE_MESSAGE)
+    }
+}
+
+/* Every membership the viewer holds, with its organization — loaded with the profile
+ * rather than by any of the queries that used to ask for it separately.
+ *
+ * Every status, not just APPROVED, because the callers need to tell three states apart:
+ * `getViewer` shows a removed member the access-removed screen (a filtered-out REVOKED row
+ * is indistinguishable from never having been admitted), and `requireMembership` answers
+ * 404 for a group the viewer was never in but 403 for one they were removed from. Filter
+ * in the caller; the set is a handful of rows.
+ *
+ * `status: "asc"` is declaration order, not alphabetical — Postgres sorts an enum by how
+ * it was declared, which in schema.prisma is APPROVED, REVOKED. So the primary group leads
+ * and removed ones settle at the bottom, and reordering those values silently reorders
+ * every consumer of this. */
+const viewerMemberships = {
+    include: { org: true },
+    orderBy: [{ status: "asc" }, { admittedAt: "asc" }],
+}
+
 /* Resolves the caller's Profile, or throws 401.
  *
  * Two steps, and both are load-bearing:
  *
- *  1. **Verify the token with Supabase.** `auth.getUser(jwt)` checks the signature and the
- *     expiry against the project that issued it. Never trust a decoded JWT body without
- *     this — the payload is base64, not a proof of anything.
+ *  1. **Verify the token** (see `verifyToken`) — proving who is asking.
  *  2. **Resolve the local Profile by that id.** `auth.users` holds credentials; this app's
  *     data hangs off `Profile`, keyed by the same uuid. A verified token with no Profile
  *     means a user exists in Supabase but was never provisioned into an organization, and
  *     that is *not* a valid session for this app — it is the state an interrupted invite
  *     leaves behind, and it must not read anything.
  *
- * The verification is a network round trip to Supabase per request. That is the honest
- * trade for correctness here; if it shows up in latency, verify the signature locally
- * against the project's JWKS with `jose` and keep step 2 exactly as it is. */
+ * **The viewer it returns carries `memberships`, and that is the point.** Authorization
+ * asks about them on every request — which groups may be read, whether this one may be
+ * posted into, who wears the check — and each of those used to be its own query. Against
+ * Supabase's pooler a round trip is tens of milliseconds and the query itself is nothing,
+ * so the win is in the count: one statement here replaces two to four per request. Every
+ * helper below therefore reads from this snapshot instead of querying, and none of them is
+ * async any more. */
 export const requireViewer = async (request) => {
     const token = bearerToken(request)
     if (!token) throw unauthenticated()
 
-    const { data, error } = await supabaseAnon().auth.getUser(token)
+    const userId = await verifyToken(token)
 
-    /* Could not reach Supabase at all — a 503, and explicitly *not* a 401. The viewer's
-     * session is very probably fine; we simply cannot confirm it right now, and signing
-     * them out over an outage would turn a brief blip into a forced re-authentication for
-     * everybody. See `isUnreachable`. */
-    if (isUnreachable(error)) {
-        throw unavailable(
-            "Can't reach the sign-in service just now. Please try again in a moment.",
-        )
-    }
-
-    if (error || !data?.user) throw unauthenticated("Your session has expired.")
-
-    const profile = await prisma.profile.findUnique({ where: { id: data.user.id } })
+    const profile = await prisma.profile.findUnique({
+        where: { id: userId },
+        include: { memberships: viewerMemberships },
+        /* One statement with a lateral join instead of one per relation. */
+        relationLoadStrategy: "join",
+    })
     if (!profile) throw unauthenticated("This account has not been set up yet.")
 
     return profile
+}
+
+/* The viewer's membership in one group, or null — read from the snapshot `requireViewer`
+ * loaded, never from a query.
+ *
+ * Throws rather than returning null when the snapshot is missing, because that means a
+ * viewer reached a service without going through `requireViewer`, and silently answering
+ * "no membership" would turn a broken call path into a plausible-looking 404. */
+export const membershipIn = (viewer, orgId) => {
+    if (!Array.isArray(viewer?.memberships)) {
+        throw new Error(
+            "membershipIn needs a viewer from requireViewer — its memberships are missing.",
+        )
+    }
+    return viewer.memberships.find((membership) => membership.orgId === orgId) ?? null
 }
 
 /* Asserts the viewer holds an APPROVED membership in `orgId`, and optionally that it
@@ -120,10 +232,8 @@ export const requireViewer = async (request) => {
  *     action needs a higher role.
  *  - **REVOKED → 403, not 404.** They were in this parish and know it exists, so hiding
  *     it now would only be confusing; the honest answer is that access was removed. */
-export const requireMembership = async (profileId, orgId, { role } = {}) => {
-    const membership = await prisma.membership.findUnique({
-        where: { profileId_orgId: { profileId, orgId } },
-    })
+export const requireMembership = (viewer, orgId, { role } = {}) => {
+    const membership = membershipIn(viewer, orgId)
 
     if (!membership) {
         throw notFound("Group not found.")
@@ -145,11 +255,24 @@ export const requireMembership = async (profileId, orgId, { role } = {}) => {
  * Returned as an array of ids rather than a single id because the feed is already a union
  * — and it is about to be a wider one. A diocese will contribute its child parishes'
  * posts, and the planned follow feature will add posts from followed people. Both widen
- * this set; neither changes its caller. */
-export const readableOrgIds = async (profileId) => {
-    const memberships = await prisma.membership.findMany({
-        where: { profileId, status: "APPROVED" },
-        select: { orgId: true },
-    })
-    return memberships.map((membership) => membership.orgId)
+ * this set; neither changes its caller.
+ *
+ * When either of those lands and the set is no longer just the viewer's own memberships,
+ * this becomes a query again — but it should be the *only* one, and it belongs here rather
+ * than inlined into the feed service. */
+export const readableOrgIds = (viewer) => {
+    if (!Array.isArray(viewer?.memberships)) {
+        throw new Error(
+            "readableOrgIds needs a viewer from requireViewer — its memberships are missing.",
+        )
+    }
+    return viewer.memberships
+        .filter((membership) => membership.status === "APPROVED")
+        .map((membership) => membership.orgId)
 }
+
+/* The viewer's memberships, APPROVED first, as `/api/me` and the Groups surface read them.
+ * A named accessor rather than each caller re-filtering, so "which groups is this person
+ * in" has one answer. */
+export const approvedMemberships = (viewer) =>
+    viewer.memberships.filter((membership) => membership.status === "APPROVED")

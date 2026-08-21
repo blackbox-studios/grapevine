@@ -7,7 +7,9 @@ description: Core project rules, technology stack, coding guidelines, and archit
 
 This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app for Orthodox parishes and dioceses. Posts, comments, likes, and the viewer come over HTTP from a real `/api` backed by **Postgres on Supabase** through **Prisma**. The dashboard surface in the `app` store is the last thing without an endpoint.
 
-**It is invite-only and organization-scoped.** People belong to groups (a parish, a diocese) through a `Membership`, and a viewer's feed is the union of the groups they hold an **APPROVED** membership in — there is no unscoped read anywhere. Sign-in is an emailed one-time code with `shouldCreateUser: false`, so an address with no account can never be sent a code; provisioning is the only way in.
+**It is invite-only and organization-scoped.** People belong to groups (a parish, a diocese) through a `Membership`, and what a viewer may read is the union of the groups they hold an **APPROVED** membership in — there is no unscoped read anywhere. Sign-in is an emailed one-time code with `shouldCreateUser: false`, so an address with no account can never be sent a code; provisioning is the only way in.
+
+**One group is selected at a time.** The `org` store holds that selection and the group switcher changes it; the feed, the roster, and every admin control resolve against it, so a role is answered per-group rather than globally. In code a group is an **`org`**; in the interface it is always called a **Group**.
 
 ---
 
@@ -27,7 +29,7 @@ This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app
 
 ## Frontend
 
-**Everything but the dashboard is over the wire.** The `feed`, `post`, `comments`, `auth`, and `members` stores fetch from `/api` through `src/lib/api.js`, paginated, with optimistic writes. Only the `app` store is still in-session. All of them use the same store → hook → component layering, so moving a domain onto an endpoint is a store-level change.
+**Everything but the dashboard is over the wire.** The `feed`, `post`, `comments`, `auth`, and `members` stores fetch from `/api` through `src/lib/api.js`, paginated, with optimistic writes. Only the `app` store is still in-session, and `org` holds a selection rather than a resource and fetches nothing. All of them use the same store → hook → component layering, so moving a domain onto an endpoint is a store-level change.
 
 **Critical rules:**
 1. Read `frontend-architecture.md` before any frontend feature work, and `backend-architecture.md` before adding or changing an endpoint.
@@ -44,7 +46,7 @@ This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app
 
 **Before adding any auth or data SDK:** read the "Adding a library" section of `native-architecture.md`. Vendor Next.js guides assume a Node server and will tell you to add `src/middleware.js` — which `output: "export"` drops silently, shipping the app with no auth gate and no error to warn you. Server Actions, `cookies()`/`headers()`, and native reliance on `src/app/api/**` are out for the same reason.
 
-**Database (Prisma):** Postgres on Supabase. The domain is `prisma/schema.prisma` — read its header first, it explains the two decisions that carry the design. Two connection URLs are required, not optional: `DATABASE_URL` (pooler, 6543) for the app and `DIRECT_URL` (5432) for migrations, because Prisma Migrate's advisory locks and DDL do not survive a transaction pooler. Pagination is keyset, not offset, and identifiers are snake_case in Postgres via `@@map`. `npm run prisma:migrate` → `npm run db:secure` → `npm run prisma:seed`; `npm run db:reset` does all three. **`db:secure` is not optional and must follow every migration**: it applies `prisma/policies.sql`, which enables RLS and revokes the Data API's grants — without it, Supabase's auto-generated REST API serves every table to anyone holding the publishable key from our own client bundle. See `backend-architecture.md` → **The database**.
+**Database (Prisma):** Postgres on Supabase. The domain is `prisma/schema.prisma` — read its header first, it explains the two decisions that carry the design. Two connection URLs are required, not optional, and both use the **session** pooler on 5432: `DATABASE_URL` for the app (session mode because the web target is one long-lived Node server — the transaction pooler on 6543 wraps every query in `BEGIN`/`DEALLOCATE ALL`/`COMMIT`) and `DIRECT_URL` for migrations, because Prisma Migrate's advisory locks and DDL do not survive a transaction pooler. Pagination is keyset, not offset, and identifiers are snake_case in Postgres via `@@map`. `npm run prisma:migrate` → `npm run db:secure` → `npm run prisma:seed`; `npm run db:reset` does all three. **`db:secure` is not optional and must follow every migration**: it applies `prisma/policies.sql`, which enables RLS and revokes the Data API's grants — without it, Supabase's auto-generated REST API serves every table to anyone holding the publishable key from our own client bundle. See `backend-architecture.md` → **The database**.
 
 **Guides:**
 - `frontend-architecture.md` — Architecture, patterns, UI components.
@@ -60,10 +62,11 @@ This is **Synaxis** (synaxis.chat): a **Next.js 15 (App Router) + React 19** app
 
 ### Comments
 
-Comments carry the *why*; the code already states the what. Five rules, and the first two are the ones that get broken:
+Comments carry the *why*; the code already states the what. Six rules, and the first three are the ones that get broken:
 
 - **Document the decision, not the journey.** When a change reverses an earlier one, **replace** the comment that explained the old approach — never append the new reasoning underneath it. A block that records every direction the code was taken in is unreadable, and a reader cannot tell which paragraph is still true. Only the final decision belongs in the file; the history belongs in git.
 - **Never comment on where code *isn't*.** "This lives in X, not here", "moved to Y", "deliberately not in this file" — that is the journey wearing a signpost, and it is a pointer that goes stale the moment the other file moves again. State what the code in front of you does and why. The corollary: **if an edit leaves a file's code unchanged, its comments come out unchanged too.** Touching only the prose of a file you didn't otherwise modify is the tell that you are narrating a decision rather than documenting one.
+- **Scale the comment to the change, not to the effort of finding it.** A one-token fix — a class swapped, an `!` added, a prop renamed — gets one line at most, and usually none. A change that took an hour to diagnose is still a small change; the diagnosis is not what the reader needs, the constraint is. If the note explains its own mechanics (which selector wins, how specificity resolved, what you tried first), cut it back to the constraint the next person would otherwise break. Never explain the same fix in two places.
 - **Length is earned.** One or two lines is the default. Spend a paragraph only where the next person would otherwise undo the decision — a platform quirk, an ordering that looks arbitrary and isn't, a constraint enforced somewhere else. Never on restating a signature.
 - **Say it once.** If the header of a function or file already establishes a constraint, a line inside it refers to that constraint rather than re-arguing it.
 - **Delete what the code outgrew, in the same edit.** A stale comment is worse than no comment, because it is trusted.

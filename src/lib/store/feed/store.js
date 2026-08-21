@@ -14,7 +14,13 @@ import { toErrorList } from '@/lib/utils'
  * and refreshes, while the open post is transient and addressed by id (including on a cold
  * deep link, where there is no feed at all). What this store keeps of a post is a
  * *projection*: the row it paged in. `cachedPost` / `patchPost` are how the `post` store
- * reads and writes that projection. */
+ * reads and writes that projection.
+ *
+ * **The feed is scoped to the selected group.** `orgId` records which one is loaded, and
+ * `load` takes the target as an argument rather than reading the org store — that is what
+ * keeps the imports one-directional (see the header of lib/store/org/store.js). A different
+ * id empties the list and drops readiness, so the switcher's tap paints a skeleton on the
+ * next frame instead of leaving another parish's posts on screen under a new heading. */
 
 const ERROR_INIT = {
     list: false,
@@ -37,28 +43,57 @@ const INIT = {
     items: [],
     cursor: null,
     hasMore: true,
+
+    /* Which group's feed is loaded. Also what every in-flight response is checked against,
+     * so a slow page for a group the reader has already switched away from is dropped
+     * rather than appended under the new one. */
+    orgId: null,
 }
 
 const useStore = create(immer((set, get) => ({
     ...INIT,
 
-    /* Idempotent boot. Called from the hook on mount; safe to call repeatedly. */
-    init: async () => {
-        if (get().ready === false && get().loading.list === false) {
-            await get().refresh()
-        }
+    /* Loads a group's feed. Called from the hook with the current selection, so it re-runs
+     * when the switcher moves — and when the selection resolves after the first render.
+     *
+     * Idempotent for the group already showing, which is what makes it safe to call on
+     * every mount: navigating away from the dashboard and back must not re-fetch a list the
+     * reader has already scrolled. */
+    load: async (orgId) => {
+        if (!orgId) return
+        if (get().orgId === orgId && get().ready) return
+
+        /* A different group is a different list, so the old one goes immediately rather
+         * than at the end of the request. Emptying `items` alongside `ready` is what puts
+         * the skeleton up on the very next frame — leaving them would show one parish's
+         * posts under another's name for the length of a round trip. */
+        set(state => {
+            state.orgId = orgId
+            state.items = []
+            state.cursor = null
+            state.hasMore = true
+            state.ready = false
+        })
+
+        await get().refresh()
     },
 
-    /* (Re)loads the first page. Also what pull-to-refresh calls, which is why it replaces
-     * `items` outright rather than merging: a refresh should show the newest page, not
-     * reconcile against what the reader was already holding. */
+    /* (Re)loads the first page of the group already selected. Also what pull-to-refresh
+     * calls, which is why it replaces `items` outright rather than merging: a refresh
+     * should show the newest page, not reconcile against what the reader was holding. */
     refresh: async () => {
+        const orgId = get().orgId
+        if (!orgId) return
+
         set(state => { state.loading.list = true })
         try {
             const { items, nextCursor } = await api.get(API_ENDPOINTS.FEED, {
-                params: { limit: PAGE_SIZE.FEED },
+                params: { limit: PAGE_SIZE.FEED, orgId },
             })
             set(state => {
+                /* Landed after the reader switched groups — this page belongs to a list
+                 * that is no longer on screen. */
+                if (state.orgId !== orgId) return
                 state.items = items
                 state.cursor = nextCursor
                 state.hasMore = nextCursor !== null
@@ -66,25 +101,32 @@ const useStore = create(immer((set, get) => ({
             })
         } catch (error) {
             set(state => {
+                if (state.orgId !== orgId) return
                 state.error.list = toErrorList(error, 'Could not load the feed. Please try again.')
+                /* Readiness resolves on the failure path too, or the skeleton spins forever
+                 * instead of settling on an empty feed the reader can pull to retry. */
+                state.ready = true
             })
         } finally {
-            set(state => { state.loading.list = false })
+            set(state => {
+                if (state.orgId === orgId) state.loading.list = false
+            })
         }
     },
 
     /* Appends the next page. `nextCursor === null` is the only end-of-collection signal
      * the server gives, so `hasMore` is derived from it rather than from a total count. */
     loadMore: async () => {
-        const { cursor, hasMore, loading } = get()
-        if (!hasMore || !cursor || loading.more || loading.list) return
+        const { cursor, hasMore, loading, orgId } = get()
+        if (!hasMore || !cursor || loading.more || loading.list || !orgId) return
 
         set(state => { state.loading.more = true })
         try {
             const { items, nextCursor } = await api.get(API_ENDPOINTS.FEED, {
-                params: { limit: PAGE_SIZE.FEED, cursor },
+                params: { limit: PAGE_SIZE.FEED, cursor, orgId },
             })
             set(state => {
+                if (state.orgId !== orgId) return
                 /* A refresh can land mid-append and reset the list. Dropping ids we
                  * already hold keeps that from duplicating rows. */
                 const seen = new Set(state.items.map(post => post.id))
@@ -94,10 +136,13 @@ const useStore = create(immer((set, get) => ({
             })
         } catch (error) {
             set(state => {
+                if (state.orgId !== orgId) return
                 state.error.list = toErrorList(error, 'Could not load more posts.')
             })
         } finally {
-            set(state => { state.loading.more = false })
+            set(state => {
+                if (state.orgId === orgId) state.loading.more = false
+            })
         }
     },
 
@@ -115,16 +160,21 @@ const useStore = create(immer((set, get) => ({
      * Optimistic in the same shape as a new comment: the row appears immediately under a
      * temporary id and marked `pending`, then is swapped for the created resource — which
      * carries the real id, the server's timestamp, and the author it stamped. A failure
-     * removes the row and parks the error. */
+     * removes the row and parks the error.
+     *
+     * The target must be the group on screen. It always is — the composer publishes into
+     * the selection — but the list is scoped now, so an insert into any other group would
+     * put a post in a feed that does not contain it and would vanish on the next refresh. */
     publish: async ({ orgId, title, body, media = [] }) => {
         if (!orgId || !body?.trim()) return null
+        if (get().orgId !== orgId) return null
 
         const user = useAuthStore.getState().user
         const tempId = mockId('pending')
         /* The group's display name, resolved from the viewer's own memberships rather than
          * borrowed from whatever happens to be at the top of the feed — which is null on
          * an empty feed and wrong the moment a viewer belongs to more than one group. */
-        const groupName = user?.orgs?.find(org => org.id === orgId)?.name ?? null
+        const orgName = user?.orgs?.find(org => org.id === orgId)?.name ?? null
 
         set(state => {
             state.loading.publish = true
@@ -148,7 +198,8 @@ const useStore = create(immer((set, get) => ({
                               user.orgs?.find(org => org.id === orgId)?.role === ROLES.ADMIN,
                       }
                     : null,
-                group: groupName,
+                orgId,
+                orgName,
                 createdAt: new Date().toISOString(),
                 title: title ?? null,
                 body,

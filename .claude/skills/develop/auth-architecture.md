@@ -307,19 +307,39 @@ export const GET = route(async (request) => {
 
 | Function | Throws | When |
 |---|---|---|
-| `requireViewer(request)` | `401 UNAUTHENTICATED` | no bearer token, token fails Supabase verification, or no Profile for its `sub` |
-| `requireMembership(id, orgId)` | `404 NOT_FOUND` | no membership |
+| `requireViewer(request)` | `401 UNAUTHENTICATED` | no bearer token, token fails verification, or no Profile for its `sub` |
+| | `503 UNAVAILABLE` | the check could not run (JWKS unreachable) — never a 401 |
+| `requireMembership(viewer, orgId)` | `404 NOT_FOUND` | no membership |
 | | `403 PERMISSION_DENIED` | REVOKED, or wrong role |
-| `readableOrgIds(id)` | — | the APPROVED set the feed is scoped to |
+| `membershipIn(viewer, orgId)` | — | that membership, or null |
+| `readableOrgIds(viewer)` | — | the APPROVED set the feed is scoped to |
 
 **404 rather than 403 for a non-member** is deliberate: confirming a group or post exists
 would leak the contents of a parish the viewer was never admitted to. Wrong-role gets 403,
 because the viewer already knows the group exists.
 
-The token is verified with `supabase.auth.getUser(jwt)` — a network round trip per request.
-Never trust a decoded JWT body without it; the payload is base64, not a proof. If that
-latency matters, verify the signature locally against the project's JWKS with `jose` and
-keep the Profile lookup exactly as it is.
+**Only `requireViewer` is async, and only it queries.** It returns the Profile *with every
+membership and its organization loaded*, and every helper after it reads that snapshot in
+memory. This is not a micro-optimization: each of those checks used to be its own
+statement, and a round trip to Supabase's pooler is tens of milliseconds against a query
+that costs nothing. Pass the `viewer`, never `viewer.id` — the helpers throw if the
+snapshot is missing rather than quietly answering "no membership", because a viewer that
+reached a service without `requireViewer` is a broken call path, not a 404.
+
+**The token is verified locally**, against the project's published JWKS with `jose`.
+Supabase signs with ES256, so a public key settles it and no round trip to the auth server
+is needed; issuer and audience are checked alongside the signature. Two cases fall back to
+`auth.getUser(jwt)`: a project still on the legacy shared HS256 secret, and the window
+during a key rotation before the new key is published.
+
+What this gives up is *instant* revocation — a session signed out elsewhere stays
+verifiable until its access token expires (an hour by default; the refresh token is
+already dead, so it cannot be extended). Two things bound that: the Profile lookup, which
+cuts off anyone deprovisioned, and `Membership.status`, read from the database on every
+authorization decision. If revocation ever needs to bite sooner, shorten the JWT expiry in
+the Supabase dashboard — do not put an HTTP call back in the path of every request.
+
+Never trust a decoded JWT body without verifying it; the payload is base64, not a proof.
 
 ### Client — presentation only
 
@@ -415,7 +435,7 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 | Admissions, roster, onboarding, revoke | `src/lib/server/profile.service.js` |
 | `access` derivation | `accessFor` in `src/lib/server/projections.js` |
 | Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` | `src/lib/store/auth/store.js` |
-| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGroups`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
+| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
 | Roster store + hook (invite, approve, revoke, re-rank) | `src/lib/store/members/` |
 | Route guards (signed in vs not) | `src/components/AuthGate.jsx` |
 | Gateway guards (do you belong / orientation) | `src/components/MemberGate.jsx` |

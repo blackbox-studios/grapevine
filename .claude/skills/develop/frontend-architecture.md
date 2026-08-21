@@ -125,6 +125,7 @@ Reference files:
 │   │       ├── global.hook.js       # useErrors() aggregator (+ useReady() when stores grow)
 │   │       ├── auth/                # { store.js, hook.js }
 │   │       ├── app/                 # { store.js, hook.js }
+│   │       ├── org/                 # { store.js, hook.js } — the selected group + the switcher
 │   │       ├── feed/                # { store.js, hook.js } — the paginated list
 │   │       ├── post/                # { store.js, hook.js } — the one open post + all post writes
 │   │       └── comments/            # { store.js, hook.js } — the one open thread
@@ -180,8 +181,9 @@ an endpoint. Two things from it that bite here:
 - **Every request carries a bearer token.** `lib/api.js` reads the Supabase access token
   per request and sends `Authorization: Bearer …`; a 401 signs the app out. Stores do not
   think about auth at all.
-- **No latency floor.** Reads hit Postgres now. Stores must **not** race a `mockDelay` floor
-  of their own (see the store template below).
+- **No latency floor on anything API-backed.** Reads hit Postgres now, and a warm feed page
+  answers in ~0.3s. Stores must **not** race a `mockDelay` floor of their own (see the store
+  template below). The one floor left is the `app` store's, which has no endpoint to wait on.
 
 All routes and endpoints live in `lib/constants.js`. Parameterized paths are functions, so
 no caller ever builds a URL by hand:
@@ -863,7 +865,9 @@ Full detail, and how to attach a real session, is in `auth-architecture.md`.
 
 > **These hide UI; they do not secure anything.** Every rule here is enforced again on the server — `requireMembership(..., { role: "ADMIN" })` in the service layer is what actually stops a member from publishing. A gate that exists only on the client does not exist, because the API is reachable with `curl`. See `auth-architecture.md`.
 
-Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/constants.js`) and **scoped to one group** — being an admin of one parish grants nothing in another. Both helpers therefore take an optional `orgId`; omit it and they resolve against the viewer's primary group. Use the helpers in `components/Auth.jsx`:
+Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/constants.js`) and **scoped to one group** — being an admin of one parish grants nothing in another. Both helpers therefore take an optional `orgId`.
+
+**Pass it, from `useCurrentOrg()`.** Omitting it falls back to the viewer's first membership, which was the right default when there was one group and is a bug now that a switcher exists: an admin of a parish reading their diocese would keep the parish's permissions. The fallback survives only for the moment before a selection resolves. Use the helpers in `components/Auth.jsx`:
 
 - **`<Privileged role={…}>`** — inline UI (buttons, tabs, table actions). Renders children when the current user's role meets or exceeds `role`; otherwise renders `fallback` (default `null`, i.e. hidden).
 - **`<PrivilegedRoute role={…}>`** — whole routes. Redirects unauthorized users instead of hiding content.
@@ -881,19 +885,39 @@ Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/con
 ```jsx
 import { Privileged } from '@/components/Auth'
 import { ROLES } from '@/lib/constants'
+import { useCurrentOrg } from '@/lib/store/org/hook'
 
-/* Admin of the viewer's primary group — hidden from members */
-<Privileged role={ROLES.ADMIN}>
+/* Admin of the selected group — hidden from members, and hidden again the moment the
+   viewer switches to a group they only belong to */
+const { orgId } = useCurrentOrg()
+
+<Privileged role={ROLES.ADMIN} orgId={orgId}>
     <Button onClick={handlePublish}>New post</Button>
 </Privileged>
 
-/* Admin of one specific group */
+/* Admin of one specific group, named rather than selected — a row in a list of groups */
 <Privileged role={ROLES.ADMIN} orgId={org.id}>
     <Button onClick={handleApprove}>Approve</Button>
 </Privileged>
 ```
 
-Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Composer.jsx` (the admin-only feed composer). The underlying hooks are `useRole(orgId)` and `usePrivileged(role, orgId)` in `lib/store/auth/hook.js`.
+Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Composer.jsx` (the admin-only feed composer). The underlying hooks are `useRole(orgId)` and `usePrivileged(role, orgId)` in `lib/store/auth/hook.js`; `useCurrentOrg()` already exposes `isAdmin` resolved against the selection, so prefer that over calling `usePrivileged` again with the same id.
+
+### The selected group — `lib/store/org/`
+
+The group switcher is the app's context selector, and the store behind it is the one store in the repo that **owns a selection rather than a resource**. It fetches nothing: the list of groups comes from the viewer (`GET /api/me` already ships `orgs` with a role in each, read through `useOrgs()`), and what is genuinely the store's is the single `currentId` — persisted, so a reload lands back in the same parish, and re-validated against the viewer's real memberships on every boot.
+
+**Org-scoped stores read the id, they are not pushed it.** Every scoped store holds the group it is currently showing and takes the target as an argument — `load(orgId)` — discarding responses whose group is no longer selected. Their hooks depend on `useCurrentOrg()`, so a switch re-runs the effect, `load` sees a different id, empties the list, drops `ready`, and the skeleton paints on the next frame.
+
+That direction is deliberate and load-bearing. The obvious alternative — `select()` reaching into each store to invalidate it — makes a cycle for any store that must both *read* the current group and *be reset* by it: `feed` would import `org` for the id while `org` imported `feed` to reset it. Reading resolves it with no cross-store import at all. `members` established the pattern; `feed` follows it.
+
+Consequences worth knowing:
+
+- **A scoped store is out of `initAuthorizedStores`.** It has no request to make until a group is resolved, and the resolution happens in a React effect. Boot it from its own hook instead.
+- **`skeleton` covers both waits.** `resolvingOrg || !ready` — the moment before a group is selected is as much "nothing to show" as the fetch itself, and letting the first fall through flashes an empty surface.
+- **Anything scoped must be emptied on switch, not just refetched.** Leaving `items` in place shows one parish's rows under another's name for a round trip, and every row's actions would write to the wrong group if tapped.
+
+**The switcher's two presentations are two components, not one responsive one** (`components/OrgNav.jsx`). Desktop is a dropdown over a nav that never moves. Mobile *pushes* the shell aside rather than covering it: `--org-nav-width` in `globals.css` is both the panel's width and the distance every displaced layer travels, and the layers apply it themselves (`SlideBase`, the mobile rail, the hamburger) off `useOrgNav().shift`, all on `SLIDE_TRANSITION`. Do **not** wrap them in one shifting container — a transformed ancestor becomes the containing block for every `position: fixed` descendant, which drags the slide-route surface along with the shell. `SlideBase` is where the two possible displacements are resolved, and a slide route wins.
 
 ### Prop drilling — don't
 

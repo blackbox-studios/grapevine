@@ -20,8 +20,9 @@ const TABS = [
 const SettingsLayout = ({ children }) => {
     const pathname = usePathname()
 
+    /* `pt-12 md:pt-0` is the same mobile top gutter Inbox takes, for the same reason. */
     return (
-        <div className="grid grid-cols-[10rem_1fr] gap-16 pb-10">
+        <div className="grid grid-cols-[10rem_1fr] gap-16 pt-12 md:pt-0 pb-10">
             <nav className="flex flex-col gap-3.5 sm:-ml-6">
                 {TABS.map(({ title, to, end, privileged }) => {
                     const isActive = end ? pathname === to : pathname.startsWith(to)

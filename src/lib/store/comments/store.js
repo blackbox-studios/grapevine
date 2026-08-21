@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
@@ -13,6 +14,7 @@ const ERROR_INIT = {
     list: false,
     add: false,
     like: false,
+    remove: false,
 }
 
 const LOADING_INIT = {
@@ -188,6 +190,45 @@ const useStore = create(immer((set, get) => ({
                 state.error.add = toErrorList(error, 'Could not post your comment.')
             })
             usePostStore.getState().bumpCommentCount(postId, -1)
+        }
+    },
+
+    /* Removes a comment — the viewer's own, or anyone's if they administer the post's
+     * group. The server decides that; `canDelete` on the row is what the UI offers the
+     * affordance from, and a client that asked anyway gets a 403.
+     *
+     * Optimistic, unlike the roster's administrative writes: the reader has already
+     * confirmed, and a row that lingers after they say "delete" reads as broken. The
+     * snapshot is the whole row *and its index*, so a failure puts it back where it was
+     * rather than at the top of the thread, which is where a re-fetch would place it.
+     *
+     * The toast is optimistic too, and deliberately so: it is the acknowledgement of the
+     * gesture, and arriving a round-trip after the row has already gone reads as a second,
+     * unrelated event. On failure it is dismissed by id rather than left to expire, so the
+     * restored row and the error toast are never accompanied by a toast still claiming the
+     * comment was deleted. */
+    remove: async (commentId) => {
+        const postId = get().post
+        const index = get().items.findIndex(item => item.id === commentId)
+        if (index === -1) return
+
+        const removed = get().items[index]
+        /* Nothing to delete server-side yet, and no id to name it by. */
+        if (removed.pending) return
+
+        set(state => { state.items.splice(index, 1) })
+        usePostStore.getState().bumpCommentCount(postId, -1)
+        const toastId = toast('Comment deleted')
+
+        try {
+            await api.delete(API_ENDPOINTS.COMMENT(commentId))
+        } catch (error) {
+            toast.dismiss(toastId)
+            set(state => {
+                state.items.splice(index, 0, removed)
+                state.error.remove = toErrorList(error, 'Could not delete that comment.')
+            })
+            usePostStore.getState().bumpCommentCount(postId, 1)
         }
     },
 

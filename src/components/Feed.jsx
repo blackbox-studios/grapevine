@@ -134,9 +134,9 @@ const PostCard = ({ post }) => {
                             • {timeAgoCompact(now, new Date(post.createdAt).getTime())}
                         </span>
                     </div>
-                    {post.group && (
+                    {post.orgName && (
                         <span className="truncate text-xs text-muted-foreground">
-                            {post.group}
+                            {post.orgName}
                         </span>
                     )}
                 </div>

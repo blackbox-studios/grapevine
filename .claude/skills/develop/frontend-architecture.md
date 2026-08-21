@@ -682,6 +682,10 @@ catch (error) {
 
 Stores **may** call `toast.success` after a successful mutation when the operator should get immediate affirmative feedback (e.g. "Node registered successfully", "App deployed successfully"). Success toasts are not wired through the error listener.
 
+**A store may toast *before* the request resolves, but only alongside an optimistic write, and only when it dismisses that toast on failure.** `comments/store.js` → `remove` is the reference case and currently the only one. The rule that makes it safe is that the toast and the row must tell the same story at every instant: the row disappears and the toast appears in the same frame, so the toast is the acknowledgement of the *gesture* rather than a report of the round trip — arriving a round trip after the row has already gone reads as a second, unrelated event. On failure the row is spliced back at its original index and the toast is dismissed **by id** (`toast.dismiss(toastId)`), never left to expire, so a restored comment is never accompanied by a toast still claiming it was deleted.
+
+Do not reach for this by default. A mutation whose optimistic write is not itself a visible removal has nothing to stay in sync with, and `toast.success` after the await is the right shape for it. Administrative writes — anything in `members/store.js` — are deliberately *not* optimistic and must not toast early: the operator needs to know the server agreed, and a role change that silently reverts is worse than one that takes a round trip to confirm.
+
 Only in **extenuating circumstances** should a store toast an error directly — for example, when the failure must be communicated but cannot be represented in `error.<key>` without breaking the global listener contract. If you think you need this, prefer fixing the error state shape instead.
 
 **Forbidden** in components:

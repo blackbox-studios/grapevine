@@ -128,13 +128,24 @@ export const route = (handler) => async (request, context) => {
 }
 
 /* Reads and validates the pagination params shared by every collection endpoint.
- * `limit` is clamped so a client can't ask for the whole table in one call. */
-export const pageParams = (request, { fallback, max = 50 }) => {
+ * `limit` is clamped so a client can't ask for the whole table in one call.
+ *
+ * `extra` names any additional query keys the route wants, read straight through as
+ * strings (or null when absent) and merged into the same object, so the result can be
+ * handed to a service in one spread. It exists so a route that needs a filter alongside
+ * its page does not parse `request.url` a second time to get it — see `api/feed`, whose
+ * `orgId` arrives this way. Validating those values is the service's job, not this one's;
+ * only `limit` is clamped here because only `limit` bounds the query. */
+export const pageParams = (request, { fallback, max = 50, extra = [] }) => {
     const params = new URL(request.url).searchParams
     const requested = Number.parseInt(params.get("limit") ?? "", 10)
     const limit = Number.isFinite(requested)
         ? Math.min(Math.max(requested, 1), max)
         : fallback
 
-    return { limit, cursor: params.get("cursor") }
+    return {
+        limit,
+        cursor: params.get("cursor"),
+        ...Object.fromEntries(extra.map(key => [key, params.get(key)])),
+    }
 }

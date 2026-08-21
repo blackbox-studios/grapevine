@@ -22,10 +22,10 @@ export const dynamic = "force-dynamic"
 
 export const GET = route(async (request) => {
     const viewer = await requireViewer(request)
-    const { items, nextCursor } = await listFeed(viewer, {
-        ...pageParams(request, { fallback: PAGE_SIZE.FEED }),
-        orgId: new URL(request.url).searchParams.get("orgId"),
-    })
+    const { items, nextCursor } = await listFeed(
+        viewer,
+        pageParams(request, { fallback: PAGE_SIZE.FEED, extra: ["orgId"] }),
+    )
     return sendCollection(items, nextCursor)
 })
 

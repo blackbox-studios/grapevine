@@ -83,7 +83,7 @@ Reference files:
 │   │   ├── SlideRouter.jsx          # "use client": the slide-route surface registry —
 │   │   │                            #   <SlideRouter/> (in-app overlay), <SlidePage/> (cold
 │   │   │                            #   load), <SlideBase/> (the base surface it pushes)
-│   │   ├── Loading.jsx              # <Spinner/>, <LoadOverlay/> (moved out of the old pages/loading)
+│   │   ├── Loading.jsx              # <Spinner/> — no full-screen loading surface; the gates render nothing
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
 │   │   ├── Hyperlink.jsx
@@ -856,6 +856,8 @@ Auth redirects are done by two client wrapper components, each applied once at t
 ```
 
 Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so the `localStorage` value has rehydrated, then redirects on a mismatch and renders `null` until it is satisfied — so protected content is never painted for a signed-out visitor.
+
+**That window shows nothing — don't put a spinner back in it.** One used to live there, with a one-second minimum on screen so it couldn't flicker, which meant every cold start paid a full second whether or not there was anything to wait for. A blank frame or two is the honest picture of a fast session check; a spinner with a floor makes the app slower than it is on every launch. If a future boot genuinely takes long enough to need covering, fix the wait, not the picture of it.
 
 **This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `synaxis-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
 

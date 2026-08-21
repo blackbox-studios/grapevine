@@ -179,17 +179,6 @@ export const useAuthGate = () => {
     })))
 }
 
-/* Whether the app still has no answer about who the viewer is — what the boot spinner in
- * <ProtectedGate/> covers, since every gate renders `null` until this is false.
- *
- * `ready` is the right signal because `init()` publishes it only after `_loadProfile()` has
- * awaited GET /api/me, so it means the *viewer* is loaded and not just that Supabase
- * answered. `loggedIn && !user` is a guard on the persisted view, which writes the two
- * together: if they ever disagree, holding the spinner beats showing an empty shell. */
-export const useBooting = () => {
-    return useAuthStore(state => !state.ready || (state.loggedIn && !state.user))
-}
-
 /* Where a signed-in viewer belongs, as a route — or `null` for "the app", or `undefined`
  * for "not known yet".
  *

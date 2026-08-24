@@ -17,7 +17,7 @@ import { MemberGate } from "@/components/MemberGate";
 import NavIcon from "@/components/NavIcon";
 import { OrgNavPanel, OrgSwitcher } from "@/components/OrgNav";
 import NotificationsMenu from "@/components/Notifications";
-import ProfileMenu from "@/components/Profile";
+import { ProfileTrigger } from "@/components/Profile";
 import PageTransition from "@/components/PageTransition";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
@@ -173,7 +173,7 @@ const ProtectedShell = ({ children }) => {
                 </div>
                 <div className="pb-8 pt-6 px-2 flex flex-col gap-2">
                     <NavSlot><NotificationsMenu /></NavSlot>
-                    <NavSlot><ProfileMenu /></NavSlot>
+                    <NavSlot><ProfileTrigger pathname={pathname} /></NavSlot>
                 </div>
             </nav>
 
@@ -250,12 +250,15 @@ const ProtectedShell = ({ children }) => {
                     vibing ? "opacity-35" : "opacity-100",
                 )}
             >
+                {/* No bell here. Notifications are not a destination — they open over
+                    wherever the reader is — and on a phone the trigger belongs at the top
+                    right of the feed, which is where a thumb looks for it. See
+                    (protected)/page.jsx. */}
                 {NAV.map((item, idx) => (
                     <NavItem key={idx} item={item} pathname={pathname} />
                 ))}
                 <Compose />
-                <NotificationsMenu />
-                <ProfileMenu />
+                <ProfileTrigger pathname={pathname} />
             </motion.nav>
 
             <OrgSwitcher />

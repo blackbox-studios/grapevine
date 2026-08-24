@@ -6,6 +6,7 @@ import useFeedStore from "@/lib/store/feed/store"
 import usePostStore from "@/lib/store/post/store"
 import useCommentsStore from "@/lib/store/comments/store"
 import useMembersStore from "@/lib/store/members/store"
+import useNotificationsStore from "@/lib/store/notifications/store"
 import useOrgStore from "@/lib/store/org/store"
 import useUploadsStore from "@/lib/store/uploads/store"
 import useGlobalStore from "@/lib/store/global.store"
@@ -20,6 +21,7 @@ export const useErrors = () => {
     const postError = usePostStore(state => state.error)
     const commentsError = useCommentsStore(state => state.error)
     const membersError = useMembersStore(state => state.error)
+    const notificationsError = useNotificationsStore(state => state.error)
     const orgError = useOrgStore(state => state.error)
     const uploadsError = useUploadsStore(state => state.error)
     const clearErrors = useGlobalStore(state => state.clearErrors)
@@ -33,11 +35,12 @@ export const useErrors = () => {
             post: postError,
             comments: commentsError,
             members: membersError,
+            notifications: notificationsError,
             uploads: uploadsError,
         },
         clearErrors,
     }), [
-        appError, authError, orgError, feedError,
-        postError, commentsError, membersError, uploadsError, clearErrors,
+        appError, authError, orgError, feedError, postError,
+        commentsError, membersError, notificationsError, uploadsError, clearErrors,
     ])
 }

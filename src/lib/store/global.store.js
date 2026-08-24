@@ -8,6 +8,7 @@ import useFeedStore from '@/lib/store/feed/store'
 import usePostStore from '@/lib/store/post/store'
 import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
+import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
 import useUploadsStore from '@/lib/store/uploads/store'
 
@@ -25,10 +26,17 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * it has no request to make until one is resolved. That resolution happens in
  * `useCurrentOrg`, and the feed's own hook drives the load from it. Booting it here would
  * mean firing a request with no group, or duplicating the selection logic to guess one.
- * `org` holds no remote state at all and needs no boot fetch either. */
+ * `org` holds no remote state at all and needs no boot fetch either.
+ *
+ * `notifications` **is** booted here, and it is the one collection store that is — because
+ * it is the only one that is not scoped to the selected group, so it has a request it can
+ * make the moment there is a viewer. What it fetches on boot is the unread tally alone,
+ * which is chrome the bell needs whether or not anybody opens the panel; the list itself is
+ * loaded by the panel's own hook. */
 const useStore = create(() => ({
     initAuthorizedStores: () => Promise.all([
         useAppStore.getState().init(),
+        useNotificationsStore.getState().init(),
     ]),
     reset: () => {
         useAppStore.getState().reset()
@@ -38,6 +46,7 @@ const useStore = create(() => ({
         usePostStore.getState().reset()
         useCommentsStore.getState().reset()
         useMembersStore.getState().reset()
+        useNotificationsStore.getState().reset()
         useUploadsStore.getState().reset()
     },
     clearErrors: () => {
@@ -48,6 +57,7 @@ const useStore = create(() => ({
         usePostStore.getState().clearErrors()
         useCommentsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
+        useNotificationsStore.getState().clearErrors()
         useUploadsStore.getState().clearErrors()
     },
 }))

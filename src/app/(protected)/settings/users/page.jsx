@@ -411,7 +411,15 @@ const SettingsUsersPage = () => {
                     />
                 </div>
 
-                <div className="overflow-hidden pb-2">
+                {/* `min-w-0`, not `overflow-hidden`. The roster is wider than a phone by
+                    design — every cell is `whitespace-nowrap`, because a wrapped name column
+                    is unreadable — and the shadcn Table already wraps itself in an
+                    `overflow-x-auto` box to absorb that. What stopped it working was this
+                    element: a flex/grid child defaults to `min-width: auto`, so it refused to
+                    resolve narrower than its content, the inner scroller was never given a
+                    width to overflow, and the whole page ran off the right edge instead.
+                    Clipping it would have hidden half the columns with no way to reach them. */}
+                <div className="min-w-0 pb-2">
                     <AnimatePresence mode="wait" initial={false}>
                         {loading ? (
                             <Transition fast key="skeleton">

@@ -199,6 +199,31 @@ export const isRouteActive = (pathname, href) => {
  * gesture instead of one outrunning the other. iOS-like ease. */
 export const SLIDE_TRANSITION = { duration: 0.34, ease: [0.32, 0.72, 0, 1] }
 
+/* How a slide-route surface enters and leaves, per presentation.
+ *
+ * `modal` is the in-app open: a full viewport of horizontal travel on SLIDE_TRANSITION,
+ * which is the exact distance and curve <SlideBase/> pushes the surface behind it. The two
+ * are one movement, and they only read as one while both halves of that pairing come from
+ * here — which is the reason this is a shared value rather than an object per surface.
+ *
+ * `page` is the cold load: a shared link or a refresh, where nothing is mounted behind to be
+ * pushed. There is no coupled motion to match, so it fades. Sliding a surface in over a blank
+ * screen animates a relationship that does not exist. */
+export const slideSurfaceAnim = (variant) =>
+    variant === "modal"
+        ? {
+              initial: { x: "100%" },
+              animate: { x: 0 },
+              exit: { x: "100%" },
+              transition: SLIDE_TRANSITION,
+          }
+        : {
+              initial: { opacity: 0 },
+              animate: { opacity: 1 },
+              exit: { opacity: 0 },
+              transition: { duration: 0.2, ease: "easeOut" },
+          }
+
 /* Shared timing for a row making room in a list — the comment thread closing over a deleted
  * comment, or sliding down around a new one.
  *

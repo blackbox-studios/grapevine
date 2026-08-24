@@ -192,6 +192,9 @@ completed (offline, DNS, CORS, aborted connection).
 | `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
 | `DELETE` | `/api/comments/:commentId` | its author, **or** an admin of the post's group | `204` |
 | `POST` | `/api/comments/:commentId/likes` | member of its group | `{ liked, likes }` |
+| `GET` | `/api/notifications?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's notifications, newest first |
+| `GET` | `/api/notifications/unread` | viewer | `{ unread }` — the number the bell's dot stands for |
+| `POST` | `/api/notifications/read` | viewer | `{ unread }` — marks them all read, so this is always `0` |
 
 **Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
 not be one — the app is invite-only and its content is a parish's private life. See
@@ -226,6 +229,29 @@ their own. `projectPost` ships it as `canDelete`, which is also what decides whe
 options menu is offered at all. Soft, like a comment's, and it deliberately leaves the media
 in storage — the row still points at it, and a restore that has lost its photos is not one.
 
+**Notifications are addressed to a person, not scoped to a group, and that is the one place
+this app's scoping rule does not apply.** Every other read narrows to the viewer's
+memberships or to the selected group; `listNotifications` filters on `recipientId` and
+nothing else, because a like on something you wrote in a parish you are not currently
+reading still happened to you. There is no `orgId` parameter and there should not be one.
+The viewer is also the only scope a caller could not widen — a notification names exactly
+one recipient — so no `requireMembership` is involved.
+
+**The tally and the list are two endpoints on purpose.** They are asked at completely
+different rates: the bell needs `unread` on every boot for every viewer, while the list is
+wanted only when somebody opens the panel. Folding the count into the collection response
+would load and project a page of rows on every sign-in to decide whether to draw a dot.
+
+**Writing a notification is a builder, not a write.** `notifyLike` / `unnotifyLike` in
+`notifications.service.js` *return* a Prisma operation, which the like toggles splice into
+the `$transaction([...])` they were already running — so the notification commits with the
+like that justifies it and costs no additional round trip. `notifyNewPost` is the exception
+and takes a transaction client instead, because its rows need the id of the post created
+alongside them; that is the same dependency that earns `deleteComment` its interactive
+transaction. A post's notification is also a **fan-out**: one row per approved member of the
+group. See that file's header, which also carries the game plan for grouping ("Mat. Carly and
+9 others") as a read-side change.
+
 **`POST /api/uploads` grants permission; it does not receive a file.** It answers a signed
 upload URL and the client sends the bytes straight to Supabase Storage, so a parish photo
 never passes through the Node process. The client states a *purpose* (`POST_MEDIA`,
@@ -252,6 +278,7 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   projections.js           # database rows → wire shapes
   posts.service.js         # posts, comments, likes
   profile.service.js       # the viewer, their groups, a group's roster
+  notifications.service.js # the panel behind the bell, and the writes that fill it
   uploads.service.js       # purpose → permission + destination
 
 src/app/api/
@@ -266,6 +293,9 @@ src/app/api/
   posts/[postId]/likes/route.api.js
   comments/[commentId]/route.api.js         # DELETE
   comments/[commentId]/likes/route.api.js
+  notifications/route.api.js                # GET — the panel's page
+  notifications/unread/route.api.js         # GET — the bell's tally
+  notifications/read/route.api.js           # POST — mark them all read
 ```
 
 `projections.js` is the boundary between the schema and the contract. A Prisma model handed
@@ -432,6 +462,7 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Rows → wire shapes | `src/lib/server/projections.js` |
 | Posts, comments, likes | `src/lib/server/posts.service.js` |
 | Viewer, groups, roster | `src/lib/server/profile.service.js` |
+| Notifications, and the builders that write them | `src/lib/server/notifications.service.js` |
 | Prisma client singleton | `src/lib/db.js` |
 | Schema / domain model | `prisma/schema.prisma` |
 | Seed script + frozen fixture | `prisma/seed.js`, `prisma/seed-data.js` |

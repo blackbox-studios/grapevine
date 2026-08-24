@@ -149,6 +149,38 @@ export const projectComment = (
     canDelete,
 })
 
+/* One line in the notifications panel.
+ *
+ * `actor` is the same author block a post byline carries, resolved against the *post's*
+ * group — so the person who liked your announcement wears the check in the parish it was
+ * published into, exactly as they would above a post of their own. The panel is not scoped
+ * to the selected group, so this is the only thing that could answer it correctly.
+ *
+ * `type` goes over raw rather than as a rendered sentence. "liked your post" is copy, and
+ * copy belongs on the client next to the layout that has to fit it — the same reason a name
+ * ships as parts. It is also what lets a grouped line ("and 9 others") reuse this projection
+ * unchanged when that lands; see the GROUPING note in `notifications.service.js`.
+ *
+ * `postId` is where this notification points. It is shipped even though nothing navigates
+ * with it yet, because it is what a push payload and a tapped row both need, and it costs a
+ * column already loaded.
+ *
+ * `orgName` is what a NEW_POST line names — "posted in Holy Trinity Cathedral" — and it has
+ * to come from the post rather than from the switcher, because this panel is not scoped to
+ * the selected group and the post very often belongs to another one.
+ *
+ * `read` rather than `readAt`: the panel tints a row and the bell counts, and neither has
+ * any use for the instant it happened to be marked. */
+export const projectNotification = (notification) => ({
+    id: notification.id,
+    type: notification.type,
+    actor: projectAuthor(notification.actor, notification.post?.orgId ?? null),
+    postId: notification.postId,
+    orgName: notification.post?.org?.name ?? null,
+    createdAt: notification.createdAt.toISOString(),
+    read: notification.readAt !== null,
+})
+
 /* An organization, as the Groups surface and the viewer's profile read it. `role` and
  * `status` come from the viewer's membership, so this is always a viewer-relative view of
  * a group rather than a public one. */

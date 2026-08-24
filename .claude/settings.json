@@ -2,6 +2,24 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)"
+    ],
+    "deny": [
+      "Bash(npx prisma migrate reset:*)",
+      "Bash(prisma migrate reset:*)",
+      "Bash(npm run db:reset:*)",
+      "Bash(npm run db:reset*)"
+    ],
+    "ask": [
+      "Bash(npx prisma migrate:*)",
+      "Bash(prisma migrate:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(npx prisma db execute:*)",
+      "Bash(npm run prisma:migrate:*)",
+      "Bash(npm run prisma:migrate*)",
+      "Bash(npm run db:secure:*)",
+      "Bash(npm run db:secure*)",
+      "Bash(npm run prisma:seed:*)",
+      "Bash(npm run prisma:seed*)"
     ]
   },
   "hooks": {

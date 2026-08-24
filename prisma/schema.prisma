@@ -63,7 +63,7 @@
 // even though nothing in this app talks to Supabase over the Data API.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   // relationJoins lets a query opt into `relationLoadStrategy: "join"`, which resolves an
   // `include` with lateral joins in one statement instead of one SELECT per relation.
   // The services use it on the reads that fan out (the feed page, a comment page, the
@@ -181,6 +181,8 @@ model Profile {
   comments         Comment[]
   postLikes        PostLike[]
   commentLikes     CommentLike[]
+  notifications    Notification[]            @relation("NotificationRecipient")
+  notified         Notification[]            @relation("NotificationActor")
   invitesSent      Invite[]                  @relation("InviteInviter")
   membershipsRuled Membership[]              @relation("MembershipDecider")
   following        Follow[]                  @relation("FollowFollower")
@@ -376,11 +378,12 @@ model Post {
   /// moderation wants an audit trail. Every read filters on `deletedAt: null`.
   deletedAt DateTime? @map("deleted_at")
 
-  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  author   Profile      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  media    PostMedia[]
-  comments Comment[]
-  likes    PostLike[]
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  author        Profile        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media         PostMedia[]
+  comments      Comment[]
+  likes         PostLike[]
+  notifications Notification[]
 
   /// The feed's one hot query: posts across the viewer's organizations, newest
   /// first, paged by keyset. The sort columns are in the index in the order the
@@ -484,6 +487,90 @@ model CommentLike {
   @@id([profileId, commentId])
   @@index([commentId])
   @@map("comment_like")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Something somebody did to something you wrote. Today that is exactly one thing —
+/// a like, on a post or on a comment — and `type` is an enum rather than a boolean so
+/// the second kind is a value, not a table.
+///
+/// **A notification is a row; a push is one delivery of it.** Firebase is coming and
+/// will not own any of this: a device that was asleep when the like landed still finds
+/// the row waiting, and the panel reads the same rows whether a push was ever sent.
+/// Building the panel out of push payloads instead would make a notification exist only
+/// if it happened to be delivered.
+///
+/// ── One subject column, not two nullable ones ────────────────────────────────
+///
+/// `subjectId` is the post or comment that was liked, and `type` says which. The
+/// obvious alternative — a nullable `postId` beside a nullable `commentId` — cannot
+/// carry the unique key below: Postgres treats NULLs in a unique index as distinct, so
+/// a key containing a column that is always null on one of the two paths admits the
+/// same like twice. One non-null column keeps the constraint real.
+///
+/// `postId` is not the subject and is not redundant with it. It is the post the event
+/// happened *inside* — the subject itself for a POST_LIKE, the comment's parent for a
+/// COMMENT_LIKE — and it does two jobs nothing else can: it carries the foreign key, so
+/// deleting a post takes its notifications with it (including the ones about its
+/// comments, which cascade the same way), and it is what the read joins to skip
+/// notifications about a post that has since been soft-deleted.
+///
+/// ── One row per actor per subject ────────────────────────────────────────────
+///
+/// The unique key is what settles like → unlike → like at a single notification instead
+/// of three, and it is what an unlike deletes. It is deliberately **not** a grouping
+/// key: ten people liking one post are ten rows here, and collapsing them into "Mat.
+/// Carly and 9 others" is a read-side question. See the GROUPING note in
+/// `lib/server/notifications.service.js`.
+model Notification {
+  id String @id @default(cuid())
+
+  /// Whose panel this appears in — always the author of the subject.
+  recipientId String @map("recipient_id") @db.Uuid
+  /// Who did it. Never the recipient: `notify` writes nothing for a self-like.
+  actorId     String @map("actor_id") @db.Uuid
+
+  type      NotificationType
+  /// The post or comment that was liked; `type` says which.
+  subjectId String           @map("subject_id")
+  /// The post the event happened inside. See the header note.
+  postId    String           @map("post_id")
+
+  /// Null until the viewer opens the panel — this is what the bell's dot counts.
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  recipient Profile @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     Profile @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([recipientId, actorId, type, subjectId])
+  /// The panel's one query: this viewer's notifications, newest first, paged by keyset.
+  /// The sort columns sit here in the order the cursor compares them, so a page is an
+  /// index range scan.
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
+  /// The unread tally, which is a count over one viewer's unread slice.
+  @@index([recipientId, readAt])
+  /// Postgres does not index a foreign key automatically, and an unindexed one turns
+  /// ON DELETE CASCADE into a sequential scan.
+  @@index([actorId])
+  @@index([postId])
+  @@map("notification")
+}
+
+/// Declaration order is not load-bearing here — nothing sorts on this column — but adding a
+/// value is still `ALTER TYPE … ADD VALUE`, so keep new ones at the end.
+enum NotificationType {
+  POST_LIKE
+  COMMENT_LIKE
+  /// An admin published into a group you belong to. Unlike the two above this is a
+  /// **fan-out**: one row per approved member of the group. See `notifyNewPost`.
+  NEW_POST
+
+  @@map("notification_type")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

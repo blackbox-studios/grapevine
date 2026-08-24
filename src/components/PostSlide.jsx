@@ -10,6 +10,7 @@ import { PostCommentsThread } from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { PostMediaSkeleton } from "@/components/Skeleton"
+import { SlideSurface } from "@/components/SlideSurface"
 import { Avatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
@@ -115,16 +116,16 @@ const NotFound = () => (
  * while the media region (a `flex-1` sibling) gives up exactly that room, so the photo
  * smoothly shrinks and re-centers into place rather than being covered.
  *
- * The surface lifts to sit above the keyboard (`bottom: var(--keyboard-inset)`), so the sheet's
- * composer — pinned at the surface's own bottom edge — rides up with it and needs no keyboard
- * padding of its own. The sheet height tracks the (shrinking) surface, so it follows along too.
+ * <SlideSurface/> supplies the box: the full-screen sheet, the safe-area inset, the lift over
+ * the keyboard, and the enter/exit animation for whichever presentation this is in. What is
+ * left here is the post.
  *
- * **It covers the mobile rail rather than stopping above it.** The bottom is the keyboard alone,
- * not `max(--bottombar, --keyboard-inset)`: a post is the one surface that owns the whole screen,
- * and leaving the rail showing under it read as the page ending early. z-50 already clears the
- * rail's z-20, so the inset was the only thing holding it back. What `--bottombar` was quietly
- * providing, though, was clearance over the home indicator — so the two things that now sit on
- * the surface's bottom edge (the caption overlay and the raised sheet) each pad by
+ * The keyboard lift is what carries the sheet's composer — pinned at the surface's own bottom
+ * edge — up with it, so the composer needs no keyboard padding of its own, and the sheet height
+ * tracks the shrinking surface so it follows along too. That lift also means the surface covers
+ * the mobile rail rather than stopping above it, which is deliberate: a post owns the whole
+ * screen. What `--bottombar` used to provide there was clearance over the home indicator, so the
+ * two things that sit on the bottom edge (the caption overlay and the raised sheet) each pad by
  * `--bottom-inset - --keyboard-inset`: the indicator's height while the keyboard is down, and
  * zero once it is up, because the surface has already been lifted clear by exactly that much and
  * a raised keyboard covers the indicator anyway. */
@@ -139,19 +140,8 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
 
     const sheetHeight = commentsOpen ? Math.round(surfaceHeight * SHEET_RATIO) : 0
 
-    /* The in-app modal swipes horizontally locked to the feed sliding away behind it; a cold
-     * hard-nav page (nothing behind it) just fades in. */
-    const anim =
-        variant === "modal"
-            ? { initial: { x: "100%" }, animate: { x: 0 }, exit: { x: "100%" }, transition: SLIDE_TRANSITION }
-            : { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.2, ease: "easeOut" } }
-
     return (
-        <motion.div
-            ref={surfaceRef}
-            className="fixed inset-x-0 top-0 bottom-(--keyboard-inset) z-50 flex flex-col overflow-hidden bg-black pt-(--safe-top) transition-[bottom] duration-250 ease-out"
-            {...anim}
-        >
+        <SlideSurface ref={surfaceRef} variant={variant} className="bg-black">
             <header className="absolute inset-x-0 top-(--safe-top) z-20 flex items-center px-2 py-2">
                 <Button
                     type="button"
@@ -248,7 +238,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                     <PostCommentsThread post={post} />
                 </motion.div>
             )}
-        </motion.div>
+        </SlideSurface>
     )
 }
 

@@ -184,4 +184,24 @@ export function CommentsSkeleton({ count = 8 }) {
     )
 }
 
+/* Skeleton for the notifications panel (see components/Notifications.jsx): a stack of rows,
+ * each an avatar, the actor's name and what they did, and the relative time on the right.
+ * Same geometry as <NotificationRow/>, so the rows don't shift as they land. */
+export function NotificationsSkeleton({ count = 6 }) {
+    return (
+        <div className="flex flex-col">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex items-start gap-3 px-2 py-2.5">
+                    <Skeleton className="size-10 shrink-0 rounded-full" />
+                    <div className="flex flex-1 flex-col gap-2 pt-1">
+                        <Skeleton className="h-3.5 w-28" />
+                        <Skeleton className="h-3 w-36" />
+                    </div>
+                    <Skeleton className="mt-1 h-3 w-6 shrink-0" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
 export default Skeleton

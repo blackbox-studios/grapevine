@@ -148,24 +148,25 @@ export const OrgSwitcher = () => {
  * The glyph is the group icon the nav rail used to carry a "Groups" tab with, not a generic
  * hamburger. That tab is gone because it was the wrong shape for the idea: a group is the
  * scope the whole app is read in, not a page you visit. The icon moves to the control that
- * actually changes the scope, so the one symbol still means one thing. */
+ * actually changes the scope, so the one symbol still means one thing.
+ *
+ * It is the button alone — the row it sits in belongs to the page, which shares that row with
+ * the notifications bell on the opposite edge. */
 export const OrgNavTrigger = () => {
     const { open, toggle } = useOrgNav()
 
     return (
-        <div className="md:hidden flex items-center pb-6">
-            <button
-                type="button"
-                onClick={toggle}
-                aria-label="Switch group"
-                aria-expanded={open}
-                /* Pulled left by the button's own padding so the glyph lines up with the
-                   content column's edge rather than the box around it. */
-                className="-ml-2 flex size-10 cursor-pointer items-center justify-center rounded-full text-foreground"
-            >
-                <StackIcon aria-hidden="true" className="w-7 h-7" />
-            </button>
-        </div>
+        <button
+            type="button"
+            onClick={toggle}
+            aria-label="Switch group"
+            aria-expanded={open}
+            /* Pulled left by the button's own padding so the glyph lines up with the
+               content column's edge rather than the box around it. */
+            className="-ml-2 flex size-10 cursor-pointer items-center justify-center rounded-full text-foreground"
+        >
+            <StackIcon aria-hidden="true" className="w-7 h-7" />
+        </button>
     )
 }
 

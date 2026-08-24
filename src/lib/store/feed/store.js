@@ -198,10 +198,19 @@ const useStore = create(immer((set, get) => ({
      * parishes publish into whichever they choose, which need not be the one they are
      * reading — and this list is scoped, so inserting a post into a feed that does not
      * contain it would show a row that vanishes on the next refresh. So the optimistic row
-     * is conditional, and `usePublish` selects the target group afterwards: the feed reloads
-     * on that group and the new post is simply at the top of it, a beat later than it would
-     * have appeared but genuinely there. */
-    publish: async ({ orgId, title, body, media = [] }) => {
+     * is conditional, and publishing elsewhere **switches to that group** instead: the feed
+     * reloads on it and the new post is simply at the top, a beat later than it would have
+     * appeared but genuinely there. A post the author cannot see is indistinguishable from
+     * one that failed, so the switch is the point rather than a side effect.
+     *
+     * **`select` is handed in rather than imported**, the same way `auth`'s actions take a
+     * `router`. It is the org store's action, and importing that store here is the one thing
+     * `org/store.js` rules out in its header: this store is reset *by* a selection change,
+     * so reaching back to cause one would close the loop into a cycle. Taking it as an
+     * argument keeps the imports one-directional while leaving the decision of *when* to
+     * switch where the rest of that decision already lives — right here, next to the branch
+     * it belongs to. */
+    publish: async ({ orgId, title, body, media = [] }, select) => {
         if (!orgId || !body?.trim()) return null
 
         const optimistic = get().orgId === orgId
@@ -264,6 +273,11 @@ const useStore = create(immer((set, get) => ({
                  * otherwise the card remounts and replays its fade-in. */
                 if (index !== -1) state.items[index] = { ...post, localId: tempId }
             })
+            /* The other half of the `optimistic` branch above: no row was inserted because
+             * the post does not belong in the list on screen, so switch to the group that
+             * does. Only after the server has confirmed it — switching on a publish that then
+             * failed would move the reader for nothing. */
+            if (!optimistic) select?.(orgId)
             return post
         } catch (error) {
             set(state => {

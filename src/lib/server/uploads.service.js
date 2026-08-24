@@ -56,6 +56,14 @@ const PURPOSES = {
     },
 }
 
+/* Where a purpose's objects land.
+ *
+ * Exported because the write a grant was *for* has to check that the URLs it was handed came
+ * out of one — `createPost` pairs this with `isOwnedUrl`. The table above is what chose the
+ * folder, so it is also the only thing that can say what the folder should have been;
+ * restating the string at the call site is how the two come to disagree after a rename. */
+export const uploadPrefix = (purpose) => PURPOSES[purpose]?.prefix ?? null
+
 /* The file extension for a mime type.
  *
  * Derived from the type rather than taken from the client's filename, which is an

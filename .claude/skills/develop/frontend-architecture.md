@@ -75,7 +75,7 @@ Reference files:
 │   │   └── svg/                     # ALL svgs live here; imported as React components
 │   │       └── icons/               # Sidebar/utility icons (still SVG, not Material)
 │   ├── components/
-│   │   ├── ui/                      # shadcn-generated primitives — DO NOT hand-edit
+│   │   ├── ui/                      # shadcn primitives — maintainer's; agents: read-only
 │   │   ├── Icon.jsx                 # Google Material Symbol wrapper
 │   │   ├── Transition.jsx           # motion.div fade wrapper for AnimatePresence (skeleton/content swaps)
 │   │   ├── PageTransition.jsx       # "use client": route cross-fade (AnimatePresence + FrozenRouter)
@@ -1071,14 +1071,22 @@ If the app is served under a base path (e.g. `/emc/ui`) rather than the host roo
 
 ## Component Library — shadcn/ui
 
-- All shadcn primitives live in `src/components/ui/`.
-- **Do not hand-edit anything in `components/ui/`.** Add new primitives via the CLI from the repo root:
+- All shadcn primitives live in `src/components/ui/`. Add new ones via the CLI from the repo root:
 
   ```bash
   npx shadcn@latest add <component>
   ```
 
-- Compositions, branded skins, and feature-specific widgets go in **`src/components/`** (PascalCase), and they may import from `components/ui`. Examples in this repo:
+- **`components/ui/` is the maintainer's, not an agent's. Agents: treat it as read-only.** These files are building blocks — import them, compose them, pass them a `className`, but do not edit them. This is not the usual "it's vendored, don't touch it" rule, because it isn't vendored: the CLI copies source in and shadcn has nothing more to do with it afterwards, and hand-tuning that source is precisely why it's used here instead of a packaged library like MUI. The fit and finish of these primitives — type scale, shape, contrast — is a stylistic call the maintainer makes by hand, and it is deliberately not delegated.
+
+  Two consequences for an agent working in this repo:
+
+  - **A primitive that differs from stock shadcn differs on purpose.** Do not "restore" it, do not flag it as drift, and do not reconcile it against upstream. If a change seems to belong in a primitive, say so and leave it alone; the call site or a composition in `src/components/` is where an agent's version of that change goes.
+  - **Never run `npx shadcn@latest add` on a primitive that already exists.** The CLI overwrites and does not merge, so re-adding one silently discards hand-tuning. Use it only for a component the repo doesn't have yet.
+
+  Current deviations, for recognition rather than for reverting: `input.jsx` (pill shape, leading `icon` prop), `label.jsx` (`text-xs`, `font-semibold`, `pl-2`), `drawer.jsx` (grab-handle size and contrast), and `input.jsx` / `textarea.jsx` both dropping upstream's `text-base` — that class is shadcn's workaround for iOS zooming a focused field under 16px, and `app/layout.jsx` already closes that with `maximumScale: 1` / `userScalable: false`, so keeping it would make every field larger on a phone than on desktop for nothing.
+
+- Compositions, branded skins, and feature-specific widgets go in **`src/components/`** (PascalCase), and they may import from `components/ui`. This is where an agent builds. Examples in this repo:
   - `components/Drawer.jsx` — feature drawer that composes `components/ui/drawer.jsx`.
   - `components/Profile.jsx` — composes `components/ui/popover` + `components/ui/button`.
 

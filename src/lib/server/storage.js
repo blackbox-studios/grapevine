@@ -46,6 +46,59 @@ const objectPath = (prefix, ownerId, extension) =>
 export const publicUrl = (path) =>
     supabaseAdmin().storage.from(BUCKET).getPublicUrl(path).data.publicUrl
 
+/* Whether a URL is one this server minted, under a given owner's folder.
+ *
+ * A write is handed `url` strings by the client and would otherwise take them on trust — so a
+ * crafted request could store anything as a post's photo: an off-site image the feed would
+ * then render as parish content, or another group's object, whose path is unguessable and
+ * would not be reachable any other way. A grant is the only thing that produces a legitimate
+ * URL, and `objectPath` always puts it under `<prefix>/<ownerId>/`, so checking that prefix
+ * checks both that `/api/uploads` issued it *and* that it was issued for this owner — which
+ * is to say, that `createUpload`'s authorization already ran for this group.
+ *
+ * Built by calling `publicUrl` rather than matched against a pattern: the bucket name and the
+ * project URL stay written down once, and a regex here could not drift out of step with them.
+ *
+ * **The folder prefix is not checked alone — what follows it must be one object name.** A
+ * bare `startsWith` can be walked back out of the folder it just matched: append
+ * `../../avatars/other.jpg` and the string still begins with the right prefix, while the
+ * thing actually fetched is whatever the `..` resolve to. Normalizing through `URL` handles
+ * the plain and percent-encoded dot forms, but not `..%2f` — WHATWG deliberately keeps an
+ * encoded slash inside its segment, and whether the storage server agrees is its business,
+ * not something to depend on.
+ *
+ * So the tail is matched positively instead of scanned for anything bad: `objectPath` mints
+ * exactly `<uuid>.<extension>`, one segment, and only that is accepted. Nothing that traverses
+ * can be spelled in a single UUID-shaped segment, in any encoding, whatever normalization the
+ * far end applies — and a query string is refused too, since a grant never returns one.
+ *
+ * That does tie this to `objectPath`'s naming, which is why the two sit together: change the
+ * shape of a key there and this must change with it, or every new upload stops validating.
+ *
+ * **It does not prove the bytes arrived.** They never come through this server, so nothing
+ * here can know whether the upload the grant was for succeeded, was abandoned, or is still in
+ * flight — a post can still be created against a path that holds no object, and it renders as
+ * a broken image. That is the client's to avoid by uploading first, and it is a display
+ * problem rather than a security one. What this closes is the two cases the client cannot be
+ * trusted with: an arbitrary URL, and another group's. */
+const OBJECT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i
+
+export const isOwnedUrl = (url, { prefix, ownerId }) => {
+    if (typeof url !== "string") return false
+
+    let href
+    try {
+        href = new URL(url).href
+    } catch {
+        /* Not a URL at all — a relative path, a `data:` blob, empty. Nothing minted here is
+         * ever unparseable, so this is only reachable with a hand-made request. */
+        return false
+    }
+
+    const folder = publicUrl(`${prefix}/${ownerId}/`)
+    return href.startsWith(folder) && OBJECT_NAME.test(href.slice(folder.length))
+}
+
 /* Mints a signed upload URL for one new object.
  *
  * Returns the path, the token the client presents with the bytes, and the URL the object

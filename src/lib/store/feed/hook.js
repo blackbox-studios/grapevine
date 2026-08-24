@@ -65,10 +65,10 @@ export const useFeed = () => {
  * they do. That covers the common case (write where you are) without ever preselecting a
  * group the publish would be refused for.
  *
- * Publishing elsewhere then **switches to it**, which is not a side effect but the point: a
- * post the author cannot see is indistinguishable from one that failed. The switch also
- * makes the feed's own reload the thing that shows it, which is why `publish` skips its
- * optimistic row in that case — see the store.
+ * Publishing elsewhere then **switches to it**, which the store does — this only hands it
+ * `select`, because `feed` must not import `org` (see the note on `publish`). The switch
+ * makes the feed's own reload the thing that shows the post, which is why `publish` skips
+ * its optimistic row in that case.
  *
  * `canPublish` is "there is at least one group to publish into". The button above this is
  * hidden from a member by `<Privileged anyOrg/>` anyway and the server refuses regardless
@@ -86,12 +86,9 @@ export const usePublish = () => {
     )
 
     const submit = useCallback(
-        async ({ orgId: target, title, body, media } = {}) => {
-            const post = await publish({ orgId: target, title, body, media })
-            if (post && target !== orgId) select(target)
-            return post
-        },
-        [publish, orgId, select],
+        ({ orgId: target, title, body, media } = {}) =>
+            publish({ orgId: target, title, body, media }, select),
+        [publish, select],
     )
 
     return useMemo(() => ({

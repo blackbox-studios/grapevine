@@ -3,10 +3,9 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 
-import { LoadOverlay } from "@/components/Loading"
 import { ROUTES } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { useAuthGate, useBooting } from "@/lib/store/auth/hook"
+import { useAuthGate } from "@/lib/store/auth/hook"
 
 /* The route guards, mounted by the two route-group layouts.
  *
@@ -35,17 +34,17 @@ import { useAuthGate, useBooting } from "@/lib/store/auth/hook"
  * Waiting for `ready` holds the redirect until `init()` has had its chance to read the URL
  * and establish the session.
  *
- * <LoadOverlay/> covers that window, scoped to this gate so it reaches the signed-in route
- * groups and nothing else. It is always mounted and told whether to show — rendering it
- * conditionally would cut off its exit fade and re-arm the minimum on-screen time it owns —
- * and it waits on `booting`, not `settled`, because <MemberGate/> below renders nothing of
- * its own until GET /api/me answers.
+ * **That window is blank, and deliberately so.** A spinner used to cover it, with a one-second
+ * minimum on screen so it could not flicker — which meant every cold start paid a full second
+ * whether or not there was anything to wait for, and the session check is usually faster than
+ * that. What it bought was a moment of branded loading; what it cost was making the app feel
+ * slower than it is, every single time. Rendering nothing lets a fast boot look fast, and a
+ * slow one is a blank frame or two rather than a spinner that has to justify its own arrival.
  *
  * Redirects are `replace`, not `push`: a bounced navigation must not leave an entry behind
  * for the back gesture to land on. */
 export const ProtectedGate = ({ children }) => {
     const { ready, loggedIn } = useAuthGate()
-    const booting = useBooting()
     const mounted = useMounted()
     const router = useRouter()
 
@@ -55,12 +54,7 @@ export const ProtectedGate = ({ children }) => {
         if (settled && !loggedIn) router.replace(ROUTES.PUBLIC.LOGIN)
     }, [settled, loggedIn, router])
 
-    return (
-        <>
-            {settled && loggedIn ? children : null}
-            <LoadOverlay loading={!mounted || booting} />
-        </>
-    )
+    return settled && loggedIn ? children : null
 }
 
 /* The mirror image: keeps a signed-in user off the login page.

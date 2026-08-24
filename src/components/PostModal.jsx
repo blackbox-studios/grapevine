@@ -105,7 +105,7 @@ const PostModal = ({ post, skeleton, dismiss }) => (
                                 <h2 className="sr-only">
                                     Comments on {post.author.handle}&apos;s post
                                 </h2>
-                                <CommentsPanel post={post} className="flex-1" />
+                                <CommentsPanel post={post} dismiss={dismiss} className="flex-1" />
                             </>
                         )}
                     </aside>

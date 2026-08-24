@@ -81,8 +81,13 @@ export const API_ENDPOINTS = {
     ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
     MEMBERSHIP: (membershipId) => `/memberships/${membershipId}`,
     FEED: "/feed",
+    /* Where the client asks for permission to upload a file. Answers with a short-lived
+     * signed upload URL, which the browser then sends the bytes to directly — see
+     * `lib/store/uploads/store.js`. */
+    UPLOADS: "/uploads",
     /* Collection root — POST here to publish (admin only). */
     POSTS: "/posts",
+    /* GET for detail; DELETE to remove it (admin of the post's group). */
     POST: (postId) => `/posts/${postId}`,
     POST_COMMENTS: (postId) => `/posts/${postId}/comments`,
     POST_LIKES: (postId) => `/posts/${postId}/likes`,
@@ -96,6 +101,107 @@ export const PAGE_SIZE = {
     FEED: 5,
     COMMENTS: 8,
 }
+
+/* ---------------------------------------------------------------------------
+ * Uploads
+ *
+ * Shared by both halves on purpose — the picker enforces these so a file that cannot
+ * possibly be accepted is rejected before a byte leaves the device, and
+ * `lib/server/uploads.service.js` enforces them again because the client is not a
+ * control. Unlike ERROR_CODES these are one object read from both sides rather than two
+ * copies, because there is nothing here the wire needs to keep stable independently.
+ * ------------------------------------------------------------------------- */
+
+/* What a file is being uploaded *for*, which is what decides where it lands and who may
+ * ask. A purpose rather than a caller-supplied path: a client that named its own path
+ * could write into another group's folder, or overwrite an existing object. */
+export const UPLOAD_PURPOSES = {
+    /* A photo on a post. Requires ADMIN of the target group, and lands under it. */
+    POST_MEDIA: "POST_MEDIA",
+    /* The viewer's own profile picture. Requires nothing beyond being signed in. */
+    AVATAR: "AVATAR",
+}
+
+/* What the file picker accepts and the server admits.
+ *
+ * HEIC is on the list because that is what an iPhone hands over, and it is *not* a problem
+ * for the canvas re-encode on iOS (WebKit decodes it) — on Android the picker never
+ * produces one. Everything is re-encoded to WebP client-side before it is sent, so the mime
+ * type that actually reaches storage is almost always `image/webp`; the rest of the list is
+ * what the re-encoder is allowed to read. */
+export const IMAGE_MIME_TYPES = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/heic",
+    "image/heif",
+]
+
+/* What a post may carry as an *attachment* — the sign-up sheet, the schedule, the minutes.
+ *
+ * A short allow-list rather than "anything", because an upload here becomes a public URL that
+ * anyone holding it can fetch (see the header of `lib/server/storage.js`): the narrower the
+ * set of things that can be put there, the smaller that surface. These are what a parish
+ * actually posts. Adding a type means adding it to the bucket too — `npm run storage:setup`
+ * carries its own copy, since it runs outside Next and cannot import this file. */
+export const DOCUMENT_MIME_TYPES = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+]
+
+/* The extension an object's key gets, per mime type.
+ *
+ * Derived from the type rather than taken from the uploader's filename, which is a
+ * path-traversal vector — but `application/vnd.openxmlformats-…-document` has no useful tail
+ * to split off, so the awkward ones are written down. Cosmetic either way: an object is
+ * served with the content type storage recorded, not by its extension. */
+export const MIME_EXTENSIONS = {
+    "image/jpeg": "jpg",
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/plain": "txt",
+    "text/csv": "csv",
+}
+
+/* The ceiling on a single photo, checked against the file the browser is about to send —
+ * i.e. after the re-encode, not before. A 12MP phone photo lands well under this once it has
+ * been scaled to IMAGE_MAX_DIMENSION and re-encoded, so hitting it means something is wrong
+ * rather than merely large. */
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+/* The ceiling on an attachment. Higher than a photo's because nothing processes it — a
+ * document is uploaded exactly as it was picked, and a scanned sign-up sheet is genuinely
+ * several megabytes. The bucket enforces the same number, so raising it here alone does
+ * nothing; re-run `npm run storage:setup`. */
+export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+
+/* The longest edge a photo is scaled down to before upload. Twice the widest column the app
+ * ever renders one in, so it still has a retina's worth of detail, and small enough that a
+ * parish on a phone connection is not uploading 6MB per photo. */
+export const IMAGE_MAX_DIMENSION = 2048
+
+/* How many photos one post may carry. The carousel is the only thing that renders more than
+ * one, and past this a reader is scrolling rather than looking. */
+export const MAX_POST_IMAGES = 10
+
+/* **One attachment per post, and this is a contract rather than a preference.**
+ * `projectMedia` reads a post's document with `find`, so a second one would be written to the
+ * database and then never rendered — silently lost. If a post ever needs several, that
+ * projection becomes a list first. */
+export const MAX_POST_DOCUMENTS = 1
 
 /* How many digits the emailed sign-in code has.
  *

@@ -1,5 +1,7 @@
 import "server-only"
 
+import { documentType, formatBytes } from "@/lib/utils"
+
 /* Database rows → wire shapes.
  *
  * This file is the boundary between the schema and the API contract, and keeping it
@@ -12,28 +14,6 @@ import "server-only"
  * `likes`/`comments`; media is normalized rows in the database but the feed card wants
  * `image` + `width`/`height`, or `images`, or `document`. Renaming a column is a change
  * here and nowhere else. */
-
-/* Bytes → the short string the document card renders. Formatted at the edge rather than
- * stored, so the underlying number stays sortable and re-formattable. */
-const formatBytes = (bytes) => {
-    if (!Number.isFinite(bytes) || bytes < 0) return null
-    if (bytes < 1024) return `${bytes} B`
-    const units = ["KB", "MB", "GB"]
-    let value = bytes / 1024
-    let unit = 0
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024
-        unit += 1
-    }
-    return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
-}
-
-/* A document's short type label ("pdf", "docx"), from the filename then the MIME type. */
-const documentType = (media) => {
-    const fromName = media.fileName?.split(".").pop()?.toLowerCase()
-    if (fromName && fromName !== media.fileName?.toLowerCase()) return fromName
-    return media.mimeType?.split("/").pop()?.toLowerCase() ?? "file"
-}
 
 /* The author block every post and comment carries.
  *
@@ -112,13 +92,23 @@ const projectMedia = (media = []) => {
  * block is — the card writes it with `displayName()` so the person who liked a post is
  * addressed exactly as they are in their own byline.
  *
+ * `canDelete` is whether this viewer may remove the post — ADMIN of the group it belongs
+ * to, and only that (see `canDeletePost`). Composed here for the same reason a comment's is:
+ * a rule the client re-derives can disagree with the one the server enforces, and the answer
+ * is per-group, so a page of posts can carry both answers at once. Defaults false, the safe
+ * answer. It is also what decides whether the options menu appears at all — a menu with
+ * nothing in it must not be offered.
+ *
  * The owning organization goes over as both `orgId` and `orgName` because the two answer
  * different questions and only one of them is a label. `orgName` is what the card prints;
  * `orgId` is what a surface resolves the viewer's role against, which matters because a
  * post can belong to a group other than the one currently selected — a shared link opens
  * by id, so the detail surface has to ask "am I an admin *here*" rather than assume the
  * switcher's answer. */
-export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
+export const projectPost = (
+    post,
+    { liked = false, likedBy = null, canDelete = false } = {},
+) => ({
     id: post.id,
     author: projectAuthor(post.author, post.orgId),
     orgId: post.orgId,
@@ -131,6 +121,7 @@ export const projectPost = (post, { liked = false, likedBy = null } = {}) => ({
     comments: post.commentCount,
     liked,
     likedBy,
+    canDelete,
 })
 
 /* A comment in an open thread. `text`, not `body` — the client has always called it that,

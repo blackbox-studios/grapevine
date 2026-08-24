@@ -12,6 +12,7 @@ import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { ProtectedGate } from "@/components/AuthGate";
+import Compose from "@/components/Compose";
 import { MemberGate } from "@/components/MemberGate";
 import NavIcon from "@/components/NavIcon";
 import { OrgNavPanel, OrgSwitcher } from "@/components/OrgNav";
@@ -163,6 +164,12 @@ const ProtectedShell = ({ children }) => {
                     {NAV.map((item, idx) => (
                         <NavItem key={idx} item={item} pathname={pathname} onNavigate={() => setNavOpen(false)} />
                     ))}
+                    {/* Below the destinations, because it is not one: composing opens a
+                        surface over wherever the reader already is rather than routing
+                        anywhere, and it is the only entry here that renders for some
+                        viewers and not others. Hidden entirely from anyone who administers
+                        no group — see <Compose/>. */}
+                    <Compose />
                 </div>
                 <div className="pb-8 pt-6 px-2 flex flex-col gap-2">
                     <NavSlot><NotificationsMenu /></NavSlot>
@@ -193,7 +200,23 @@ const ProtectedShell = ({ children }) => {
                 ref={scrollRef}
                 className="fixed inset-x-0 top-(--safe-top) bottom-(--bottombar) md:top-0 md:bottom-0 z-1 md:left-(--nav-width) overflow-y-auto overflow-x-hidden overscroll-none bg-background md:bg-transparent"
             >
-                <div className="w-full px-4 md:px-8 lg:px-18">
+                {/* **The layout-projection root for everything the shell scrolls.**
+                    <SlideBase/> above is translated — one panel-width by the group switcher,
+                    a full viewport by a slide route — and a layout animation is measured
+                    against the viewport, so without a root inside that transform every
+                    `layout` descendant reads the push as its own box moving and springs after
+                    it on its own timing. The feed is a column of them, so closing the group
+                    panel dragged a ripple down the cards while the rest of the page (the group
+                    trigger, which has no layout animation) moved rigidly with the container.
+
+                    `layoutRoot` makes descendants resolve against *this* node instead of the
+                    page, so the container's displacement is not a layout change to anything
+                    inside it — and it makes this node snap rather than animate its own, which
+                    is what keeps it from simply inheriting the problem one level down. It has
+                    to carry `layout` too: that is the only thing that creates the projection
+                    node `layoutRoot` configures. <SlideBase/> cannot host either, because
+                    `layout` on an element that also animates `x` is a conflict. */}
+                <motion.div layout layoutRoot className="w-full px-4 md:px-8 lg:px-18">
                     {/* A plain gutter on mobile: nothing floats over the content any more, so
                         there is nothing here to dodge — the feed's group trigger is a row of
                         the feed itself and reserves its own space. Desktop's inset is doing
@@ -208,7 +231,7 @@ const ProtectedShell = ({ children }) => {
                             {children}
                         </PageTransition>
                     </main>
-                </div>
+                </motion.div>
             </SlideBase>
 
             {/* Dims out of the way while the reader is vibing (scrolling down) and comes
@@ -230,6 +253,7 @@ const ProtectedShell = ({ children }) => {
                 {NAV.map((item, idx) => (
                     <NavItem key={idx} item={item} pathname={pathname} />
                 ))}
+                <Compose />
                 <NotificationsMenu />
                 <ProfileMenu />
             </motion.nav>

@@ -206,7 +206,12 @@ const useStore = create(immer((set, get) => ({
      * gesture, and arriving a round-trip after the row has already gone reads as a second,
      * unrelated event. On failure it is dismissed by id rather than left to expire, so the
      * restored row and the error toast are never accompanied by a toast still claiming the
-     * comment was deleted. */
+     * comment was deleted.
+     *
+     * That is a documented exception to "toast after the mutation resolves", not a licence
+     * to toast early elsewhere — it holds only because the toast and the row appear and
+     * disappear together. See "Toasts in stores" in frontend-architecture.md for the
+     * conditions before copying this into another store. */
     remove: async (commentId) => {
         const postId = get().post
         const index = get().items.findIndex(item => item.id === commentId)

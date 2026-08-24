@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { ROLES, ROUTES } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { usePrivileged } from "@/lib/store/auth/hook"
+import { usePrivileged, usePrivilegedAnywhere } from "@/lib/store/auth/hook"
 import { cn } from "@/lib/utils"
 
 /* Client-side role gating.
@@ -32,15 +32,28 @@ import { cn } from "@/lib/utils"
  *
  * The convention for which to use: a viewer must not see affordances for a tier they can
  * never reach, so hide those. Show-but-disable is for signalling that an action exists at
- * a higher privilege level to someone plausibly close to it. */
+ * a higher privilege level to someone plausibly close to it.
+ *
+ * **`anyOrg` asks a different question and is not a looser `orgId`.** The default resolves
+ * the role in one group, which is what a control inside that group must ask. `anyOrg` asks
+ * whether the capability exists for this viewer at all, and is only correct for an
+ * affordance that lives *outside* any group's scope — today the compose button in the nav,
+ * which sits above the switcher and whose own dropdown is where the group is chosen. Using
+ * it on anything rendered within a group would show an admin of one parish a control that
+ * fails in another. */
 export const Privileged = ({
     role = ROLES.ADMIN,
     orgId,
+    anyOrg = false,
     disabled = false,
     fallback = null,
     children,
 }) => {
-    const allowed = usePrivileged(role, orgId)
+    /* Both hooks run unconditionally — a hook behind a branch is a hook that changes order
+     * the moment the prop does. Only the answer is picked. */
+    const here = usePrivileged(role, orgId)
+    const anywhere = usePrivilegedAnywhere(role)
+    const allowed = anyOrg ? anywhere : here
     const mounted = useMounted()
 
     /* The viewer comes from a persisted store rehydrated on the client, so a prerender

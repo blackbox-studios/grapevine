@@ -2,11 +2,14 @@ import "server-only"
 
 import { Prisma } from "@prisma/client"
 
+import { MAX_POST_DOCUMENTS, MAX_POST_IMAGES, UPLOAD_PURPOSES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
 import { membershipIn, requireMembership, readableOrgIds } from "@/lib/server/auth"
 import { projectComment, projectPost } from "@/lib/server/projections"
+import { isOwnedUrl } from "@/lib/server/storage"
+import { uploadPrefix } from "@/lib/server/uploads.service"
 
 /* Posts and comments: all business logic and all data access.
  *
@@ -155,6 +158,21 @@ const loadReadablePost = async (viewer, postId, { include } = {}) => {
 const canDeleteComment = (viewerId, membership, comment) =>
     comment.authorId === viewerId || membership.role === "ADMIN"
 
+/* May this viewer remove this post?
+ *
+ * **One rule, not two, and that is the difference from a comment.** A comment is a person
+ * speaking, so its author owns it; a post is the *group* speaking, published under the
+ * authority that publishing requires. So the answer is the same as the answer to "may you
+ * publish here" — ADMIN of the post's organization — and it deliberately does not include
+ * "the person who wrote it". An admin whose role is revoked stops being able to remove what
+ * they posted, which is correct: they no longer speak for the parish. And any admin may
+ * remove any other admin's post, which is what makes a parish with two priests workable.
+ *
+ * `membership` is the viewer's membership in the *post's* organization, resolved by the read
+ * that authorized loading it — so administering a diocese grants nothing over a parish's
+ * posts. */
+const canDeletePost = (membership) => membership?.role === "ADMIN"
+
 /* ---------------------------------------------------------------------------
  * Reads
  * ------------------------------------------------------------------------- */
@@ -203,6 +221,10 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
         projectPost(post, {
             liked: post.likes.length > 0,
             likedBy: likedBy.get(post.id) ?? null,
+            /* Per post, because a page can span several groups and the viewer may
+             * administer one of them and not another. An in-memory scan of the viewer's
+             * own memberships — a handful of rows already loaded — not a query. */
+            canDelete: canDeletePost(membershipIn(viewer, post.orgId)),
         }),
     )
 }
@@ -214,7 +236,7 @@ export const listFeed = async (viewer, { limit, cursor, orgId = null }) => {
  * is what the static export requires. See native-architecture.md → Dynamic routes at
  * scale. */
 export const getPost = async (viewer, postId) => {
-    const { post } = await loadReadablePost(viewer, postId, {
+    const { post, membership } = await loadReadablePost(viewer, postId, {
         include: postInclude(viewer.id),
     })
 
@@ -223,6 +245,7 @@ export const getPost = async (viewer, postId) => {
     return projectPost(post, {
         liked: post.likes.length > 0,
         likedBy: likedBy.get(post.id) ?? null,
+        canDelete: canDeletePost(membership),
     })
 }
 
@@ -302,6 +325,45 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
     const text = String(body ?? "").trim()
     if (!text) throw invalid("Post body is required.", { body: "Required" })
 
+    /* A non-array `media` is a malformed request, not a server fault — treating it as "no
+     * media" is what keeps the checks below from throwing a TypeError into a 500. */
+    const files = Array.isArray(media) ? media : []
+
+    /* **One attachment, refused rather than silently dropped.** `projectMedia` reads a post's
+     * document with `find`, so a second row would be written and then never rendered — the
+     * kind of data loss that is only noticed months later. The composer allows one; this is
+     * what makes that a rule rather than a UI convention. */
+    if (files.filter((item) => item.kind === "DOCUMENT").length > MAX_POST_DOCUMENTS) {
+        throw invalid("A post can carry one attachment.", { media: "Too many attachments" })
+    }
+
+    /* **And ten photos, for the same reason the line above exists.** The composer stops at
+     * `MAX_POST_IMAGES`, but the composer is not a control — an admin session driving this
+     * endpoint directly reaches it the same way, and the carousel is the only thing that
+     * renders more than one, so an unbounded array is unbounded rows and unbounded objects
+     * behind a post that will never show past the tenth. The kind defaults to IMAGE below,
+     * so it has to default the same way here or an omitted `kind` slips the count. */
+    if (files.filter((item) => (item.kind ?? "IMAGE") !== "DOCUMENT").length > MAX_POST_IMAGES) {
+        throw invalid(`A post can carry ${MAX_POST_IMAGES} photos.`, {
+            media: "Too many photos",
+        })
+    }
+
+    /* **Every URL must be one this group's own grant produced.** `url` arrives from the
+     * client and is written to the database verbatim, so without this a post could be
+     * published pointing anywhere: at an off-site image the feed would render as parish
+     * content, or at another parish's object, whose path is unguessable and is otherwise
+     * unreachable. `/api/uploads` already ran `requireMembership(..., { role: "ADMIN" })`
+     * for this `orgId` before it minted a path under it — so the folder an object sits in
+     * *is* the record that the upload was earned, and checking it here is what carries that
+     * authorization forward to the write it was granted for. */
+    const prefix = uploadPrefix(UPLOAD_PURPOSES.POST_MEDIA)
+    if (!files.every((item) => isOwnedUrl(item.url, { prefix, ownerId: orgId }))) {
+        throw invalid("A post's files must be uploaded through Synaxis.", {
+            media: "Unrecognized file",
+        })
+    }
+
     const post = await prisma.post.create({
         data: {
             orgId,
@@ -309,7 +371,7 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
             title: title?.trim() || null,
             body: text,
             media: {
-                create: media.map((item, index) => ({
+                create: files.map((item, index) => ({
                     kind: item.kind ?? "IMAGE",
                     url: item.url,
                     width: item.width ?? null,
@@ -324,8 +386,37 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
         include: postInclude(viewer.id),
     })
 
-    /* Freshly created: the author cannot have liked it, and nobody else has seen it. */
-    return projectPost(post, { liked: false, likedBy: null })
+    /* Freshly created: the author cannot have liked it, and nobody else has seen it. Whoever
+     * just published it administers this group by definition of having got here, so it is
+     * theirs to remove. */
+    return projectPost(post, { liked: false, likedBy: null, canDelete: true })
+}
+
+/* Removes a post. Only an admin of the group it was published into — see `canDeletePost`
+ * for why authorship grants nothing here.
+ *
+ * **A soft delete**, the same as a comment's and for a sharper reason: `Post.deletedAt` is
+ * what every read already filters on, and stamping it leaves the thread, the likes, and the
+ * record that something was moderated away intact. A hard delete would cascade the whole
+ * conversation out of the database, which is not recoverable and is not what "remove this
+ * from the feed" means. The media in storage is left alone for the same reason — the row
+ * still points at it, and restoring a post that has lost its photos is not a restore.
+ *
+ * `updateMany` with `deletedAt: null` in its `where` rather than `update` by id: two admins
+ * can reach for the same post at once, and a claim that has already been made should be a
+ * no-op rather than an error. There is no tally to decrement — unlike a comment, nothing
+ * counts posts — so this needs no transaction at all. */
+export const deletePost = async (viewer, postId) => {
+    const { membership } = await loadReadablePost(viewer, postId)
+
+    if (!canDeletePost(membership)) {
+        throw forbidden("Only group admins can delete a post.")
+    }
+
+    await prisma.post.updateMany({
+        where: { id: postId, deletedAt: null },
+        data: { deletedAt: new Date() },
+    })
 }
 
 /* Toggles the viewer's like on a post and returns the resulting state.

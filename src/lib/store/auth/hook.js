@@ -179,17 +179,6 @@ export const useAuthGate = () => {
     })))
 }
 
-/* Whether the app still has no answer about who the viewer is — what the boot spinner in
- * <ProtectedGate/> covers, since every gate renders `null` until this is false.
- *
- * `ready` is the right signal because `init()` publishes it only after `_loadProfile()` has
- * awaited GET /api/me, so it means the *viewer* is loaded and not just that Supabase
- * answered. `loggedIn && !user` is a guard on the persisted view, which writes the two
- * together: if they ever disagree, holding the spinner beats showing an empty shell. */
-export const useBooting = () => {
-    return useAuthStore(state => !state.ready || (state.loggedIn && !state.user))
-}
-
 /* Where a signed-in viewer belongs, as a route — or `null` for "the app", or `undefined`
  * for "not known yet".
  *
@@ -270,4 +259,23 @@ export const usePrivileged = (role = ROLES.ADMIN, orgId) => {
         if (!current) return false
         return (ROLE_LEVEL[current] ?? 0) >= (ROLE_LEVEL[role] ?? 0)
     }, [current, role])
+}
+
+/* Whether the viewer meets `role` in **any** group they belong to.
+ *
+ * A different question from `usePrivileged`, not a convenience over it, and the two must not
+ * be confused. That one answers "may I act *here*", which is what every control inside a
+ * group asks. This answers "does this capability exist for me at all", which is what an
+ * entrance asks — the compose button lives in the app's chrome, above the group switcher, and
+ * an admin of one parish reading their diocese should still see it. What they then post
+ * *into* is the composer's own question, and it is asked again per group at publish time.
+ *
+ * Reach for this only for an affordance that is genuinely outside a group's scope. Anything
+ * rendered within one wants `usePrivileged(role, orgId)`. */
+export const usePrivilegedAnywhere = (role = ROLES.ADMIN) => {
+    return useAuthStore(state =>
+        (state.user?.orgs ?? []).some(
+            org => (ROLE_LEVEL[org.role] ?? 0) >= (ROLE_LEVEL[role] ?? 0),
+        ),
+    )
 }

@@ -28,13 +28,13 @@ For each, cite the guide section if the diff violates it; do not restate the rul
 - **Auth gate** — route protection is the client gates in `src/components/AuthGate.jsx`, applied once per route group layout. A diff that reintroduces `src/middleware.js` as the gate is a bug: the static export drops it. Check auth changes against `auth-architecture.md` (the store is the only coupling).
 - **Static export safety** — the native build is `output: "export"`. Flag anything it forbids: middleware, intercepting/parallel routes, a dynamic segment without `generateStaticParams`, `next/image` optimization, or a runtime dependency on a CDN. Slide routes open with `openSlide`, never `router.push`, and must **not** gain a route folder of their own (e.g. `app/(protected)/p/[postId]/`) — that reintroduces build-time enumeration of ids; `<SlidePage/>` in the catch-all serves cold loads. See `native-architecture.md`.
 - **Error handling** — no inline error strings in components; errors flow `store.error.<key>` → `useErrorListener` → toast. No `toast.error` inside stores. See "Error Handling".
-- **Prisma** — the client (`src/lib/db.js`) is idle by default. If the diff starts using it, confirm it's imported only from server code (route handlers under `src/app/api/**/route.js`), never a Client Component, and that a schema change ships with a migration under `prisma/migrations/`.
+- **Prisma** — the client (`src/lib/db.js`) is idle by default. If the diff starts using it, confirm it's imported only from server code (route handlers under `src/app/api/**/route.api.js` — never `route.js`, which the static export would pick up), never a Client Component, and that a schema change ships with a migration under `prisma/migrations/`.
 
 ## Styling / component checks
 
 - **Tokens only** — no inline color literals (`bg-[#...]`, `text-[oklch(...)]`) and no `style={{...}}` unless Tailwind genuinely can't express it. Use theme tokens. Theme vars live only in `src/globals.css`. See "Styling & Theming".
-- **shadcn primitives** in `components/ui/` are not hand-edited — new ones come via `npx shadcn@latest add`. Compositions live in `src/components/` (PascalCase).
-- **Icons** — default to the `<Icon>` Material Symbol wrapper; brand marks are SVG via SVGR; `lucide-react` only in unmodified `ui/` primitives. See "Icons".
+- **shadcn primitives** in `components/ui/` are the maintainer's to hand-tune, and a primitive that differs from stock shadcn differs on purpose. **Do not report an edit there as a finding** — not as a violation, not as drift from upstream, not as something to move into a wrapper. Report the reverse: a diff that *re-adds* an existing primitive via `npx shadcn@latest add`, which overwrites rather than merges and silently discards that tuning. Agent-authored compositions belong in `src/components/` (PascalCase).
+- **Icons** — default to the `<Icon>` Material Symbol wrapper; brand marks are SVG via SVGR; `lucide-react` only inside `ui/` primitives. See "Icons".
 - **Reuse** — no throwaway components defined inside `page.jsx`; promote shared widgets to `components/Widgets.jsx`. Use `<Close/>`, `<Collapsible>`, `Spinner`, `<Ripple/>` per the guide rather than hand-rolling.
 - **Imports** — use the `@/` alias, never long `../../../` relative paths.
 

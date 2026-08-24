@@ -183,8 +183,10 @@ completed (offline, DNS, CORS, aborted connection).
 | `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
 | `GET` | `/api/orgs/:orgId/members` | **group admin** | `{ items, nextCursor }` — the roster |
 | `GET` | `/api/feed?limit=&cursor=&orgId=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first. `orgId` narrows it to one group and is checked with `requireMembership`, so it can only subtract from the viewer's own scope; omitted, the feed is the union of every approved membership |
+| `POST` | `/api/uploads` | viewer (per purpose) | `{ bucket, path, token, url }` — permission to upload one file |
 | `POST` | `/api/posts` | **group admin** | `201` + the created post, `Location` set |
 | `GET` | `/api/posts/:postId` | member of its group | the post resource |
+| `DELETE` | `/api/posts/:postId` | **admin of its group** | `204` |
 | `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread oldest-first |
 | `POST` | `/api/posts/:postId/comments` | member of its group | `201` + the created comment, `Location` set |
 | `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
@@ -216,6 +218,24 @@ ships the composed answer as `canDelete` so a row does not have to re-derive a r
 server would enforce differently. It is a **soft** delete: `deletedAt` is stamped, which is
 what every read already filters on.
 
+**Deleting a post is one rule, not two, and authorship is not it.** A comment is a person
+speaking; a post is the group speaking, so the answer is the same as "may you publish here"
+— ADMIN of the post's organization. Any admin may remove any other admin's post (a parish
+with two priests needs that), and an admin whose role is revoked can no longer remove even
+their own. `projectPost` ships it as `canDelete`, which is also what decides whether the
+options menu is offered at all. Soft, like a comment's, and it deliberately leaves the media
+in storage — the row still points at it, and a restore that has lost its photos is not one.
+
+**`POST /api/uploads` grants permission; it does not receive a file.** It answers a signed
+upload URL and the client sends the bytes straight to Supabase Storage, so a parish photo
+never passes through the Node process. The client states a *purpose* (`POST_MEDIA`,
+`AVATAR`) and never a path — that is what makes it impossible to write into another group's
+folder or over an existing object — and the permission checked is the same one the write the
+file is destined for would check, applied *before* the upload so a refusal cannot leave an
+orphan. It answers `200`, not `201`: nothing has been created yet, and may never be. See
+`lib/server/storage.js` for why the bucket is public-read and what would have to change to
+put photos back inside the membership gate.
+
 ---
 
 ## 6. Server layout
@@ -228,12 +248,15 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   cursor.js                # opaque cursors + the keyset helpers (§6.1)
   auth.js                  # requireViewer / requireMembership / readableOrgIds
   supabase.js              # server Supabase clients (anon for verification, service role)
+  storage.js               # the bucket, object paths, and signed upload URLs
   projections.js           # database rows → wire shapes
   posts.service.js         # posts, comments, likes
   profile.service.js       # the viewer, their groups, a group's roster
+  uploads.service.js       # purpose → permission + destination
 
 src/app/api/
   me/route.api.js
+  uploads/route.api.js
   orgs/route.api.js
   orgs/[orgId]/members/route.api.js
   feed/route.api.js
@@ -403,6 +426,9 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Opaque cursors + keyset helpers | `src/lib/server/cursor.js` |
 | Authentication + authorization | `src/lib/server/auth.js` |
 | Server Supabase clients | `src/lib/server/supabase.js` |
+| Storage bucket, object paths, signed uploads | `src/lib/server/storage.js` |
+| Upload permission by purpose | `src/lib/server/uploads.service.js` |
+| Bucket provisioning (`npm run storage:setup`) | `scripts/setup-storage.mjs` |
 | Rows → wire shapes | `src/lib/server/projections.js` |
 | Posts, comments, likes | `src/lib/server/posts.service.js` |
 | Viewer, groups, roster | `src/lib/server/profile.service.js` |

@@ -75,7 +75,7 @@ Reference files:
 │   │   └── svg/                     # ALL svgs live here; imported as React components
 │   │       └── icons/               # Sidebar/utility icons (still SVG, not Material)
 │   ├── components/
-│   │   ├── ui/                      # shadcn-generated primitives — DO NOT hand-edit
+│   │   ├── ui/                      # shadcn primitives — maintainer's; agents: read-only
 │   │   ├── Icon.jsx                 # Google Material Symbol wrapper
 │   │   ├── Transition.jsx           # motion.div fade wrapper for AnimatePresence (skeleton/content swaps)
 │   │   ├── PageTransition.jsx       # "use client": route cross-fade (AnimatePresence + FrozenRouter)
@@ -83,7 +83,7 @@ Reference files:
 │   │   ├── SlideRouter.jsx          # "use client": the slide-route surface registry —
 │   │   │                            #   <SlideRouter/> (in-app overlay), <SlidePage/> (cold
 │   │   │                            #   load), <SlideBase/> (the base surface it pushes)
-│   │   ├── Loading.jsx              # <Spinner/>, <LoadOverlay/> (moved out of the old pages/loading)
+│   │   ├── Loading.jsx              # <Spinner/> — no full-screen loading surface; the gates render nothing
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
 │   │   ├── Hyperlink.jsx
@@ -682,6 +682,10 @@ catch (error) {
 
 Stores **may** call `toast.success` after a successful mutation when the operator should get immediate affirmative feedback (e.g. "Node registered successfully", "App deployed successfully"). Success toasts are not wired through the error listener.
 
+**A store may toast *before* the request resolves, but only alongside an optimistic write, and only when it dismisses that toast on failure.** `comments/store.js` → `remove` is the reference case and currently the only one. The rule that makes it safe is that the toast and the row must tell the same story at every instant: the row disappears and the toast appears in the same frame, so the toast is the acknowledgement of the *gesture* rather than a report of the round trip — arriving a round trip after the row has already gone reads as a second, unrelated event. On failure the row is spliced back at its original index and the toast is dismissed **by id** (`toast.dismiss(toastId)`), never left to expire, so a restored comment is never accompanied by a toast still claiming it was deleted.
+
+Do not reach for this by default. A mutation whose optimistic write is not itself a visible removal has nothing to stay in sync with, and `toast.success` after the await is the right shape for it. Administrative writes — anything in `members/store.js` — are deliberately *not* optimistic and must not toast early: the operator needs to know the server agreed, and a role change that silently reverts is worse than one that takes a round trip to confirm.
+
 Only in **extenuating circumstances** should a store toast an error directly — for example, when the failure must be communicated but cannot be represented in `error.<key>` without breaking the global listener contract. If you think you need this, prefer fixing the error state shape instead.
 
 **Forbidden** in components:
@@ -857,6 +861,8 @@ Auth redirects are done by two client wrapper components, each applied once at t
 
 Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so the `localStorage` value has rehydrated, then redirects on a mismatch and renders `null` until it is satisfied — so protected content is never painted for a signed-out visitor.
 
+**That window shows nothing — don't put a spinner back in it.** One used to live there, with a one-second minimum on screen so it couldn't flicker, which meant every cold start paid a full second whether or not there was anything to wait for. A blank frame or two is the honest picture of a fast session check; a spinner with a floor makes the app slower than it is on every launch. If a future boot genuinely takes long enough to need covering, fix the wait, not the picture of it.
+
 **This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `synaxis-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
 
 Full detail, and how to attach a real session, is in `auth-architecture.md`.
@@ -879,7 +885,7 @@ Roles are hierarchical (`MEMBER` < `ADMIN`; compare via `ROLE_LEVEL` in `lib/con
 | `ROLES.MEMBER` | visible | visible |
 | `ROLES.ADMIN` | **hidden** | visible |
 
-- **Members** must not see admin-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden). The composer on the feed is the worked example.
+- **Members** must not see admin-only affordances — omit `disabled` so unauthorized users get `fallback` (hidden). The compose button in the nav is the worked example.
 - Pass `disabled` only to signal that an action exists at a higher tier to someone plausibly close to it: the control stays visible but dimmed and non-interactive (`opacity-50`, `pointer-events-none`). Do not use it for a tier the viewer can never reach.
 
 ```jsx
@@ -892,16 +898,23 @@ import { useCurrentOrg } from '@/lib/store/org/hook'
 const { orgId } = useCurrentOrg()
 
 <Privileged role={ROLES.ADMIN} orgId={orgId}>
-    <Button onClick={handlePublish}>New post</Button>
+    <Button onClick={handleEdit}>Edit group</Button>
 </Privileged>
 
 /* Admin of one specific group, named rather than selected — a row in a list of groups */
 <Privileged role={ROLES.ADMIN} orgId={org.id}>
     <Button onClick={handleApprove}>Approve</Button>
 </Privileged>
+
+/* Admin of ANY group. Only for an affordance that sits outside a group's scope — today
+   just the compose button, which lives in the nav above the switcher and asks which
+   group to publish into itself. Anything rendered *inside* a group wants `orgId`. */
+<Privileged role={ROLES.ADMIN} anyOrg>
+    <ComposeButton />
+</Privileged>
 ```
 
-Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Composer.jsx` (the admin-only feed composer). The underlying hooks are `useRole(orgId)` and `usePrivileged(role, orgId)` in `lib/store/auth/hook.js`; `useCurrentOrg()` already exposes `isAdmin` resolved against the selection, so prefer that over calling `usePrivileged` again with the same id.
+Reference: `components/Auth.jsx` (`Privileged`, `PrivilegedRoute`), `components/Compose.jsx` (the admin-only compose entry point). The underlying hooks are `useRole(orgId)`, `usePrivileged(role, orgId)`, and `usePrivilegedAnywhere(role)` in `lib/store/auth/hook.js`; `useCurrentOrg()` already exposes `isAdmin` resolved against the selection, so prefer that over calling `usePrivileged` again with the same id.
 
 ### The selected group — `lib/store/org/`
 
@@ -1058,14 +1071,22 @@ If the app is served under a base path (e.g. `/emc/ui`) rather than the host roo
 
 ## Component Library — shadcn/ui
 
-- All shadcn primitives live in `src/components/ui/`.
-- **Do not hand-edit anything in `components/ui/`.** Add new primitives via the CLI from the repo root:
+- All shadcn primitives live in `src/components/ui/`. Add new ones via the CLI from the repo root:
 
   ```bash
   npx shadcn@latest add <component>
   ```
 
-- Compositions, branded skins, and feature-specific widgets go in **`src/components/`** (PascalCase), and they may import from `components/ui`. Examples in this repo:
+- **`components/ui/` is the maintainer's, not an agent's. Agents: treat it as read-only.** These files are building blocks — import them, compose them, pass them a `className`, but do not edit them. This is not the usual "it's vendored, don't touch it" rule, because it isn't vendored: the CLI copies source in and shadcn has nothing more to do with it afterwards, and hand-tuning that source is precisely why it's used here instead of a packaged library like MUI. The fit and finish of these primitives — type scale, shape, contrast — is a stylistic call the maintainer makes by hand, and it is deliberately not delegated.
+
+  Two consequences for an agent working in this repo:
+
+  - **A primitive that differs from stock shadcn differs on purpose.** Do not "restore" it, do not flag it as drift, and do not reconcile it against upstream. If a change seems to belong in a primitive, say so and leave it alone; the call site or a composition in `src/components/` is where an agent's version of that change goes.
+  - **Never run `npx shadcn@latest add` on a primitive that already exists.** The CLI overwrites and does not merge, so re-adding one silently discards hand-tuning. Use it only for a component the repo doesn't have yet.
+
+  Current deviations, for recognition rather than for reverting: `input.jsx` (pill shape, leading `icon` prop), `label.jsx` (`text-xs`, `font-semibold`, `pl-2`), `drawer.jsx` (grab-handle size and contrast), and `input.jsx` / `textarea.jsx` both dropping upstream's `text-base` — that class is shadcn's workaround for iOS zooming a focused field under 16px, and `app/layout.jsx` already closes that with `maximumScale: 1` / `userScalable: false`, so keeping it would make every field larger on a phone than on desktop for nothing.
+
+- Compositions, branded skins, and feature-specific widgets go in **`src/components/`** (PascalCase), and they may import from `components/ui`. This is where an agent builds. Examples in this repo:
   - `components/Drawer.jsx` — feature drawer that composes `components/ui/drawer.jsx`.
   - `components/Profile.jsx` — composes `components/ui/popover` + `components/ui/button`.
 

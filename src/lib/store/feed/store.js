@@ -5,7 +5,7 @@ import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE, ROLES } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
 import useAuthStore from '@/lib/store/auth/store'
-import { toErrorList } from '@/lib/utils'
+import { documentType, formatBytes, toErrorList } from '@/lib/utils'
 
 /* The dashboard feed: one paginated list of posts, and nothing else.
  *
@@ -21,6 +21,38 @@ import { toErrorList } from '@/lib/utils'
  * keeps the imports one-directional (see the header of lib/store/org/store.js). A different
  * id empties the list and drops readiness, so the switcher's tap paints a skeleton on the
  * next frame instead of leaving another parish's posts on screen under a new heading. */
+
+/* The uploaded descriptors a composer holds → the media shape a card renders.
+ *
+ * A local twin of `projectMedia` on the server, and deliberately the same shape: the
+ * optimistic row is on screen for a round trip and is then swapped for the real resource, so
+ * anything the two disagree about is a visible reflow at the moment of confirmation. The two
+ * split by `kind` identically and format through the same `formatBytes`/`documentType`, which
+ * is why those live in `lib/utils.js` rather than in the projection.
+ *
+ * It cannot simply *be* `projectMedia`: that one reads database rows behind `server-only`,
+ * and these are upload descriptors that have never been near the database. */
+const projectPending = (media) => {
+    const images = media.filter(item => item.kind !== 'DOCUMENT')
+    const document = media.find(item => item.kind === 'DOCUMENT')
+
+    return {
+        ...(images.length === 1
+            ? { image: images[0].url, width: images[0].width, height: images[0].height }
+            : {}),
+        ...(images.length > 1 ? { images: images.map(item => item.url) } : {}),
+        ...(document
+            ? {
+                  document: {
+                      name: document.fileName ?? 'Attachment',
+                      size: formatBytes(document.sizeBytes) ?? '',
+                      type: documentType(document),
+                      url: document.url,
+                  },
+              }
+            : {}),
+    }
+}
 
 const ERROR_INIT = {
     list: false,
@@ -162,13 +194,26 @@ const useStore = create(immer((set, get) => ({
      * carries the real id, the server's timestamp, and the author it stamped. A failure
      * removes the row and parks the error.
      *
-     * The target must be the group on screen. It always is — the composer publishes into
-     * the selection — but the list is scoped now, so an insert into any other group would
-     * put a post in a feed that does not contain it and would vanish on the next refresh. */
-    publish: async ({ orgId, title, body, media = [] }) => {
+     * **Only when the target is the group on screen.** The composer lets an admin of two
+     * parishes publish into whichever they choose, which need not be the one they are
+     * reading — and this list is scoped, so inserting a post into a feed that does not
+     * contain it would show a row that vanishes on the next refresh. So the optimistic row
+     * is conditional, and publishing elsewhere **switches to that group** instead: the feed
+     * reloads on it and the new post is simply at the top, a beat later than it would have
+     * appeared but genuinely there. A post the author cannot see is indistinguishable from
+     * one that failed, so the switch is the point rather than a side effect.
+     *
+     * **`select` is handed in rather than imported**, the same way `auth`'s actions take a
+     * `router`. It is the org store's action, and importing that store here is the one thing
+     * `org/store.js` rules out in its header: this store is reset *by* a selection change,
+     * so reaching back to cause one would close the loop into a cycle. Taking it as an
+     * argument keeps the imports one-directional while leaving the decision of *when* to
+     * switch where the rest of that decision already lives — right here, next to the branch
+     * it belongs to. */
+    publish: async ({ orgId, title, body, media = [] }, select) => {
         if (!orgId || !body?.trim()) return null
-        if (get().orgId !== orgId) return null
 
+        const optimistic = get().orgId === orgId
         const user = useAuthStore.getState().user
         const tempId = mockId('pending')
         /* The group's display name, resolved from the viewer's own memberships rather than
@@ -179,6 +224,7 @@ const useStore = create(immer((set, get) => ({
         set(state => {
             state.loading.publish = true
             state.error.publish = false
+            if (!optimistic) return
             state.items.unshift({
                 id: tempId,
                 localId: tempId,
@@ -203,16 +249,18 @@ const useStore = create(immer((set, get) => ({
                 createdAt: new Date().toISOString(),
                 title: title ?? null,
                 body,
-                /* Mirror the media shape the server will send back, so the card doesn't
-                 * reflow when the optimistic row is replaced. */
-                ...(media.length === 1
-                    ? { image: media[0].url, width: media[0].width, height: media[0].height }
-                    : {}),
-                ...(media.length > 1 ? { images: media.map(item => item.url) } : {}),
+                /* Mirror the media shape the server will send back — the same split by kind
+                 * `projectMedia` performs, formatted with the same helpers — so the card does
+                 * not reflow when the optimistic row is replaced. */
+                ...projectPending(media),
                 likes: 0,
                 likedBy: null,
                 comments: 0,
                 liked: false,
+                /* Publishing requires ADMIN of this group, and deleting requires the same
+                 * role — so the answer is known here without asking, and the optimistic row
+                 * offers the same options menu the confirmed one will. */
+                canDelete: true,
                 pending: true,
             })
         })
@@ -225,6 +273,11 @@ const useStore = create(immer((set, get) => ({
                  * otherwise the card remounts and replays its fade-in. */
                 if (index !== -1) state.items[index] = { ...post, localId: tempId }
             })
+            /* The other half of the `optimistic` branch above: no row was inserted because
+             * the post does not belong in the list on screen, so switch to the group that
+             * does. Only after the server has confirmed it — switching on a publish that then
+             * failed would move the reader for nothing. */
+            if (!optimistic) select?.(orgId)
             return post
         } catch (error) {
             set(state => {
@@ -254,6 +307,32 @@ const useStore = create(immer((set, get) => ({
     patchPost: (postId, patch) => set(state => {
         const row = state.items.find(post => post.id === postId)
         if (row) Object.assign(row, patch)
+    }),
+
+    /* Takes a post out of the loaded pages, and hands back what it removed so the caller can
+     * put it back. The third of this store's surface to the `post` store, alongside
+     * `cachedPost` and `patchPost`, and the reason it is shaped this way rather than as a
+     * plain delete: a failed removal has to restore the row *at its index*, which is where a
+     * reader last saw it and not where a refresh would place it.
+     *
+     * Returns `{ row, index }`, or null if this page doesn't hold the post — which is a
+     * normal outcome, not a failure: a post opened from a shared link has no feed behind it.
+     *
+     * The delete itself lives in the `post` store, which owns writes to a post that already
+     * exists. This is only the list's half of it. */
+    removePost: (postId) => {
+        const index = get().items.findIndex(post => post.id === postId)
+        if (index === -1) return null
+
+        const row = get().items[index]
+        set(state => { state.items.splice(index, 1) })
+        return { row, index }
+    },
+
+    /* Puts a removed row back where it was. Only ever called with what `removePost`
+     * returned. */
+    restorePost: (index, row) => set(state => {
+        state.items.splice(index, 0, row)
     }),
 
     reset: () => set(() => ({ ...INIT })),

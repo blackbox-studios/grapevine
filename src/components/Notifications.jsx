@@ -6,7 +6,7 @@ import { AnimatePresence } from "motion/react"
 import Ripple from "@/assets/svg/ripple.svg"
 import BellIcon from "@/assets/svg/icons/bell-outline.svg"
 import Transition from "@/components/Transition"
-import { NotificationsSkeleton } from "@/components/Skeleton"
+import { NOTIFICATION_ROW, NotificationsSkeleton } from "@/components/Skeleton"
 import { Avatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -65,8 +65,12 @@ const NotificationRow = ({ item, now, onOpen }) => {
         <button
             type="button"
             onClick={() => onOpen(item.postId)}
+            /* The box comes from NOTIFICATION_ROW, which the skeleton uses too — restyling
+               the row's padding or radius means editing that constant, not this line. What
+               is added here is only what does not affect layout. */
             className={cn(
-                "flex w-full cursor-pointer items-start gap-3 rounded-full pl-5 pr-6.5 py-2 text-left transition-colors hover:bg-accent",
+                NOTIFICATION_ROW,
+                "w-full cursor-pointer text-left transition-colors hover:bg-accent",
                 !item.read && "bg-accent/50",
             )}
         >

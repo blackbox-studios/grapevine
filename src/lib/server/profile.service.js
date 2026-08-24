@@ -2,12 +2,14 @@ import "server-only"
 
 import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
-import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
+import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN, UPLOAD_PURPOSES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { approvedMemberships, requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
 import { projectOrg, projectViewer } from "@/lib/server/projections"
+import { isOwnedUrl } from "@/lib/server/storage"
 import { supabaseAdmin } from "@/lib/server/supabase"
+import { uploadPrefix } from "@/lib/server/uploads.service"
 
 /* The viewer's own identity, the parish roster, and admission to the parish.
  *
@@ -225,6 +227,52 @@ export const completeOnboarding = async (viewer, { firstName, lastName, handle, 
         }
         throw error
     }
+}
+
+/* Replaces the viewer's profile picture, and answers the updated viewer.
+ *
+ * **The URL is checked, not trusted, and this is the whole security of it.** `avatar` arrives
+ * from the client and is written verbatim, so without this a profile picture could point
+ * anywhere: at an off-site image the feed would render as a parishioner's face, at a tracking
+ * pixel that reports every reader who scrolls past a post they commented on, or at another
+ * person's object. `POST /api/uploads` already authorized this viewer for the `avatars/<their
+ * own id>/` folder before it minted a path there — so the folder an object sits in *is* the
+ * record that the upload was earned, and checking it here carries that authorization forward
+ * to the write it was granted for. Exactly the rule `createPost` applies to a post's media.
+ *
+ * Only the picture. A general profile editor would be a different function with a different
+ * shape — this one exists because the account surface has a single control on it, and keeping
+ * it to that keeps the check above simple enough to be obviously right.
+ *
+ * The previous object is deliberately left in storage. It costs a few kilobytes, and deleting
+ * it would mean a second failure mode on a write whose whole job is to be instant — a delete
+ * that fails leaves an orphan, and one that succeeds against the wrong key destroys a picture
+ * still in use. A sweep belongs in a job, not in this request.
+ *
+ * Changing your own picture cannot change which groups you are in, so `requireViewer`'s
+ * membership snapshot is still accurate and re-reading it would be a round trip to learn
+ * nothing — the same reasoning as `completeOnboarding`. */
+export const updateAvatar = async (viewer, avatar) => {
+    const url = String(avatar ?? "").trim()
+    if (!url) throw invalid("A picture is required.", { avatar: "Required" })
+
+    if (
+        !isOwnedUrl(url, {
+            prefix: uploadPrefix(UPLOAD_PURPOSES.AVATAR),
+            ownerId: viewer.id,
+        })
+    ) {
+        throw invalid("A profile picture must be uploaded through Synaxis.", {
+            avatar: "Unrecognized file",
+        })
+    }
+
+    const profile = await prisma.profile.update({
+        where: { id: viewer.id },
+        data: { avatarUrl: url },
+    })
+
+    return projectViewer(profile, viewer.memberships)
 }
 
 /* ---------------------------------------------------------------------------

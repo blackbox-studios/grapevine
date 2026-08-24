@@ -3,8 +3,8 @@
 import Link from "next/link"
 
 import VerifiedIcon from "@/assets/svg/icons/verified.svg"
+import { AvatarPicker } from "@/components/AvatarPicker"
 import Icon from "@/components/Icon"
-import { Avatar } from "@/components/Widgets"
 import { ROLES, ROUTES } from "@/lib/constants"
 import { displayName } from "@/lib/name"
 import { useLogout } from "@/lib/store/auth/hook"
@@ -93,7 +93,10 @@ const ProfilePage = () => {
     return (
         <div className="mx-auto w-full max-w-[470px] pt-6 pb-10 md:pt-0">
             <header className="flex flex-col items-center gap-3 pb-8 text-center">
-                <Avatar person={user} className="size-24 text-2xl" />
+                {/* The only editable thing on this surface, so the control lives on the
+                    picture itself rather than behind an "Edit profile" row that would lead to
+                    a screen holding one field. */}
+                <AvatarPicker person={user} className="size-24" />
 
                 <div className="flex flex-col items-center gap-0.5">
                     <div className="flex items-baseline justify-center gap-2">

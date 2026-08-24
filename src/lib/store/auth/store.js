@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS, ERROR_CODES, ROLES, ROUTES } from '@/lib/constants'
@@ -50,6 +51,7 @@ const ERROR_INIT = {
     verify: false,
     logout: false,
     onboarding: false,
+    avatar: false,
 }
 
 const LOADING_INIT = {
@@ -57,6 +59,7 @@ const LOADING_INIT = {
     verify: false,
     logout: false,
     onboarding: false,
+    avatar: false,
 }
 
 const INIT = {
@@ -539,6 +542,53 @@ const useStore = create(
                         return { ok: false, fields: error?.fields ?? null }
                     } finally {
                         set(state => { state.loading.onboarding = false })
+                    }
+                },
+
+                /* Replaces the viewer's profile picture with an already-uploaded object.
+                 *
+                 * **Takes a URL, not a file.** Getting bytes into storage is the `uploads`
+                 * store's job for every purpose in the app, and the surface that collects the
+                 * file calls it directly (see `useUpload`, and the composer that established
+                 * the pattern). What is left for this store is the half that is genuinely
+                 * about the viewer: persisting the URL and swapping in the profile that comes
+                 * back. Doing the upload here as well would give avatars a private path that
+                 * every other upload does not have.
+                 *
+                 * Not optimistic. The response *is* the new viewer, and it arrives one round
+                 * trip after a photo has already been sent to storage — so there is nothing
+                 * to be gained by guessing at it, and a picture that appeared and then
+                 * reverted would be a worse answer than a spinner. */
+                setAvatar: async (url) => {
+                    if (!url) return false
+
+                    set(state => {
+                        state.loading.avatar = true
+                        state.error.avatar = false
+                    })
+                    try {
+                        const user = await api.patch(API_ENDPOINTS.ME, { avatar: url })
+                        /* The whole viewer, so the nav's avatar, the profile header, and the
+                         * face on the viewer's own optimistic comment rows all move at once. */
+                        set(state => { state.user = user })
+                        /* After the await, never before it. This write is not optimistic — the
+                         * picture on screen is still the old one until the line above runs — so
+                         * a toast raised alongside the request would be claiming something that
+                         * had not happened yet. (The one place this app toasts early is a
+                         * comment deletion, where the row disappears in the same frame; there is
+                         * no such gesture to acknowledge here.) */
+                        toast.success('Profile picture updated.')
+                        return true
+                    } catch (error) {
+                        set(state => {
+                            state.error.avatar = toErrorList(
+                                error,
+                                'Could not update your profile picture.',
+                            )
+                        })
+                        return false
+                    } finally {
+                        set(state => { state.loading.avatar = false })
                     }
                 },
 

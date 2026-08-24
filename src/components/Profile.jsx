@@ -39,7 +39,7 @@ export const ProfileTrigger = ({ pathname: pathnameProp, className }) => {
             scroll={false}
             className={cn(
                 "flex size-8 shrink-0 items-center justify-center rounded-full outline-hidden transition-[box-shadow]",
-                active && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
+                active && "ring-2 ring-foreground ring-offset-0 ring-offset-background",
                 className,
             )}
         >

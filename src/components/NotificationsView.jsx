@@ -25,7 +25,7 @@ const NotificationsView = ({ variant = "modal" }) => {
     const dismiss = useSlideDismiss()
 
     const heading = (
-        <h2 className="text-lg font-semibold tracking-tight">Notifications</h2>
+        <h2 className="text-xl font-semibold tracking-tight">Notifications</h2>
     )
 
     if (isDesktop) {
@@ -44,7 +44,7 @@ const NotificationsView = ({ variant = "modal" }) => {
                         {heading}
                         <Close aria-label="Close notifications" onClick={dismiss} />
                     </div>
-                    <NotificationList className="min-h-0 flex-1 px-3 pb-3" />
+                    <NotificationList className="min-h-0 flex-1 pb-3" />
                 </div>
             </div>
         )
@@ -55,7 +55,7 @@ const NotificationsView = ({ variant = "modal" }) => {
             {/* A back arrow rather than the floating <Close/> pill: this surface fills the
                 screen and reads as a place, so the affordance that fits is the one that says
                 "go back" — the same call <PostSlide/>'s header makes. */}
-            <header className="flex shrink-0 items-center gap-1 px-2 py-2">
+            <header className="flex shrink-0 items-center gap-6.5 px-2 py-4">
                 <Button
                     type="button"
                     variant="ghost"
@@ -63,7 +63,7 @@ const NotificationsView = ({ variant = "modal" }) => {
                     onClick={dismiss}
                     aria-label="Go back"
                 >
-                    <Icon>arrow_back</Icon>
+                    <Icon size="xl">arrow_back</Icon>
                 </Button>
                 {heading}
             </header>
@@ -71,7 +71,7 @@ const NotificationsView = ({ variant = "modal" }) => {
             {/* Pads its foot by the home-indicator inset, less whatever the surface has
                 already been lifted by — the surface covers the mobile rail, which is what used
                 to provide that clearance. */}
-            <NotificationList className="min-h-0 flex-1 px-3 pb-[calc(1rem+var(--bottom-inset)-var(--keyboard-inset))]" />
+            <NotificationList className="min-h-0 flex-1 pb-[calc(1rem+var(--bottom-inset)-var(--keyboard-inset))]" />
         </SlideSurface>
     )
 }

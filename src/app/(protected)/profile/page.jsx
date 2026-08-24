@@ -55,12 +55,12 @@ const Row = ({ icon, label, href, onClick, destructive = false }) => {
             >
                 {label}
             </span>
-            <Icon className="text-muted-foreground">chevron_right</Icon>
+            <Icon size="xl" className="text-muted-foreground">chevron_right</Icon>
         </>
     )
 
     const className =
-        "flex w-full cursor-pointer items-center gap-4 rounded-2xl px-2 py-3 text-left transition-colors hover:bg-accent"
+        "flex w-full cursor-pointer items-center gap-3 rounded-full px-4 py-3 text-left transition-colors hover:bg-accent"
 
     if (href) {
         return (
@@ -89,13 +89,13 @@ const ProfilePage = () => {
 
                 <div className="flex flex-col items-center gap-0.5">
                     <div className="flex items-baseline justify-center gap-2">
-                        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                        <h2 className="text-3xl font-semibold text-foreground">
                             {displayName(user) || "—"}
-                        </h1>
+                        </h2>
                         {isAdmin && (
                             <VerifiedIcon
                                 aria-label={`Administrator of ${current?.name ?? "this group"}`}
-                                className="shrink-0 pb-px text-foreground"
+                                className="shrink-0 text-foreground"
                             />
                         )}
                     </div>
@@ -105,7 +105,6 @@ const ProfilePage = () => {
                         line that explains why the check above is or is not there. */}
                     <p className="text-sm text-muted-foreground">
                         {roleLabel(current?.role ?? ROLES.MEMBER)}
-                        {current?.name && ` · ${current.name}`}
                     </p>
 
                     {user?.email && (

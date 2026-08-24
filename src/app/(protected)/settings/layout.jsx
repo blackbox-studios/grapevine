@@ -19,7 +19,7 @@ import PageTransition from "@/components/PageTransition"
  * it: this wrapper persists across General ↔ Users, so the two sub-pages cross-fade against a
  * frame that does not move, and the top-level transition leaves the tree alone. */
 const SettingsLayout = ({ children }) => (
-    <div className="min-w-0 pt-6 pb-10 md:pt-0">
+    <div className="min-w-0 pb-10 md:pt-0">
         <PageTransition initial={false}>{children}</PageTransition>
     </div>
 )

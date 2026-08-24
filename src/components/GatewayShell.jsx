@@ -96,7 +96,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
                     aria-label="Back"
                     className="-ml-2.5 flex size-11 cursor-pointer items-center justify-center text-foreground transition-opacity active:opacity-60"
                 >
-                    <Icon size="lg">arrow_back</Icon>
+                    <Icon size="xl">arrow_back</Icon>
                 </button>
             )}
         </div>

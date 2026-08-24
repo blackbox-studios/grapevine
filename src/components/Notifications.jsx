@@ -66,7 +66,7 @@ const NotificationRow = ({ item, now, onOpen }) => {
             type="button"
             onClick={() => onOpen(item.postId)}
             className={cn(
-                "flex w-full cursor-pointer items-start gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-accent",
+                "flex w-full cursor-pointer items-start gap-3 rounded-full pl-5 pr-6.5 py-2 text-left transition-colors hover:bg-accent",
                 !item.read && "bg-accent/50",
             )}
         >
@@ -238,14 +238,14 @@ const NotificationsMenu = () => {
                 side="right"
                 align="end"
                 sideOffset={16}
-                className="flex w-88 flex-col gap-0 overflow-hidden p-2 h-[clamp(400px,50dvh,600px)]"
+                className="flex w-88 flex-col gap-0 overflow-hidden py-2 px-0 h-[clamp(400px,50dvh,600px)]"
             >
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
+                <div className="flex items-center justify-between px-5 pt-3.5 pb-3">
                     <h3 className="text-lg font-semibold tracking-tight">Notifications</h3>
                 </div>
 
                 <NotificationList
-                    className="min-h-0 flex-1 px-2 pb-2"
+                    className="min-h-0 flex-1 pb-2"
                     onOpened={() => setOpen(false)}
                 />
             </PopoverContent>

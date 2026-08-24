@@ -142,7 +142,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
 
     return (
         <SlideSurface ref={surfaceRef} variant={variant} className="bg-black">
-            <header className="absolute inset-x-0 top-(--safe-top) z-20 flex items-center px-2 py-2">
+            <header className="absolute inset-x-0 top-(--safe-top) z-20 flex items-center px-3 py-4">
                 <Button
                     type="button"
                     variant="ghost"
@@ -151,7 +151,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                     aria-label="Go back"
                     className="text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] hover:bg-white/10 hover:text-white"
                 >
-                    <Icon>arrow_back</Icon>
+                    <Icon size="xl">arrow_back</Icon>
                 </Button>
                 {/* The ellipsis, on a touch screen, because this surface has nothing to hold:
                   * the media fills it, and the media has its own gestures. The feed card's

@@ -38,12 +38,12 @@ export const ProfileTrigger = ({ pathname: pathnameProp, className }) => {
                Next's own scroll fires up front and yanks the outgoing page. */
             scroll={false}
             className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-full outline-hidden transition-[box-shadow]",
+                "flex size-8 shrink-0 items-center justify-center rounded-full outline-hidden transition-[box-shadow]",
                 active && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
                 className,
             )}
         >
-            <Avatar person={user} className="size-10" />
+            <Avatar person={user} className="size-8" />
         </Link>
     )
 }

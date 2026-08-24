@@ -423,7 +423,10 @@ const SettingsUsersPage = () => {
                     <AnimatePresence mode="wait" initial={false}>
                         {loading ? (
                             <Transition fast key="skeleton">
-                                <TableSkeleton columns={USER_TABLE_COLUMNS} rowClassName="*:py-5" />
+                                {/* `*:py-4` is what the real rows carry. At py-5 the skeleton
+                                    stood 8px taller per row, so a full table visibly
+                                    collapsed upward the moment the roster landed. */}
+                                <TableSkeleton columns={USER_TABLE_COLUMNS} rowClassName="*:py-4" />
                             </Transition>
                         ) : (
                             <Transition fast key="content">

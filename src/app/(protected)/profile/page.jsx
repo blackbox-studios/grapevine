@@ -55,7 +55,15 @@ const Row = ({ icon, label, href, onClick, destructive = false }) => {
             >
                 {label}
             </span>
-            <Icon size="xl" className="text-muted-foreground">chevron_right</Icon>
+            {/* The chevron takes the row's tone too. Leaving it muted on the destructive row
+                left one grey element in a line that is otherwise entirely red, which reads as
+                the arrow belonging to something else. */}
+            <Icon
+                size="xl"
+                className={destructive ? "text-destructive" : "text-muted-foreground"}
+            >
+                chevron_right
+            </Icon>
         </>
     )
 

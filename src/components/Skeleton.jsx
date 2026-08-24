@@ -33,7 +33,9 @@ export const USER_TABLE_COLUMNS = [
     {
         head: <Skeleton className="h-4 w-12" />,
         cell: (
-            <div className="flex items-center gap-3">
+            /* `gap-4`, matching the real Name cell. At `gap-3` every name and email in the
+             * table stepped 4px right as the rows landed. */
+            <div className="flex items-center gap-4">
                 <Skeleton className="size-9 shrink-0 rounded-full" />
                 <div className="flex flex-col gap-1.5">
                     <Skeleton className="h-4 w-40" />
@@ -79,7 +81,10 @@ export function TableSkeleton({
 }) {
     return (
         <div className={cn("flex flex-col gap-6", className)}>
-            <div className="overflow-hidden">
+            {/* `min-w-0`, matching the surface the real table sits in — the Table primitive
+               brings its own `overflow-x-auto`, and clipping here instead would make the
+               skeleton the one thing on the page that cannot be scrolled sideways. */}
+            <div className="min-w-0">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -161,22 +166,29 @@ export function PostMediaSkeleton({ desktop = false }) {
     )
 }
 
-/* Skeleton for the comments surface (see components/Comments.jsx): a stack of
- * comment rows — avatar, a short meta line and a body line, plus the like column
- * (heart + count) on the right. */
+/* Skeleton for the comments surface (see components/Comments.jsx): a stack of comment rows —
+ * avatar, a short meta line and a body line, plus the like column (heart + count) on the
+ * right.
+ *
+ * Geometry tracks <CommentRow/>'s: the same `px-4 py-2.5` box, a `size-9` avatar, `gap-1`
+ * between the meta and body lines, and a like column at `pt-1.5` around a `size-3.5` heart.
+ * Those four had drifted a pixel or two each, which is enough to make the whole column step
+ * sideways when the thread arrives. */
 export function CommentsSkeleton({ count = 8 }) {
     return (
         <div className="flex flex-col">
             {Array.from({ length: count }, (_, i) => (
                 <div key={i} className="flex items-start gap-3 px-4 py-2.5">
                     <Skeleton className="size-9 shrink-0 rounded-full" />
-                    <div className="flex flex-1 flex-col gap-2 pt-1">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <Skeleton className="h-3 w-28" />
-                        <Skeleton className="h-3 w-4/5" />
+                        <Skeleton className="h-3.5 w-4/5" />
                     </div>
-                    <div className="flex flex-col items-center gap-1.5 pt-1">
-                        <Skeleton className="size-4 rounded-full" />
-                        <Skeleton className="h-2.5 w-4" />
+                    <div className="flex items-start gap-2.5 pt-1.5">
+                        <div className="flex flex-col items-center gap-1">
+                            <Skeleton className="size-3.5 rounded-full" />
+                            <Skeleton className="h-2.5 w-3" />
+                        </div>
                     </div>
                 </div>
             ))}
@@ -186,18 +198,24 @@ export function CommentsSkeleton({ count = 8 }) {
 
 /* Skeleton for the notifications panel (see components/Notifications.jsx): a stack of rows,
  * each an avatar, the actor's name and what they did, and the relative time on the right.
- * Same geometry as <NotificationRow/>, so the rows don't shift as they land. */
+ *
+ * The wrapper and the nesting are copied from <NotificationRow/> rather than approximated —
+ * including the inner flex the text column and the timestamp share. Flattening that put the
+ * time bar one gap further right than the real one, so the column visibly jumped as the rows
+ * landed. Keep the two in step. */
 export function NotificationsSkeleton({ count = 6 }) {
     return (
         <div className="flex flex-col">
             {Array.from({ length: count }, (_, i) => (
-                <div key={i} className="flex items-start gap-3 px-2 py-2.5">
+                <div key={i} className="flex items-start gap-3 rounded-xl px-2 py-2.5">
                     <Skeleton className="size-10 shrink-0 rounded-full" />
-                    <div className="flex flex-1 flex-col gap-2 pt-1">
-                        <Skeleton className="h-3.5 w-28" />
-                        <Skeleton className="h-3 w-36" />
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                            <Skeleton className="h-3.5 w-28" />
+                            <Skeleton className="mt-2 h-3 w-36" />
+                        </div>
+                        <Skeleton className="mt-0.5 h-3 w-6 shrink-0" />
                     </div>
-                    <Skeleton className="mt-1 h-3 w-6 shrink-0" />
                 </div>
             ))}
         </div>

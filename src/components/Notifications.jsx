@@ -240,8 +240,10 @@ const NotificationsMenu = () => {
                 sideOffset={16}
                 className="flex w-88 flex-col gap-0 overflow-hidden py-2 px-0 h-[clamp(400px,50dvh,600px)]"
             >
+                {/* `text-xl`, matching <NotificationsView/>. This is the same panel at a
+                    different size, so its title should not change rank with the container. */}
                 <div className="flex items-center justify-between px-5 pt-3.5 pb-3">
-                    <h3 className="text-lg font-semibold tracking-tight">Notifications</h3>
+                    <h3 className="text-xl font-semibold tracking-tight">Notifications</h3>
                 </div>
 
                 <NotificationList

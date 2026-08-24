@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { ACCESS, OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES, ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { isNative, onAppState } from "@/lib/native"
 import useAuthStore, { viewerAuthor } from "./store"
 
 /* The login form's whole surface: request a code, then verify it.
@@ -198,6 +199,48 @@ export const useGatewayDestination = () => {
     })
 }
 
+/* Keeps the session alive across the gaps when the app isn't running.
+ *
+ * A session does not usually die because it expired; it dies because nothing was awake to
+ * renew it. A phone spends most of its life with this app suspended, its timers frozen and
+ * its access token quietly ageing out, and the moment the reader taps the icon the first
+ * request goes out on a token that expired in the night. So the shell tells the store when
+ * it wakes, and the store renews before anything is asked of the API.
+ *
+ * Three signals, because no one of them covers the ground:
+ *
+ *   appStateChange   native, and the authoritative one — the OS saying the app is back.
+ *   online           either target regaining a connection, which is when a viewer left on
+ *                    a cached profile can finally be confirmed.
+ *   visibilitychange web only. On native supabase-js's own visibility handling has already
+ *                    been taken over (see `startAutoRefresh`), and doubling it up here
+ *                    would just fire a second refresh at every wake.
+ *
+ * All three land on the same idempotent `resume()`, so overlapping wakes cost nothing. */
+const useSessionResume = () => {
+    const [resume, suspend] = useAuthStore(
+        useShallow((state) => [state.resume, state.suspend]),
+    )
+
+    useEffect(() => {
+        const offAppState = onAppState((active) => (active ? resume() : suspend()))
+
+        const onOnline = () => resume()
+        window.addEventListener("online", onOnline)
+
+        const onVisible = () => {
+            if (document.visibilityState === "visible") resume()
+        }
+        if (!isNative()) document.addEventListener("visibilitychange", onVisible)
+
+        return () => {
+            offAppState()
+            window.removeEventListener("online", onOnline)
+            document.removeEventListener("visibilitychange", onVisible)
+        }
+    }, [resume, suspend])
+}
+
 /* Boots the auth store. Mounted once by <App/>, which sits in the root layout *outside*
  * both route groups — so the session is resolved no matter which URL the app is opened at.
  *
@@ -212,6 +255,8 @@ export const useAuthInit = () => {
     useEffect(() => {
         init()
     }, [init])
+
+    useSessionResume()
 
     /* Scrub the magic-link callback out of the address bar.
      *

@@ -20,6 +20,9 @@
   an email with no `auth.users` row can never be sent a code.
 - **Two identities, kept apart.** Supabase owns the *session*; `GET /api/me` owns the
   *viewer* (profile, vocation, role, groups). `loggedIn` means both are in place.
+- **Sessions end only when the viewer or an admin ends them.** Nothing transient — offline,
+  a 503, a suspended app, a drifting device clock — may sign anyone out, and the session
+  itself lives in native storage the OS won't reclaim. See "Staying signed in".
 - **Two authorization axes.** `Membership.role` (ADMIN | MEMBER) is per-group permission.
   `Profile.vocation` (CATECHUMEN | FAITHFUL | READER | MATUSHKA | DEACON | PRIEST | BISHOP)
   is presentational and grants nothing.
@@ -379,6 +382,78 @@ unprotected, which is why the file also installs an event trigger as a backstop.
 
 ---
 
+## Staying signed in
+
+**Synaxis signs people in once.** Not "for a long time" — once, on that device, until they
+sign out or an admin removes them. This is the same expectation Facebook and Instagram set,
+and it is the right one here for the same reason: a parish feed is something you glance at
+between other things, and a login screen in front of it is a wall in front of a habit. An
+app that asks again next Tuesday has quietly told its readers to check it less often.
+
+**It is deliberately not the banking posture, and that is a considered trade, not an
+oversight.** A short session is a real control when the threat is a shared or stolen
+terminal and the stakes are moving money. Neither holds. This is a personal phone, the
+account is invite-only and provisioned by a parish admin who knows the person, and the worst
+an unauthorized reader can do with the session is read a parish's posts and leave a like.
+Set against that, an idle timeout buys almost nothing and costs the thing the app is for.
+Revocation is where the security actually lives, and it is unaffected: `Membership.status`
+is read from the database on **every** authorization decision, so removing someone bites on
+their next request regardless of how old their session is.
+
+So the rule the whole client obeys:
+
+> **Only a 401 that has survived a forced token refresh may end a session.** Everything else
+> — a dropped connection, a 503, a timeout, a device clock a minute fast — is the question
+> going unanswered, and an unanswered question changes nothing.
+
+Four things were signing people out, none of which was ever a real sign-out.
+
+**1. The session lived in the WebView's `localStorage`.** That is *website data*, which both
+mobile platforms treat as a cache they may reclaim — iOS purges `WKWebView` storage under
+disk pressure and around app updates, Android's goes with a "clear cache". On native the
+session is now written through Capacitor **Preferences** (`UserDefaults` /
+`SharedPreferences`), which is *application* data and survives all of it. See
+`nativeStorage` in `lib/supabase.js`; its read falls back to `localStorage` once and copies
+the value across, so the release that fixed this did not itself sign everyone out.
+
+**2. A token that couldn't be refreshed looked identical to no token.** `accessToken()`
+returned `string | null`, and null meant both "signed out" and "on a train". The second was
+sent anonymously, earned a 401, and got signed out for it. `sessionToken()` returns
+`{ token, stale }` instead — supabase-js reports a genuine absence as
+`{ session: null, error: null }` and a failed refresh as `{ session: null, error }`, with
+the refresh token still on disk — and `api.js` throws `NETWORK` rather than sending a
+request it knows will 401.
+
+**3. A single 401 was a verdict.** It now buys one forced `refreshSession()` and one retry.
+A 401 means the server did nothing, so replaying even a POST is safe, and clock skew /
+a token that aged out in flight / a half-finished key rotation all resolve silently.
+
+**4. Timers don't run while an app is suspended.** A phone asleep for two hours wakes with
+an expired access token and a refresh ticker that hasn't fired since. On native the store
+drives it from Capacitor's `appStateChange` — `startAutoRefresh()` on resume (it ticks
+immediately), `stopAutoRefresh()` on background so a refresh can't be *in flight* when the
+OS freezes the process, which rotates the refresh token into a void. The web keeps
+supabase-js's own `visibilitychange` handling; `startAutoRefresh()` removes it, so calling
+it there would be a downgrade.
+
+Alongside those, `init()` no longer clears the viewer when `/api/me` fails transiently. It
+sets `stale` instead: the persisted profile stays on screen, the app opens on its cached
+feed, and `resume()` — or the next `TOKEN_REFRESHED` — reconciles when the connection is
+back. The one case that still signs out is a transient failure with *nothing cached*, since
+the shell around a null viewer is a blank screen.
+
+Two knobs live in the Supabase dashboard rather than in code, and both can end a session no
+matter what any of the above does. Under **Authentication → Sessions**: *time-box user
+sessions* and *inactivity timeout*, off by default. **Leave them off.** Turning either on is
+how you undo this entire section from a web form, with nothing in the repo to show for it —
+and the reason not to is the one at the top, not an oversight to be tidied up later. The
+same page holds **JWT expiry**, which is a different thing: it is the access token's
+lifetime, it does not end sessions, and it is the revocation window
+`lib/server/auth.js` trades for skipping a `getUser()` round trip per request. Shortening
+*that* is the sanctioned lever if a parish ever needs revocation to bite sooner.
+
+---
+
 ## The two axes
 
 Conflating these is the mistake the schema is shaped to prevent.
@@ -428,13 +503,14 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 
 | Concern | File |
 |---|---|
-| Browser client, session, `accessToken()` | `src/lib/supabase.js` |
+| Browser client, native session storage, `sessionToken()` / `refreshSession()` / auto-refresh control | `src/lib/supabase.js` |
+| Foreground/background signal (`onAppState`) | `src/lib/native.js` |
 | RLS + Data API lockdown | `prisma/policies.sql` (`npm run db:secure`) |
 | Server clients (anon + service role) | `src/lib/server/supabase.js` |
 | `requireViewer`, `requireMembership`, `readableOrgIds` | `src/lib/server/auth.js` |
 | Admissions, roster, onboarding, revoke | `src/lib/server/profile.service.js` |
 | `access` derivation | `accessFor` in `src/lib/server/projections.js` |
-| Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` | `src/lib/store/auth/store.js` |
+| Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` / `resume` / `suspend` | `src/lib/store/auth/store.js` |
 | Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
 | Roster store + hook (invite, approve, revoke, re-rank) | `src/lib/store/members/` |
 | Route guards (signed in vs not) | `src/components/AuthGate.jsx` |
@@ -453,8 +529,17 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 
 ## Gotchas
 
-- **Never cache the access token.** `accessToken()` refreshes it transparently; a hoisted
+- **Never cache the access token.** `sessionToken()` refreshes it transparently; a hoisted
   copy outlives its refresh and starts 401ing mid-session.
+- **A missing token is not a signed-out viewer.** `sessionToken()` returns `{ token, stale }`
+  for exactly this reason — `stale` means the session is on disk but could not be refreshed
+  right now. Never collapse the two back into a nullable string. See "Staying signed in".
+- **Never add a second path that calls `expire()`.** The one in `lib/api.js` is the only
+  thing in the app that ends a session the viewer did not ask to end, and it only fires on a
+  401 that has already survived a forced refresh.
+- **Native session storage is Capacitor Preferences, not `localStorage`**, because a WebView's
+  storage is a cache the OS may reclaim. `nativeStorage` in `lib/supabase.js` migrates the
+  legacy key on first read — don't remove that fallback until every install has updated.
 - **`SIGNED_IN` fires on every token refresh**, not just sign-in. The store only reacts to
   `SIGNED_OUT`; the sign-in paths load the profile explicitly, or you get a `/api/me`
   request every hour for no new information.

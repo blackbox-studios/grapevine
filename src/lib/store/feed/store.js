@@ -5,7 +5,7 @@ import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE, ROLES } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
 import useAuthStore from '@/lib/store/auth/store'
-import { toErrorList } from '@/lib/utils'
+import { documentType, formatBytes, toErrorList } from '@/lib/utils'
 
 /* The dashboard feed: one paginated list of posts, and nothing else.
  *
@@ -21,6 +21,38 @@ import { toErrorList } from '@/lib/utils'
  * keeps the imports one-directional (see the header of lib/store/org/store.js). A different
  * id empties the list and drops readiness, so the switcher's tap paints a skeleton on the
  * next frame instead of leaving another parish's posts on screen under a new heading. */
+
+/* The uploaded descriptors a composer holds → the media shape a card renders.
+ *
+ * A local twin of `projectMedia` on the server, and deliberately the same shape: the
+ * optimistic row is on screen for a round trip and is then swapped for the real resource, so
+ * anything the two disagree about is a visible reflow at the moment of confirmation. The two
+ * split by `kind` identically and format through the same `formatBytes`/`documentType`, which
+ * is why those live in `lib/utils.js` rather than in the projection.
+ *
+ * It cannot simply *be* `projectMedia`: that one reads database rows behind `server-only`,
+ * and these are upload descriptors that have never been near the database. */
+const projectPending = (media) => {
+    const images = media.filter(item => item.kind !== 'DOCUMENT')
+    const document = media.find(item => item.kind === 'DOCUMENT')
+
+    return {
+        ...(images.length === 1
+            ? { image: images[0].url, width: images[0].width, height: images[0].height }
+            : {}),
+        ...(images.length > 1 ? { images: images.map(item => item.url) } : {}),
+        ...(document
+            ? {
+                  document: {
+                      name: document.fileName ?? 'Attachment',
+                      size: formatBytes(document.sizeBytes) ?? '',
+                      type: documentType(document),
+                      url: document.url,
+                  },
+              }
+            : {}),
+    }
+}
 
 const ERROR_INIT = {
     list: false,
@@ -208,12 +240,10 @@ const useStore = create(immer((set, get) => ({
                 createdAt: new Date().toISOString(),
                 title: title ?? null,
                 body,
-                /* Mirror the media shape the server will send back, so the card doesn't
-                 * reflow when the optimistic row is replaced. */
-                ...(media.length === 1
-                    ? { image: media[0].url, width: media[0].width, height: media[0].height }
-                    : {}),
-                ...(media.length > 1 ? { images: media.map(item => item.url) } : {}),
+                /* Mirror the media shape the server will send back — the same split by kind
+                 * `projectMedia` performs, formatted with the same helpers — so the card does
+                 * not reflow when the optimistic row is replaced. */
+                ...projectPending(media),
                 likes: 0,
                 likedBy: null,
                 comments: 0,

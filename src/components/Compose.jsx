@@ -13,7 +13,7 @@ import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Reflow, ReflowItem } from "@/components/Reflow"
 import Skeleton from "@/components/Skeleton"
-import { Avatar, OrgAvatar } from "@/components/Widgets"
+import { Attachment, Avatar, OrgAvatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -43,13 +43,13 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { MAX_POST_IMAGES, ROLES, UPLOAD_PURPOSES } from "@/lib/constants"
+import { DOCUMENT_MIME_TYPES, MAX_POST_IMAGES, ROLES, UPLOAD_PURPOSES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useUser } from "@/lib/store/auth/hook"
 import { usePublish } from "@/lib/store/feed/hook"
 import { useUpload } from "@/lib/store/uploads/hook"
-import { appPath, cn } from "@/lib/utils"
+import { appPath, cn, documentType, formatBytes } from "@/lib/utils"
 
 /* Writing a post.
  *
@@ -230,6 +230,63 @@ const PhotoStrip = ({ media, onRemove, onAdd, pending, disabled }) => {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Attachment                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/* The one file a post may carry — the sign-up sheet, the schedule, the minutes.
+ *
+ * A slot rather than a strip, because a post holds exactly one (`MAX_POST_DOCUMENTS`, and the
+ * endpoint refuses a second). Picking again replaces what is there, so this is a button until
+ * something is attached and the file's own row afterwards.
+ *
+ * Unlike a photo, the file is uploaded byte for byte — see `prepareFile` in lib/upload.js —
+ * so `uploading` here can be a genuinely long wait on a large PDF. It swaps the row for a
+ * skeleton of the same height rather than a spinner somewhere else, for the same reason the
+ * photo strip does: the space the result will occupy is known, so nothing below moves when it
+ * lands. */
+const AttachmentSlot = ({ attachment, onAdd, onRemove, uploading, disabled }) => {
+    const input = useRef(null)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <input
+                ref={input}
+                type="file"
+                accept={DOCUMENT_MIME_TYPES.join(",")}
+                className="sr-only"
+                onChange={(event) => {
+                    onAdd(event.target.files)
+                    /* Cleared so re-picking the same file still fires a change. */
+                    event.target.value = ""
+                }}
+            />
+
+            {uploading ? (
+                <Skeleton className="h-[4.25rem] w-full rounded-lg" />
+            ) : attachment ? (
+                <Attachment
+                    name={attachment.fileName}
+                    type={documentType(attachment)}
+                    size={formatBytes(attachment.sizeBytes)}
+                    onRemove={onRemove}
+                />
+            ) : (
+                <Button
+                    type="button"
+                    variant="outline"
+                    disabled={disabled}
+                    onClick={() => input.current?.click()}
+                    className="w-fit"
+                >
+                    <Icon size="sm">attach_file</Icon>
+                    Attach a file
+                </Button>
+            )}
+        </div>
+    )
+}
+
+/* -------------------------------------------------------------------------- */
 /* The form                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -251,7 +308,7 @@ const TitleField = ({ control }) => (
                         placeholder="Title (optional)"
                         rows={1}
                         maxLength={TITLE_MAX}
-                        className="min-h-0 resize-none border-0 bg-transparent px-0 py-0 text-base leading-snug font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent"
+                        className="min-h-0 resize-none border-0 bg-transparent px-0 py-0 text-sm leading-snug font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
                         {...field}
                     />
                 </FormControl>
@@ -281,6 +338,21 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
     const { publish, orgs, defaultOrgId, loading } = usePublish()
     const viewer = useUser()
     const [media, setMedia] = useState([])
+    /* The attachment is held apart from `media` rather than in it, because the two are edited
+     * by different controls with different rules — a strip of up to ten, and a slot for one.
+     * They are joined back into one array at submit, which is the shape the endpoint takes.
+     *
+     * Named `attachment`, not `document`: a state variable called `document` shadows the
+     * global one inside every closure in this component, which is a trap rather than a bug
+     * only until someone reaches for `document.createElement`. */
+    const [attachment, setAttachment] = useState(null)
+
+    /* Two in-flight counts rather than the store's one. `useUpload` reports whether *any*
+     * upload is running, which is the right gate for the Post button and the wrong one for
+     * these controls: a photo uploading would otherwise put a skeleton in the attachment slot
+     * and vice versa, each claiming to be waiting on the other's file. */
+    const [uploadingPhotos, setUploadingPhotos] = useState(0)
+    const [attaching, setAttaching] = useState(false)
 
     const form = useForm({
         resolver: zodResolver(schema),
@@ -302,7 +374,7 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
      * URL is minted is the same one the publish will check. Switching groups mid-draft
      * re-binds it; photos already uploaded into the previous group stay valid and are simply
      * referenced by URL. */
-    const { upload, uploading, pending } = useUpload(UPLOAD_PURPOSES.POST_MEDIA, orgId)
+    const { upload, uploading } = useUpload(UPLOAD_PURPOSES.POST_MEDIA, orgId)
 
     /* The placeholder names the group being written to rather than saying "your group".
      * Publishing is the one thing here that leaves the room, and an admin of two parishes
@@ -312,16 +384,23 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
     const target = orgs.find(org => org.id === orgId)?.name ?? "your group"
 
     /* Anything typed or picked is worth protecting from a stray click on the backdrop. */
-    const dirty = Boolean(body?.trim()) || media.length > 0
+    const dirty = Boolean(body?.trim()) || media.length > 0 || attachment !== null
     useEffect(() => {
         onDirtyChange?.(dirty)
     }, [dirty, onDirtyChange])
 
     const addPhotos = useCallback(
         async (files) => {
-            const room = MAX_POST_IMAGES - media.length
-            const added = await upload(Array.from(files ?? []).slice(0, room))
-            setMedia(current => [...current, ...added])
+            const picked = Array.from(files ?? []).slice(0, MAX_POST_IMAGES - media.length)
+            if (picked.length === 0) return
+
+            setUploadingPhotos(count => count + picked.length)
+            try {
+                const added = await upload(picked)
+                setMedia(current => [...current, ...added])
+            } finally {
+                setUploadingPhotos(count => Math.max(0, count - picked.length))
+            }
         },
         [upload, media.length],
     )
@@ -329,6 +408,27 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
     const removePhoto = useCallback((url) => {
         setMedia(current => current.filter(item => item.url !== url))
     }, [])
+
+    /* One attachment, so picking a second **replaces** the first rather than being refused.
+     * Somebody reaching for the file button while one is already attached is correcting it,
+     * not trying to add another — and a disabled control with no explanation is a worse answer
+     * than doing the obvious thing. The one they discard stays in the bucket, which is the
+     * same trade the photo strip already makes. */
+    const addFile = useCallback(
+        async (files) => {
+            const [picked] = Array.from(files ?? [])
+            if (!picked) return
+
+            setAttaching(true)
+            try {
+                const [attached] = await upload([picked])
+                if (attached) setAttachment(attached)
+            } finally {
+                setAttaching(false)
+            }
+        },
+        [upload],
+    )
 
     /* One gate for the button and the submit handler, so the two cannot drift. Uploading is
      * on it because a post published mid-upload would silently drop the photo still in
@@ -343,13 +443,22 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
             if (disabled) return
             const post = await publish({
                 orgId: values.orgId,
-                title: values.title.trim() || null,
+                /* The title is one line wherever it is rendered, so any break typed into it
+                 * is flattened to a space here rather than stored and silently collapsed by
+                 * the browser later — what is saved should be what a reader will see. The
+                 * body keeps its breaks: they are the author's, and every surface that
+                 * renders one now preserves them (see <Caption/> in components/Feed.jsx). */
+                title: values.title.replace(/\s+/g, " ").trim() || null,
                 body: values.body.trim(),
-                media,
+                /* The photos and the attachment become one media array here — array order is
+                 * carousel order, so the attachment goes last where it cannot displace a
+                 * photo's position. `projectMedia` splits them apart again by `kind`. */
+                media: attachment ? [...media, attachment] : media,
             })
             if (!post) return
             form.reset({ orgId: values.orgId, title: "", body: "" })
             setMedia([])
+            setAttachment(null)
             onDone()
         },
         /* **Validation is toasted here rather than rendered under the field**, which is the
@@ -388,7 +497,11 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
                         name="orgId"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Group</FormLabel>
+                                {/* No visible label: the trigger shows the group's mark and
+                                    name, which says what it is more directly than a word
+                                    above it would. Announced for a screen reader, where the
+                                    control's value is not self-describing in the same way. */}
+                                <FormLabel className="sr-only">Group</FormLabel>
                                 <Select
                                     value={field.value}
                                     onValueChange={field.onChange}
@@ -423,7 +536,17 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
                         media={media}
                         onAdd={addPhotos}
                         onRemove={removePhoto}
-                        pending={pending}
+                        pending={uploadingPhotos}
+                        disabled={!orgId}
+                    />
+
+                    {/* Below the photos, because it is the rarer of the two and a post with a
+                        sign-up sheet usually has a picture as well. */}
+                    <AttachmentSlot
+                        attachment={attachment}
+                        onAdd={addFile}
+                        onRemove={() => setAttachment(null)}
+                        uploading={attaching}
                         disabled={!orgId}
                     />
 

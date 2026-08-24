@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS, MAX_UPLOAD_BYTES, UPLOAD_PURPOSES } from '@/lib/constants'
-import { prepareImage } from '@/lib/image'
+import { API_ENDPOINTS, UPLOAD_PURPOSES } from '@/lib/constants'
+import { prepareFile } from '@/lib/upload'
 import { supabase } from '@/lib/supabase'
 import { toErrorList } from '@/lib/utils'
 
@@ -16,7 +16,8 @@ import { toErrorList } from '@/lib/utils'
  *
  * The three steps, and why the middle one exists:
  *
- *  1. **Prepare** (`lib/image.js`) — scale, re-encode, strip EXIF. Local; nothing is sent.
+ *  1. **Prepare** (`lib/upload.js`) — a photo is scaled, re-encoded and stripped of EXIF; an
+ *     attachment is passed through untouched. Local either way; nothing is sent.
  *  2. **Ask `/api/uploads` for permission**, which answers a signed upload URL for exactly
  *     one path it chose. This is where authorization happens: the client never names its own
  *     destination, so there is no parameter to bend into another group's folder.
@@ -58,10 +59,13 @@ const INIT = {
 const useStore = create(immer((set) => ({
     ...INIT,
 
-    /* Uploads one image and returns the descriptor a write needs:
-     * `{ url, width, height, mimeType, fileName, sizeBytes }` — the exact shape
-     * `POST /api/posts` expects a media entry in. Returns null on failure, having parked the
-     * error, so a caller branches on the value rather than catching.
+    /* Uploads one file and returns the descriptor a write needs:
+     * `{ url, kind, mimeType, fileName, sizeBytes }`, plus `width`/`height` for a photo — the
+     * exact shape `POST /api/posts` expects a media entry in. Returns null on failure, having
+     * parked the error, so a caller branches on the value rather than catching.
+     *
+     * A photo and an attachment take the same path here; what differs between them is
+     * entirely `prepareFile`'s business, and `kind` is what it hands back for the media row.
      *
      * `purpose` decides both the permission and the folder (see `uploads.service.js`);
      * `orgId` is required by POST_MEDIA and ignored by the rest. */
@@ -75,29 +79,24 @@ const useStore = create(immer((set) => ({
         })
 
         try {
-            const { blob, ...meta } = await prepareImage(file)
-
-            /* Checked after the re-encode, not before: the ceiling is on what is about to
-             * cross the network, and a 20MP original that scales to 300KB is fine. The
-             * bucket enforces the same limit, so this is about telling the person which
-             * photo to swap rather than about protecting storage. */
-            if (blob.size > MAX_UPLOAD_BYTES) {
-                throw new Error(
-                    `${meta.fileName ?? "That image"} is too large to upload.`,
-                )
-            }
+            const { blob, ...meta } = await prepareFile(file)
 
             const grant = await api.post(API_ENDPOINTS.UPLOADS, {
                 purpose,
                 orgId,
                 mimeType: meta.mimeType,
+                /* Declared so the endpoint can refuse an oversized grant rather than only the
+                 * browser refusing to ask for one — `prepareFile` has already rejected
+                 * anything over the limit, so this only ever reports a size that passed. */
+                sizeBytes: meta.sizeBytes,
             })
 
             const { error } = await supabase()
                 .storage.from(grant.bucket)
                 .uploadToSignedUrl(grant.path, grant.token, blob, {
                     /* Without this Supabase serves the object as the generic octet-stream it
-                     * defaults to, and an <img> pointed at it renders nothing. */
+                     * defaults to — an <img> pointed at it renders nothing, and a browser
+                     * asked to open a PDF downloads an unnamed blob instead. */
                     contentType: meta.mimeType,
                 })
 

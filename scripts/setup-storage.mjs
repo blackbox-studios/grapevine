@@ -42,9 +42,13 @@ if (!URL || !SECRET) {
 }
 
 /* Keep in step with BUCKET and the constants in `src/lib/constants.js` — this script is
- * plain Node run outside Next, so it cannot import through the `@/` alias. */
+ * plain Node run outside Next, so it cannot import through the `@/` alias.
+ *
+ * The size limit is a bucket-wide ceiling, so it is the *larger* of the app's two: photos are
+ * held to MAX_IMAGE_BYTES and attachments to MAX_DOCUMENT_BYTES, and both are enforced before
+ * a byte is sent (`prepareFile`) and again by `uploads.service.js`. This is the backstop. */
 const BUCKET = "media"
-const FILE_SIZE_LIMIT = 8 * 1024 * 1024
+const FILE_SIZE_LIMIT = 25 * 1024 * 1024
 const ALLOWED_MIME_TYPES = [
     "image/jpeg",
     "image/png",
@@ -52,6 +56,15 @@ const ALLOWED_MIME_TYPES = [
     "image/gif",
     "image/heic",
     "image/heif",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
 ]
 
 const OPTIONS = {
@@ -84,5 +97,6 @@ if (error) {
 
 console.log(
     `✓ Bucket "${BUCKET}" ${exists ? "reconciled" : "created"} — public read, ` +
-        `${Math.round(FILE_SIZE_LIMIT / 1024 / 1024)}MB limit, images only.`,
+        `${Math.round(FILE_SIZE_LIMIT / 1024 / 1024)}MB limit, ` +
+        `${ALLOWED_MIME_TYPES.length} allowed types (images + attachments).`,
 )

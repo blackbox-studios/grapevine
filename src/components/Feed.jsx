@@ -10,7 +10,7 @@ import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, ReflowItem } from "@/components/Reflow"
-import { Avatar } from "@/components/Widgets"
+import { Attachment, Avatar } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
@@ -22,28 +22,35 @@ import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { CARD_SPRING, appPath, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
+import { CARD_SPRING, appPath, captionPreview, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
 
 /* Instagram-style caption: the author handle in bold followed by the post body.
- * Long bodies truncate at a word boundary with an inline "... more" affordance.
+ * Bodies truncate with an inline "... more" affordance — at a word boundary, or at the
+ * author's first line break if that comes first (`captionPreview`).
  *
  * The caption stays a single inline paragraph so the body wraps naturally, and the
  * "more" word simply disappears on expand. Radix's Collapsible can't do this — its
  * content is a separate block, which would break the sentence onto its own line — so
  * we animate height ourselves: `react-use-measure` reports the paragraph's natural
- * height, and a `motion.div` tweens to it once the text swaps preview → full. */
+ * height, and a `motion.div` tweens to it once the text swaps preview → full.
+ *
+ * **`whitespace-pre-line` is what makes the author's line breaks survive.** HTML collapses
+ * every run of whitespace, so a service schedule typed as one item per line arrived as a
+ * single paragraph — the writing said one thing and the card said another. `pre-line` rather
+ * than `pre-wrap`: it keeps the newlines and still collapses runs of spaces, so pasted text
+ * with stray indentation does not stack up ragged margins, and long lines still wrap. Every
+ * surface that renders a body carries it — the sheet's caption, the dialog's rail, the
+ * overlay teaser — because the same post read differently on each otherwise. */
 const Caption = ({ label, text }) => {
     const [open, setOpen] = useState(false)
     const [ref, { height }] = useMeasure()
 
-    const isLong = text.length > CAPTION_LIMIT
-    const preview = isLong
-        ? text.slice(0, CAPTION_LIMIT).replace(/\s+\S*$/, "")
-        : text
-
+    /* Ends at the character budget or the author's first line break, whichever comes first —
+     * see `captionPreview`. */
+    const { preview, truncated } = captionPreview(text, CAPTION_LIMIT)
 
     return (
         <motion.div
@@ -52,10 +59,10 @@ const Caption = ({ label, text }) => {
             animate={{ height: height || "auto" }}
             transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
         >
-            <p ref={ref}>
+            <p ref={ref} className="whitespace-pre-line">
                 <span className="font-semibold">{label}</span>{" "}
-                {open || !isLong ? text : preview}
-                {isLong && !open && (
+                {open || !truncated ? text : preview}
+                {truncated && !open && (
                     <>
                         {" ... "}
                         <button
@@ -179,26 +186,11 @@ const PostCard = ({ post }) => {
             )}
 
             {post.document && (
-                <a
-                    href="#"
-                    className={cn(
-                        "flex items-center gap-3 rounded-lg border bg-muted/40 p-3 transition-colors hover:bg-muted",
-                        images.length > 0 && "mt-3",
-                    )}
-                >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-                        <Icon>description</Icon>
-                    </span>
-                    <span className="flex min-w-0 flex-col leading-tight">
-                        <span className="truncate text-sm font-medium">
-                            {post.document.name}
-                        </span>
-                        <span className="text-xs uppercase text-muted-foreground">
-                            {post.document.type} · {post.document.size}
-                        </span>
-                    </span>
-                    <Icon className="ml-auto text-muted-foreground">download</Icon>
-                </a>
+                <Attachment
+                    {...post.document}
+                    href={appPath(post.document.url)}
+                    className={cn(images.length > 0 && "mt-3")}
+                />
             )}
 
             <div className="flex items-center pt-2">

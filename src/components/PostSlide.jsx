@@ -215,7 +215,15 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                                 )}
                             </div>
                             {post.body && (
-                                <p className="mt-2 line-clamp-2 text-sm text-white/90">{post.body}</p>
+                                /* `whitespace-pre-line` keeps the author's line breaks here
+                                 * too — see <Caption/> in components/Feed.jsx. It costs this
+                                 * teaser some text, since a body written as a list spends
+                                 * both clamped lines on its first two items rather than
+                                 * flowing, but a schedule run together into a sentence is
+                                 * the wrong two lines to show. */
+                                <p className="mt-2 line-clamp-2 whitespace-pre-line text-sm text-white/90">
+                                    {post.body}
+                                </p>
                             )}
                         </button>
                         <div className="pointer-events-auto absolute right-3 top-1/2 -translate-y-1/2">

@@ -22,8 +22,8 @@ import useUploadsStore from "./store"
  * resolved list simply omits whatever didn't make it: the caller keeps the photos that
  * worked rather than losing four uploads to one bad file. */
 export const useUpload = (purpose = UPLOAD_PURPOSES.POST_MEDIA, orgId = null) => {
-    const [uploadOne, uploading, pending] = useUploadsStore(
-        useShallow(state => ([state.upload, state.loading.upload, state.pending])),
+    const [uploadOne, uploading] = useUploadsStore(
+        useShallow(state => ([state.upload, state.loading.upload])),
     )
 
     const upload = useCallback(
@@ -39,5 +39,9 @@ export const useUpload = (purpose = UPLOAD_PURPOSES.POST_MEDIA, orgId = null) =>
         [uploadOne, purpose, orgId],
     )
 
-    return useMemo(() => ({ upload, uploading, pending }), [upload, uploading, pending])
+    /* `uploading` is "anything at all is in flight", which is the right gate for a submit
+     * button and the wrong one for a per-control placeholder — a surface with two pickers
+     * (the composer has photos and one attachment) must count its own, or each waits on the
+     * other's file. See `ComposeForm`. */
+    return useMemo(() => ({ upload, uploading }), [upload, uploading])
 }

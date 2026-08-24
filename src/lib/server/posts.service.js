@@ -2,6 +2,7 @@ import "server-only"
 
 import { Prisma } from "@prisma/client"
 
+import { MAX_POST_DOCUMENTS } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
@@ -321,6 +322,14 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
 
     const text = String(body ?? "").trim()
     if (!text) throw invalid("Post body is required.", { body: "Required" })
+
+    /* **One attachment, refused rather than silently dropped.** `projectMedia` reads a post's
+     * document with `find`, so a second row would be written and then never rendered — the
+     * kind of data loss that is only noticed months later. The composer allows one; this is
+     * what makes that a rule rather than a UI convention. */
+    if (media.filter((item) => item.kind === "DOCUMENT").length > MAX_POST_DOCUMENTS) {
+        throw invalid("A post can carry one attachment.", { media: "Too many attachments" })
+    }
 
     const post = await prisma.post.create({
         data: {

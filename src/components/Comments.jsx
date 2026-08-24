@@ -9,7 +9,7 @@ import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, useReflowMotion } from "@/components/Reflow"
 import Transition from "@/components/Transition"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
-import { Avatar, ConfirmDialog } from "@/components/Widgets"
+import { Attachment, Avatar, ConfirmDialog } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -27,7 +27,7 @@ import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useComments } from "@/lib/store/comments/hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { ROW_SPRING, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
+import { ROW_SPRING, appPath, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
 
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
@@ -360,12 +360,23 @@ export const CommentsPanel = ({ post, dismiss, className }) => {
     const { author, liked } = post
     const composerRef = useRef(null)
 
-    const caption = post.body ? (
-        <div className="flex items-start gap-3 px-4 pb-2 pt-4">
-            <Avatar person={author} className="mt-0.5 size-9" />
-            <p className="text-sm leading-snug">
-                <span className="font-semibold">{author.handle}</span> {post.body}
-            </p>
+    /* The caption and the attachment travel together: an opened post has no other place to
+     * offer its file, and a reader who came here from the card expects to find it. */
+    const caption = post.body || post.document ? (
+        <div className="flex flex-col gap-3 px-4 pb-2 pt-4">
+            {post.body && (
+                <div className="flex items-start gap-3">
+                    <Avatar person={author} className="mt-0.5 size-9" />
+                    {/* `whitespace-pre-line` keeps the author's line breaks — see <Caption/>
+                      * in components/Feed.jsx for why every body surface carries it. */}
+                    <p className="whitespace-pre-line text-sm leading-snug">
+                        <span className="font-semibold">{author.handle}</span> {post.body}
+                    </p>
+                </div>
+            )}
+            {post.document && (
+                <Attachment {...post.document} href={appPath(post.document.url)} />
+            )}
         </div>
     ) : null
 
@@ -470,17 +481,27 @@ export const PostCommentsThread = ({ post }) => {
     const now = useNow()
     const { author } = post
 
-    const caption = post.body ? (
-        <div className="flex items-start gap-3 px-4 pb-3 pt-1">
-            <Avatar person={author} className="mt-0.5 size-9" />
-            <div className="flex min-w-0 flex-col gap-1">
-                <p className="text-sm leading-snug">
-                    <span className="font-semibold">{author.handle}</span> {post.body}
-                </p>
-                <span className="text-xs text-muted-foreground">
-                    {timeAgoMacro(now, new Date(post.createdAt).getTime())}
-                </span>
+    const caption = post.body || post.document ? (
+        <div className="flex flex-col gap-3 px-4 pb-3 pt-1">
+            <div className="flex items-start gap-3">
+                <Avatar person={author} className="mt-0.5 size-9" />
+                <div className="flex min-w-0 flex-col gap-1">
+                    {/* `whitespace-pre-line` keeps the author's line breaks — see <Caption/>
+                      * in components/Feed.jsx for why every body surface carries it. */}
+                    {post.body && (
+                        <p className="whitespace-pre-line text-sm leading-snug">
+                            <span className="font-semibold">{author.handle}</span> {post.body}
+                        </p>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                        {timeAgoMacro(now, new Date(post.createdAt).getTime())}
+                    </span>
+                </div>
             </div>
+            {/* Same as the desktop rail's: an opened post is where its file lives. */}
+            {post.document && (
+                <Attachment {...post.document} href={appPath(post.document.url)} />
+            )}
         </div>
     ) : null
 

@@ -1,12 +1,23 @@
 "use client"
 
-import { IMAGE_MAX_DIMENSION, IMAGE_MIME_TYPES } from "@/lib/constants"
+import {
+    DOCUMENT_MIME_TYPES,
+    IMAGE_MAX_DIMENSION,
+    IMAGE_MIME_TYPES,
+    MAX_DOCUMENT_BYTES,
+    MAX_IMAGE_BYTES,
+} from "@/lib/constants"
 
 /* Turning a file a person picked into something worth uploading.
  *
  * Its own module rather than `lib/utils.js` for the same reason `lib/name.js` and
  * `lib/native.js` are: this is browser-API work — canvas, `createImageBitmap`, object URLs —
  * not the pure formatting helpers that file is for.
+ *
+ * **Two kinds of file take opposite paths, and the difference is the point.** A photo is
+ * decoded, scaled and re-encoded (see below); an attachment is passed through byte for byte,
+ * because a PDF that has been "processed" is a corrupted PDF. `prepareFile` is the seam: it
+ * decides which a file is and stamps the `kind` the post's media row will carry.
  *
  * **The re-encode is not an optimization, it is the point.** A phone camera hands over a
  * 12-megapixel, 5MB HEIC or JPEG; the widest column the app ever renders one in is a few
@@ -62,7 +73,7 @@ const dimensionsOf = (source) => ({
     height: source.height || source.naturalHeight,
 })
 
-/* Prepares one picked file for upload.
+/* Prepares one picked photo.
  *
  * Returns `{ blob, width, height, mimeType, fileName, sizeBytes }` — everything both the
  * upload and the `PostMedia` row need, so no caller re-measures. Throws a plain `Error` with
@@ -72,11 +83,7 @@ const dimensionsOf = (source) => ({
  * `width`/`height` are the *encoded* dimensions, not the original's. They are what the feed
  * card reserves its aspect-ratio box from, so they have to describe the file that will
  * actually be fetched. */
-export const prepareImage = async (file) => {
-    if (!IMAGE_MIME_TYPES.includes(file.type)) {
-        throw new Error(`${file.name || "That file"} isn't an image we can post.`)
-    }
-
+const prepareImage = async (file) => {
     const source = await decode(file).catch(() => null)
     if (!source) throw new Error(`Couldn't read ${file.name || "that image"}.`)
 
@@ -127,4 +134,79 @@ export const prepareImage = async (file) => {
         fileName: file.name || null,
         sizeBytes: blob.size,
     }
+}
+
+/* Prepares one picked attachment — which is to say, does nothing to it.
+ *
+ * **The bytes must reach storage untouched.** There is no re-encode, no metadata strip, no
+ * downscale: a PDF or a spreadsheet that has been through a canvas is a broken PDF or
+ * spreadsheet. That also means an attachment carries whatever its author left in it, so the
+ * allow-list is short by design (see `DOCUMENT_MIME_TYPES`).
+ *
+ * `fileName` is the one field that matters more here than for a photo: it is what the
+ * document card prints, so "Coffee Hour Sign-Up.pdf" has to survive the trip. The object's
+ * own key is still a UUID — the name is data on the row, never part of the path. */
+const prepareDocument = (file) => ({
+    blob: file,
+    mimeType: file.type,
+    fileName: file.name || null,
+    sizeBytes: file.size,
+})
+
+/* The ceiling on anything straight off the device, whatever it turns out to be — derived from
+ * the two product limits rather than tuned separately, because it *is* the higher of them.
+ *
+ * It exists so that a file too big to be any use is refused before it is decoded, not after.
+ * Decoding is the expensive step: a 200MB image becomes a 200-million-pixel bitmap in memory
+ * — four bytes a pixel — and on a phone that is the WebView being killed rather than an error
+ * anyone can act on. */
+const MAX_PICKED_BYTES = Math.max(MAX_IMAGE_BYTES, MAX_DOCUMENT_BYTES)
+
+const megabytes = (bytes) => Math.round(bytes / 1024 / 1024)
+
+/* The seam between the two: decides what a picked file *is*, prepares it accordingly, and
+ * stamps the `kind` its `PostMedia` row will carry.
+ *
+ * **Two size checks, and they are not the same check twice.**
+ *
+ *  - Before anything happens, against the file as picked, so nothing enormous is decoded.
+ *  - After preparing, against what will *actually be sent*, per kind. For an attachment that
+ *    is the same bytes and so the same number. For a photo it is the re-encoded WebP, which
+ *    is the only number worth judging: a 20MB original scaled to `IMAGE_MAX_DIMENSION` lands
+ *    at a few hundred kilobytes, and refusing it for what it weighed before processing would
+ *    be refusing a photo that is about to be small. The 8MB photo ceiling therefore bites on
+ *    the one kind nothing shrinks — an animated GIF, which is passed through whole.
+ *
+ * Both throw an `Error` naming the file, which the uploads store parks in `error.upload` and
+ * `useErrorListener` turns into a toast. That is why the message has to read as a sentence to
+ * a person: it is the copy, not a log line.
+ *
+ * The bucket enforces `MAX_PICKED_BYTES` as well, since a bucket-wide limit cannot tell a
+ * photo from a PDF — so these are what actually hold photos to 8MB. */
+export const prepareFile = async (file) => {
+    const isImage = IMAGE_MIME_TYPES.includes(file.type)
+    const isDocument = DOCUMENT_MIME_TYPES.includes(file.type)
+
+    if (!isImage && !isDocument) {
+        throw new Error(`${file.name || "That file"} isn't a kind of file we can post.`)
+    }
+
+    if (file.size > MAX_PICKED_BYTES) {
+        throw new Error(
+            `${file.name || "That file"} is ${megabytes(file.size)}MB — the limit is ${megabytes(MAX_PICKED_BYTES)}MB.`,
+        )
+    }
+
+    const prepared = isImage ? await prepareImage(file) : prepareDocument(file)
+    const limit = isImage ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES
+
+    if (prepared.blob.size > limit) {
+        throw new Error(
+            `${prepared.fileName ?? "That file"} is too large to post — ${
+                isImage ? "photos" : "files"
+            } are limited to ${megabytes(limit)}MB.`,
+        )
+    }
+
+    return { ...prepared, kind: isImage ? "IMAGE" : "DOCUMENT" }
 }

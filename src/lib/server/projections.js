@@ -1,5 +1,7 @@
 import "server-only"
 
+import { documentType, formatBytes } from "@/lib/utils"
+
 /* Database rows → wire shapes.
  *
  * This file is the boundary between the schema and the API contract, and keeping it
@@ -12,28 +14,6 @@ import "server-only"
  * `likes`/`comments`; media is normalized rows in the database but the feed card wants
  * `image` + `width`/`height`, or `images`, or `document`. Renaming a column is a change
  * here and nowhere else. */
-
-/* Bytes → the short string the document card renders. Formatted at the edge rather than
- * stored, so the underlying number stays sortable and re-formattable. */
-const formatBytes = (bytes) => {
-    if (!Number.isFinite(bytes) || bytes < 0) return null
-    if (bytes < 1024) return `${bytes} B`
-    const units = ["KB", "MB", "GB"]
-    let value = bytes / 1024
-    let unit = 0
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024
-        unit += 1
-    }
-    return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
-}
-
-/* A document's short type label ("pdf", "docx"), from the filename then the MIME type. */
-const documentType = (media) => {
-    const fromName = media.fileName?.split(".").pop()?.toLowerCase()
-    if (fromName && fromName !== media.fileName?.toLowerCase()) return fromName
-    return media.mimeType?.split("/").pop()?.toLowerCase() ?? "file"
-}
 
 /* The author block every post and comment carries.
  *

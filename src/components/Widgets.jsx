@@ -87,6 +87,71 @@ export const Close = ({ className, children, ...props }) => (
     </Button>
 )
 
+/* A post's attachment, as a row: icon, name, type and size, and one trailing affordance.
+ *
+ * **One component for both ends of the file's life.** The feed card and the post's detail
+ * surfaces render it as a link that downloads; the composer renders the file just picked, with
+ * an x to take it off again. Those are the same row with a different last child, and writing
+ * them separately is how the two drift into disagreeing about what a 2.4MB PDF looks like.
+ *
+ * Pass `href` for the download form and `onRemove` for the editable one — `href` wins if both
+ * are given, since a row that can be opened is the one a reader is looking at.
+ *
+ * `name`/`type`/`size` are exactly the shape `projectMedia` ships as `post.document`, so the
+ * card spreads it straight in. */
+export const Attachment = ({ name, type, size, href, onRemove, className }) => {
+    const body = (
+        <>
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                <Icon>description</Icon>
+            </span>
+            <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-sm font-medium">{name}</span>
+                <span className="text-xs uppercase text-muted-foreground">
+                    {[type, size].filter(Boolean).join(" · ")}
+                </span>
+            </span>
+        </>
+    )
+
+    const shell = "flex items-center gap-3 rounded-lg border bg-muted/40 p-3"
+
+    if (href) {
+        return (
+            <a
+                href={href}
+                /* `download` asks the browser to save it under the name on the row rather than
+                 * the object's UUID key; a cross-origin URL — which storage always is — makes
+                 * that a hint the browser may decline, in which case `target` is what keeps a
+                 * PDF opening in its own tab instead of navigating the app away from itself. */
+                download={name}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(shell, "transition-colors hover:bg-muted", className)}
+            >
+                {body}
+                <Icon className="ml-auto text-muted-foreground">download</Icon>
+            </a>
+        )
+    }
+
+    return (
+        <div className={cn(shell, className)}>
+            {body}
+            {onRemove && (
+                <button
+                    type="button"
+                    onClick={onRemove}
+                    aria-label={`Remove ${name}`}
+                    className="ml-auto cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+                >
+                    <Icon>close</Icon>
+                </button>
+            )}
+        </div>
+    )
+}
+
 /* "Are you sure?" for a destructive action reached by a tap or a click.
  *
  * **A press-and-hold does not ask.** The one path that skips this is a held comment row

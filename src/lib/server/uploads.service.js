@@ -1,6 +1,13 @@
 import "server-only"
 
-import { IMAGE_MIME_TYPES, UPLOAD_PURPOSES } from "@/lib/constants"
+import {
+    DOCUMENT_MIME_TYPES,
+    IMAGE_MIME_TYPES,
+    MAX_DOCUMENT_BYTES,
+    MAX_IMAGE_BYTES,
+    MIME_EXTENSIONS,
+    UPLOAD_PURPOSES,
+} from "@/lib/constants"
 import { requireMembership } from "@/lib/server/auth"
 import { invalid } from "@/lib/server/errors"
 import { signUpload } from "@/lib/server/storage"
@@ -27,7 +34,11 @@ import { signUpload } from "@/lib/server/storage"
 const PURPOSES = {
     [UPLOAD_PURPOSES.POST_MEDIA]: {
         prefix: "posts",
-        mimeTypes: IMAGE_MIME_TYPES,
+        /* A post carries photos *and* one attachment, and both are the same write behind the
+         * same permission — so they share a purpose rather than splitting into two that would
+         * differ only in this list. Which kind a given file is, `createPost` reads off the
+         * media row's `kind`; this only decides what may be uploaded at all. */
+        mimeTypes: [...IMAGE_MIME_TYPES, ...DOCUMENT_MIME_TYPES],
         authorize: (viewer, { orgId }) => {
             if (!orgId) throw invalid("A group is required.", { orgId: "Required" })
             requireMembership(viewer, orgId, { role: "ADMIN" })
@@ -36,6 +47,8 @@ const PURPOSES = {
     },
     [UPLOAD_PURPOSES.AVATAR]: {
         prefix: "avatars",
+        /* Images only, deliberately — this is the one purpose a signed-in member can reach
+         * without administering anything, so it stays the narrower of the two. */
         mimeTypes: IMAGE_MIME_TYPES,
         /* Nothing beyond a session: a person may always replace their own picture, and
          * `requireViewer` has already run. */
@@ -48,20 +61,45 @@ const PURPOSES = {
  * Derived from the type rather than taken from the client's filename, which is an
  * uploader-chosen string and therefore a path-traversal vector. It is only cosmetic — the
  * object is served with the content type Supabase records, not by its extension — but a URL
- * ending in `.webp` is what makes a bucket browsable by a human, and `image/jpeg` → `jpg`
- * rather than `jpeg` because that is what the rest of the world writes. */
-const extensionFor = (mimeType) => {
-    if (mimeType === "image/jpeg") return "jpg"
-    return mimeType.split("/").pop().toLowerCase()
-}
+ * ending in `.webp` or `.pdf` is what makes a bucket browsable by a human.
+ *
+ * `MIME_EXTENSIONS` covers the types whose tail is not the answer (`image/jpeg` → `jpg`, and
+ * every `application/vnd.openxmlformats-…` monster); everything else splits cleanly. */
+const extensionFor = (mimeType) =>
+    MIME_EXTENSIONS[mimeType] ?? mimeType.split("/").pop().toLowerCase()
 
-export const createUpload = async (viewer, { purpose, orgId = null, mimeType }) => {
+/* The ceiling for a mime type. A photo and an attachment are the same write behind the same
+ * permission but not the same size — nothing should be able to put a 25MB photo in the bucket
+ * just because a 25MB PDF is legitimate. */
+const limitFor = (mimeType) =>
+    IMAGE_MIME_TYPES.includes(mimeType) ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES
+
+export const createUpload = async (viewer, { purpose, orgId = null, mimeType, sizeBytes }) => {
     const spec = PURPOSES[purpose]
     if (!spec) throw invalid("Unknown upload purpose.", { purpose: "Unsupported" })
 
     const type = String(mimeType ?? "").toLowerCase()
     if (!spec.mimeTypes.includes(type)) {
         throw invalid("That file type isn't supported.", { mimeType: "Unsupported" })
+    }
+
+    /* **The size is declared, not measured, and the endpoint is honest about that.** The bytes
+     * never come through here (see `lib/server/storage.js`), so this cannot weigh the file —
+     * it can only refuse to hand out a grant for one that says it is too big. That is worth
+     * doing: it puts the per-kind limit in the API's contract rather than only in the browser,
+     * and it is what a second client — the native app, a script — meets.
+     *
+     * What actually stops a *lying* client is the bucket, and a bucket-wide limit cannot tell
+     * a photo from a PDF: it is set to the larger of the two, so a crafted request could still
+     * store an oversized image. Closing that would mean a second bucket per kind, which is the
+     * change to make if it ever matters. */
+    const size = Number(sizeBytes)
+    const limit = limitFor(type)
+    if (Number.isFinite(size) && size > limit) {
+        throw invalid(
+            `That file is too large — the limit is ${Math.round(limit / 1024 / 1024)}MB.`,
+            { sizeBytes: "Too large" },
+        )
     }
 
     const ownerId = spec.authorize(viewer, { orgId })

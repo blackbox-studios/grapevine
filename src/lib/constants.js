@@ -138,11 +138,55 @@ export const IMAGE_MIME_TYPES = [
     "image/heif",
 ]
 
-/* The ceiling on a single upload, checked against the file the browser is about to send —
+/* What a post may carry as an *attachment* — the sign-up sheet, the schedule, the minutes.
+ *
+ * A short allow-list rather than "anything", because an upload here becomes a public URL that
+ * anyone holding it can fetch (see the header of `lib/server/storage.js`): the narrower the
+ * set of things that can be put there, the smaller that surface. These are what a parish
+ * actually posts. Adding a type means adding it to the bucket too — `npm run storage:setup`
+ * carries its own copy, since it runs outside Next and cannot import this file. */
+export const DOCUMENT_MIME_TYPES = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+]
+
+/* The extension an object's key gets, per mime type.
+ *
+ * Derived from the type rather than taken from the uploader's filename, which is a
+ * path-traversal vector — but `application/vnd.openxmlformats-…-document` has no useful tail
+ * to split off, so the awkward ones are written down. Cosmetic either way: an object is
+ * served with the content type storage recorded, not by its extension. */
+export const MIME_EXTENSIONS = {
+    "image/jpeg": "jpg",
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/plain": "txt",
+    "text/csv": "csv",
+}
+
+/* The ceiling on a single photo, checked against the file the browser is about to send —
  * i.e. after the re-encode, not before. A 12MP phone photo lands well under this once it has
  * been scaled to IMAGE_MAX_DIMENSION and re-encoded, so hitting it means something is wrong
  * rather than merely large. */
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+/* The ceiling on an attachment. Higher than a photo's because nothing processes it — a
+ * document is uploaded exactly as it was picked, and a scanned sign-up sheet is genuinely
+ * several megabytes. The bucket enforces the same number, so raising it here alone does
+ * nothing; re-run `npm run storage:setup`. */
+export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 
 /* The longest edge a photo is scaled down to before upload. Twice the widest column the app
  * ever renders one in, so it still has a retina's worth of detail, and small enough that a
@@ -152,6 +196,12 @@ export const IMAGE_MAX_DIMENSION = 2048
 /* How many photos one post may carry. The carousel is the only thing that renders more than
  * one, and past this a reader is scrolling rather than looking. */
 export const MAX_POST_IMAGES = 10
+
+/* **One attachment per post, and this is a contract rather than a preference.**
+ * `projectMedia` reads a post's document with `find`, so a second one would be written to the
+ * database and then never rendered — silently lost. If a post ever needs several, that
+ * projection becomes a list first. */
+export const MAX_POST_DOCUMENTS = 1
 
 /* How many digits the emailed sign-in code has.
  *

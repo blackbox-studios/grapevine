@@ -217,6 +217,66 @@ export const ROW_SPRING = { type: "spring", stiffness: 520, damping: 42, mass: 0
  * a screenful rather than a line. Reach for `ROW_SPRING` for anything smaller. */
 export const CARD_SPRING = { type: "spring", stiffness: 260, damping: 34, mass: 1 }
 
+/* Where a feed caption should stop, and whether there is anything past it.
+ *
+ * Two things can end the preview and **the earlier one wins**: the character budget, or the
+ * author's first line break. The break matters because captions render with
+ * `whitespace-pre-line` now — a body written as a list would otherwise spend the whole
+ * preview on its first item and leave the "more" affordance stranded on a line of its own,
+ * below a paragraph that had already visibly ended. Cutting at the break puts "more"
+ * immediately after the last word of the first line, which is where a reader looking for it
+ * would look.
+ *
+ * A break is already a clean boundary, so only the budget cut trims back to a word — doing it
+ * on both would eat the last word of the first line for no reason.
+ *
+ * `\r?\n` rather than `\n`: a stray carriage return would otherwise survive the slice and
+ * render as a blank line at the end of the preview.
+ *
+ * Returns `{ preview, truncated }`; `truncated` is what decides whether "more" is offered at
+ * all, and it is not derivable from length alone — a short body with a break in it is
+ * truncated, and a long one without is too. */
+export function captionPreview(text, limit) {
+    const body = String(text ?? "")
+    const firstBreak = body.search(/\r?\n/)
+
+    if (firstBreak !== -1 && firstBreak <= limit) {
+        return { preview: body.slice(0, firstBreak), truncated: true }
+    }
+
+    if (body.length <= limit) return { preview: body, truncated: false }
+
+    return { preview: body.slice(0, limit).replace(/\s+\S*$/, ""), truncated: true }
+}
+
+/* Bytes → the short string an attachment renders. Formatted at the edge rather than stored,
+ * so the underlying number stays sortable and re-formattable.
+ *
+ * Shared with the server: `projectMedia` formats a post's document with this, and the
+ * composer's optimistic row formats the file it just uploaded with the same function — so the
+ * card cannot say "2.4 MB" before the server replies and "2.5 MB" after. */
+export function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return null
+    if (bytes < 1024) return `${bytes} B`
+
+    const units = ["KB", "MB", "GB"]
+    let value = bytes / 1024
+    let unit = 0
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024
+        unit += 1
+    }
+    return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
+
+/* An attachment's short type label ("pdf", "docx"), from the filename then the mime type.
+ * Shared with the server for the same reason `formatBytes` is. */
+export function documentType({ fileName, mimeType } = {}) {
+    const fromName = fileName?.split(".").pop()?.toLowerCase()
+    if (fromName && fromName !== fileName?.toLowerCase()) return fromName
+    return mimeType?.split("/").pop()?.toLowerCase() ?? "file"
+}
+
 /* Compact tally for like/comment counts: 182 → "182", 2629 → "2.6K". */
 export function formatCompact(n) {
     return Number(n ?? 0).toLocaleString("en-US", {

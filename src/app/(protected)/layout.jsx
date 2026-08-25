@@ -156,7 +156,7 @@ const ProtectedShell = ({ children }) => {
                     className="flex items-center px-2 pt-8 md:pt-12"
                 >
                     <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
-                        <Logo className="w-7 text-foreground" />
+                        <Logo className="w-8 text-foreground" />
                     </span>
                 </Link>
 

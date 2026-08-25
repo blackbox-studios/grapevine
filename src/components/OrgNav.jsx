@@ -101,10 +101,10 @@ export const OrgSwitcher = () => {
                 <DropdownMenuTrigger
                     disabled={skeleton}
                     aria-label="Switch group"
-                    className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border/70 bg-background/70 supports-backdrop-filter:bg-background/50 py-1.5 pl-1.5 pr-2 backdrop-blur-md transition-colors hover:bg-accent disabled:opacity-50"
+                    className="flex cursor-pointer items-center gap-1.5 rounded-full bg-background py-1.5 pl-1.5 pr-2 transition-colors hover:bg-accent disabled:opacity-50"
                 >
                     <OrgAvatar org={current} className="size-9 text-[10px]" />
-                    <Icon size="sm" className="text-muted-foreground">expand_more</Icon>
+                    <Icon size="md" className="text-muted-foreground">expand_more</Icon>
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="end" sideOffset={8} className="w-72">

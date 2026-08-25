@@ -16,7 +16,7 @@ This document describes the frontend architecture and the patterns ALL agents mu
 | Forms | `react-hook-form` + `zod` (via `@hookform/resolvers`) |
 | Styling | **Tailwind CSS v4** (via `@tailwindcss/postcss`) |
 | Animation | `motion` (Framer Motion) |
-| Theming | **`next-themes`** (class strategy, `storageKey` `synaxis-ui-theme`) |
+| Theming | **`next-themes`** (class strategy, `storageKey` `grapevine-ui-theme`) |
 | Auth | **Supabase Auth** (emailed one-time code, browser client) — gates in `components/AuthGate.jsx`, role gating in `components/Auth.jsx` |
 | Native shell | **Capacitor 8** (iOS + Android) over a static export — see `native-architecture.md` |
 | Component Library | **shadcn/ui** (radix-ui primitives) — `components.json` at the repo root |
@@ -885,7 +885,7 @@ Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so
 
 **That window shows nothing — don't put a spinner back in it.** One used to live there, with a one-second minimum on screen so it couldn't flicker, which meant every cold start paid a full second whether or not there was anything to wait for. A blank frame or two is the honest picture of a fast session check; a spinner with a floor makes the app slower than it is on every launch. If a future boot genuinely takes long enough to need covering, fix the wait, not the picture of it.
 
-**This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `synaxis-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
+**This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `grapevine-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
 
 Full detail, and how to attach a real session, is in `auth-architecture.md`.
 
@@ -1035,7 +1035,7 @@ import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 - **`@utility` declarations** in `globals.css` (e.g. `panel`, `bg-dotted`) are off-limits unless the user explicitly asks.
 - **No inline color literals** in `className`. Forbidden: `bg-[#ABCDEF]`, `text-[oklch(...)]`. Use theme tokens (`bg-primary`, `text-muted-foreground`, `border-border`, `text-success`, `text-warning`, `text-destructive`).
 - **No `style={{...}}` prop** unless Tailwind genuinely can't express it. Always prefer string className.
-- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `synaxis-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
+- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `grapevine-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
 
 ### Layout tokens
 
@@ -1449,7 +1449,7 @@ There is no `main.jsx`. Three files split the responsibilities the old `main.jsx
 
 ```jsx
 // app/layout.jsx (essence)
-export const metadata = { title: "Synaxis", icons: { icon: "/favicon.svg" } }
+export const metadata = { title: "Grapevine", icons: { icon: "/favicon.svg" } }
 
 export default function RootLayout({ children }) {
     return (
@@ -1464,7 +1464,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="grapevine-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

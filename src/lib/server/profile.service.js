@@ -262,7 +262,7 @@ export const updateAvatar = async (viewer, avatar) => {
             ownerId: viewer.id,
         })
     ) {
-        throw invalid("A profile picture must be uploaded through Synaxis.", {
+        throw invalid("A profile picture must be uploaded through Grapevine.", {
             avatar: "Unrecognized file",
         })
     }

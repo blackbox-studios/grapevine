@@ -1,6 +1,6 @@
 # Native Architecture (Capacitor)
 
-> **Purpose.** How Synaxis ships as an iOS/Android app through Capacitor, and the
+> **Purpose.** How Grapevine ships as an iOS/Android app through Capacitor, and the
 > constraints that shape the web code because of it. Read this before touching
 > `next.config.mjs`, `src/app/layout.jsx`, the auth gate, or anything under `android/`
 > and `ios/`.
@@ -360,7 +360,7 @@ the inset.
 ## Gotchas worth knowing
 
 - **The stores are in-memory.** Killing the app loses everything except the persisted
-  auth key (`synaxis-user` in `localStorage`). A native app makes this much more
+  auth key (`grapevine-user` in `localStorage`). A native app makes this much more
   visible than a browser tab did.
 - **`out/` is a build artifact**, as are `android/app/src/main/assets/public` and
   `ios/App/App/public`. Never edit them; they are overwritten by `cap sync`. `out`,

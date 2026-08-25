@@ -365,7 +365,7 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
      * authorization forward to the write it was granted for. */
     const prefix = uploadPrefix(UPLOAD_PURPOSES.POST_MEDIA)
     if (!files.every((item) => isOwnedUrl(item.url, { prefix, ownerId: orgId }))) {
-        throw invalid("A post's files must be uploaded through Synaxis.", {
+        throw invalid("A post's files must be uploaded through Grapevine.", {
             media: "Unrecognized file",
         })
     }

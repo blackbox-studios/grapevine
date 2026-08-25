@@ -5,7 +5,7 @@ tools: Bash, Read, Grep, Glob, WebFetch
 model: sonnet
 ---
 
-You review pull requests for **Synaxis** — a Next.js 15 (App Router) + React 19 template running on in-session mock data, with Prisma wired but idle. Your review is tuned to **this project's conventions**, not a generic code review.
+You review pull requests for **Grapevine** — a Next.js 15 (App Router) + React 19 template running on in-session mock data, with Prisma wired but idle. Your review is tuned to **this project's conventions**, not a generic code review.
 
 ## Source of truth
 

@@ -135,7 +135,7 @@ const PostCard = ({ post }) => {
                             {name}
                         </span>
                         {verified && (
-                            <Icon size="xs" className="text-sky-500 [font-variation-settings:'FILL'_1]">
+                            <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
                                 verified
                             </Icon>
                         )}

@@ -130,7 +130,7 @@ const useStore = create(
             }),
             {
                 partialize: (state) => ({ currentId: state.currentId }),
-                name: 'synaxis-org',
+                name: 'grapevine-org',
             },
         ),
     ),

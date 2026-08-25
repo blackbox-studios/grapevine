@@ -1,6 +1,6 @@
 # Auth Architecture
 
-> **Purpose.** How authentication and authorization work in Synaxis. Read this before
+> **Purpose.** How authentication and authorization work in Grapevine. Read this before
 > touching `src/components/AuthGate.jsx`, `src/components/Auth.jsx`, `src/lib/store/auth/`,
 > `src/lib/supabase.js`, `src/lib/server/auth.js`, or the login page.
 >
@@ -276,8 +276,8 @@ completed.
 
 | | Owned by | Persisted by | Answers |
 |---|---|---|---|
-| **Session** | supabase-js | `localStorage` (`synaxis-auth`), auto-refreshed | "who is this, cryptographically" |
-| **Viewer** | `GET /api/me` | the auth store (`synaxis-user`), as a cache | "what does this app know about them" |
+| **Session** | supabase-js | `localStorage` (`grapevine-auth`), auto-refreshed | "who is this, cryptographically" |
+| **Viewer** | `GET /api/me` | the auth store (`grapevine-user`), as a cache | "what does this app know about them" |
 
 Keeping them apart is not ceremony. A verified token with **no Profile row** is a real
 state — an interrupted invite leaves one — and it is *not* a valid session for this app.
@@ -384,7 +384,7 @@ unprotected, which is why the file also installs an event trigger as a backstop.
 
 ## Staying signed in
 
-**Synaxis signs people in once.** Not "for a long time" — once, on that device, until they
+**Grapevine signs people in once.** Not "for a long time" — once, on that device, until they
 sign out or an admin removes them. This is the same expectation Facebook and Instagram set,
 and it is the right one here for the same reason: a parish feed is something you glance at
 between other things, and a login screen in front of it is a wall in front of a habit. An

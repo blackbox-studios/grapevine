@@ -238,7 +238,7 @@ const useKeyboardDismiss = () => {
  * **The web is not left alone, and it used to be.** The claim that "a browser shrinks its own
  * viewport" holds for Android Chrome and for a desktop browser, and is false on **iOS
  * Safari**: it shrinks only the *visual* viewport and leaves the layout viewport — and
- * therefore every `dvh` — at full height. So on mobile web at synaxis.chat the keyboard
+ * therefore every `dvh` — at full height. So on mobile web at grapevine.chat the keyboard
  * covered anything pinned to the bottom, silently, while the same screen was correct in the
  * native app. `useVisualViewportInset` below fills that in. */
 /* How long a keyboard has to stay gone before the layout believes it.

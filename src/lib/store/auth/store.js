@@ -167,7 +167,7 @@ const isRateLimited = (error) =>
 
 /* Why a code could not be sent.
  *
- * These used to collapse into one "Synaxis is invite-only — check with your parish
+ * These used to collapse into one "Grapevine is invite-only — check with your parish
  * administrator" message, which is actively misleading for every cause except the one it
  * names: a rate-limited admin was told their own address was not recognised, and went
  * looking for a problem that did not exist.
@@ -188,7 +188,7 @@ const requestFailureMessage = (error) => {
     /* `shouldCreateUser: false` refusing an address with no account — the invite-only gate
      * doing its job. */
     if (code === "otp_disabled" || code === "signup_disabled" || status === 422) {
-        return "We could not send a code to that address. Synaxis is invite-only — check with your parish administrator."
+        return "We could not send a code to that address. Grapevine is invite-only — check with your parish administrator."
     }
 
     if (code === "validation_failed") {
@@ -609,13 +609,13 @@ const useStore = create(
             }),
             {
                 /* Only the cached view of "there is a session" survives a reload. The token
-                 * is supabase-js's to persist (under its own `synaxis-auth` key), and
+                 * is supabase-js's to persist (under its own `grapevine-auth` key), and
                  * duplicating it here would create a second copy to go stale. */
                 partialize: (state) => ({
                     loggedIn: state.loggedIn,
                     user: state.user,
                 }),
-                name: 'synaxis-user',
+                name: 'grapevine-user',
             },
         ),
     ),

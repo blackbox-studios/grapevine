@@ -77,7 +77,7 @@ export const AvatarPicker = ({ person, className, badgeClassName }) => {
                 onClick={() => inputRef.current?.click()}
                 aria-label="Change your profile picture"
                 className={cn(
-                    "absolute -right-2 -top-0.5 grid size-8 cursor-pointer place-items-center rounded-full bg-muted text-foreground ring-3 ring-background transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
+                    "absolute -right-2 -top-0.5 grid size-8 cursor-pointer place-items-center rounded-full bg-background text-foreground ring-3 ring-background transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
                     badgeClassName,
                 )}
             >

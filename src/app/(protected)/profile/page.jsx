@@ -2,6 +2,9 @@
 
 import Link from "next/link"
 
+import PowerIcon from "@/assets/svg/icons/power.svg"
+import SettingsIcon from "@/assets/svg/icons/settings.svg"
+import UsersIcon from "@/assets/svg/icons/users.svg"
 import VerifiedIcon from "@/assets/svg/icons/verified.svg"
 import { AvatarPicker } from "@/components/AvatarPicker"
 import Icon from "@/components/Icon"
@@ -29,23 +32,30 @@ import { cn, roleLabel } from "@/lib/utils"
  * away. It is the same rule the server applies to an author's check — `Membership.role ==
  * ADMIN` in the group the content is being read in. */
 
-/* One destination. The circular icon disc, the label, and a chevron — a shape that reads as
- * "this goes somewhere", which a bare text row does not.
+/* One destination. An icon, the label, and a chevron — a shape that reads as "this goes
+ * somewhere", which a bare text row does not.
  *
  * `onClick` rather than `href` is what lets logout share it: signing out is not a place, but
  * it belongs in this list because it is one of the things a person comes here to do, and a
  * button that looked different from its neighbours would only be drawing attention to an
  * implementation detail. */
-const Row = ({ icon, label, href, onClick, destructive = false }) => {
+const Row = ({ icon: RowIcon, label, href, onClick, destructive = false }) => {
     const body = (
         <>
+            {/* The bare icon — no disc, no ring. The span stays only to carry the row's tone:
+                `icon` is a drawn SVG whose paths are all currentColor, so it inherits red on
+                the destructive row the same way the chevron below does.
+
+                Unlike that chevron, these are not Material Symbols ligature names. They are
+                bespoke files that ship at their natural 24px, and every row uses that one size,
+                which is what keeps the labels aligned without a fixed-width slot. */}
             <span
                 className={cn(
-                    "flex size-10 shrink-0 items-center justify-center rounded-full bg-muted",
+                    "flex shrink-0 items-center justify-center",
                     destructive ? "text-destructive" : "text-foreground",
                 )}
             >
-                <Icon size="md">{icon}</Icon>
+                <RowIcon className="size-6 shrink-0" />
             </span>
             <span
                 className={cn(
@@ -68,7 +78,7 @@ const Row = ({ icon, label, href, onClick, destructive = false }) => {
     )
 
     const className =
-        "flex w-full cursor-pointer items-center gap-3 rounded-full px-4 py-3 text-left transition-colors hover:bg-accent"
+        "flex w-full cursor-pointer items-center gap-5 rounded-full px-4 py-3 text-left transition-colors hover:bg-accent"
 
     if (href) {
         return (
@@ -125,17 +135,17 @@ const ProfilePage = () => {
             </header>
 
             <nav className="flex flex-col gap-1 border-t pt-4">
-                <Row icon="settings" label="General" href={ROUTES.SETTINGS} />
+                <Row icon={SettingsIcon} label="General" href={ROUTES.SETTINGS} />
 
                 {/* Only for an admin of the group currently selected — which is the same gate
                     the roster page applies to itself, and the same one the API enforces. A
                     member switching into a group they administer gets the row without a
                     reload; switching back takes it away. */}
                 {isAdmin && (
-                    <Row icon="group" label="Users" href={ROUTES.SETTINGS_USERS} />
+                    <Row icon={UsersIcon} label="Users" href={ROUTES.SETTINGS_USERS} />
                 )}
 
-                <Row icon="logout" label="Log out" onClick={logout} destructive />
+                <Row icon={PowerIcon} label="Log out" onClick={logout} destructive />
             </nav>
         </div>
     )

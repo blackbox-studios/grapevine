@@ -1,4 +1,4 @@
-package chat.synaxis.app;
+package chat.grapevine.app;
 
 import android.content.pm.ApplicationInfo;
 import android.os.Bundle;

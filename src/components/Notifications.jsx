@@ -4,7 +4,7 @@ import { useCallback, useState } from "react"
 import { AnimatePresence } from "motion/react"
 
 import Ripple from "@/assets/svg/ripple.svg"
-import BellIcon from "@/assets/svg/icons/bell-outline.svg"
+import HeartIcon from "@/assets/svg/icons/heart-outline.svg"
 import Transition from "@/components/Transition"
 import { NOTIFICATION_ROW, NotificationsSkeleton } from "@/components/Skeleton"
 import { Avatar } from "@/components/Widgets"
@@ -198,11 +198,15 @@ export const NotificationsBell = ({ ref, ringClassName = "ring-sidebar", classNa
             )}
             {...props}
         >
-            <BellIcon />
+            {/* `size-6` is required, not decorative: heart-outline.svg carries a viewBox and
+                no width/height (unlike bell-outline.svg, which was 24x25 intrinsically), so
+                without a size class it renders at the SVG default of 300x150 and the dot's
+                corner offsets land nowhere near the glyph. */}
+            <HeartIcon className="size-6" />
             {unread > 0 && (
                 <span
                     className={cn(
-                        "absolute top-0.5 right-0.5 size-2.5 rounded-full bg-sky-500 ring-2",
+                        "absolute top-0.5 right-0.5 size-2.5 rounded-full bg-brand ring-2",
                         ringClassName,
                     )}
                 />

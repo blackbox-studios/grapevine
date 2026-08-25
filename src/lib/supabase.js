@@ -48,7 +48,7 @@ let client = null
 /* Where the session lives on native                                         */
 /* ------------------------------------------------------------------------- */
 
-const STORAGE_KEY = "synaxis-auth"
+const STORAGE_KEY = "grapevine-auth"
 
 /* `localStorage`, defensively. A WebView can refuse it outright (private mode, a storage
  * quota exception), and a throw here would take the whole auth client down with it. */

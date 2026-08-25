@@ -271,7 +271,7 @@ const CommentComposer = ({ viewer, onSubmit, inputRef }) => {
             <button
                 type="submit"
                 disabled={!canPost}
-                className="text-sm font-semibold text-sky-500 transition-opacity hover:text-sky-400 disabled:pointer-events-none disabled:opacity-0"
+                className="text-sm font-semibold text-brand transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-0"
             >
                 Post
             </button>
@@ -386,7 +386,7 @@ export const CommentsPanel = ({ post, dismiss, className }) => {
                 <Avatar person={author} className="size-8" />
                 <span className="text-sm font-semibold">{author.handle}</span>
                 {author.verified && (
-                    <Icon size="xs" className="text-sky-500 [font-variation-settings:'FILL'_1]">
+                    <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
                         verified
                     </Icon>
                 )}

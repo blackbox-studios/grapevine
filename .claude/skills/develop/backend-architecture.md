@@ -39,7 +39,7 @@ export — not stubbed, not empty, simply not a route. Verified: the Node build 
 - **A new handler must be `route.api.js`.** Name it `route.js` and the native build breaks
   the moment someone runs it — which may be days later, in CI, on a release.
 - **The native app cannot use same-origin `/api`.** It must be pointed at a deployed
-  instance by absolute URL: `NEXT_PUBLIC_API_BASE_URL=https://synaxis.chat/api`. `API_BASE`
+  instance by absolute URL: `NEXT_PUBLIC_API_BASE_URL=https://grapevine.chat/api`. `API_BASE`
   in `lib/constants.js` falls back to same-origin `/api` for the web.
 - **Nothing in `src/app/api/**` may be imported by app code.** The client talks HTTP
   through `lib/api.js`, always. Import a service directly from a component and it works in

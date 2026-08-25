@@ -1,6 +1,6 @@
 // Prisma schema. Docs: https://pris.ly/d/prisma-schema
 //
-// The domain behind Synaxis: invite-only, organization-scoped feeds for Orthodox
+// The domain behind Grapevine: invite-only, organization-scoped feeds for Orthodox
 // parishes and dioceses. Supabase owns credentials (auth.users); everything below
 // is application data, owned by this schema and reached only through the services
 // in `src/lib/server/*.service.js`.

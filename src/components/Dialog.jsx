@@ -75,7 +75,7 @@ export const ConnectDialog = () => {
                         <DialogTitle>Connect a service</DialogTitle>
                         <DialogDescription asChild>
                             <div>
-                                Paste your API key so Synaxis can sync your
+                                Paste your API key so Grapevine can sync your
                                 data. You can revoke it any time from the
                                 connected service.&nbsp;&nbsp;
                                 <CollapsibleTrigger asChild>

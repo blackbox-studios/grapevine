@@ -4,7 +4,7 @@ import Providers from "@/app/providers"
 import App from "@/app/App"
 
 export const metadata = {
-    title: "Synaxis",
+    title: "Grapevine",
     icons: { icon: "/favicon.svg" },
 }
 
@@ -37,13 +37,13 @@ export const viewport = {
  * It lives in <head> so it runs ahead of the framework chunks, which ship as async
  * scripts and can execute before a <body> script has even been parsed.
  *
- * The `__synaxisBoot` latch makes it strictly once-per-document. Anything rendered from
+ * The `__grapevineBoot` latch makes it strictly once-per-document. Anything rendered from
  * the tree also travels in the RSC payload, so React re-inserts this script during
  * hydration — and an inserted <script> executes. Without the latch that second run could
  * land after a gate had already redirected and yank the URL back to the root. */
 const ROOT = `${(process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/$/, "")}/`
 
-const NATIVE_BOOT = `(function(){try{if(window.__synaxisBoot)return;window.__synaxisBoot=1;
+const NATIVE_BOOT = `(function(){try{if(window.__grapevineBoot)return;window.__grapevineBoot=1;
 var c=window.Capacitor;
 if(!((c&&c.isNativePlatform&&c.isNativePlatform())||location.protocol==='capacitor:'))return;
 if(location.pathname!==${JSON.stringify(ROOT)})history.replaceState(null,'',${JSON.stringify(ROOT)});

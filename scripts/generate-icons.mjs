@@ -8,40 +8,43 @@
  * Then `npm run sync` to push the results into the native projects. The outputs are
  * checked in, so a machine without the toolchain can still build.
  *
- * THE GLOSS
+ * TWO LOOKS, ONE OUTLINE
  *
- * The icon is the same blown-glass mark the login screen animates, in the brand green —
- * not a flat silhouette. Geometry and palettes come from `src/lib/mark.js`, shared with
- * `<GlossyMark/>` so the icon and the on-screen mark cannot drift.
+ * The **icon** is a flat green mark on a dark gradient field — no lighting model.
+ * The **splash** is the blown-glass mark the login screen animates, because it gets a whole
+ * screen where specular highlights read as material rather than as noise.
  *
- * The *rendering* is necessarily a second implementation: the component paints to a
- * `<canvas>` per frame and Node has no canvas, so this builds the same lighting model in
- * SVG — a linear body ramp, a radial specular bloom per lobe, a blurred rim light and
- * counter-edge, and two hard glints — and lets sharp rasterize it through librsvg. Vector
- * in, so every size is resampled from the outline rather than from a bitmap. If you change
- * the look in one, change it in the other; `lib/mark.js` is what keeps the inputs honest.
+ * Both take their outline from `src/lib/mark.js`, shared with `<GlossyMark/>` so the icon
+ * and the on-screen mark cannot drift. The gloss *rendering* is necessarily a second
+ * implementation: the component paints to a `<canvas>` per frame and Node has no canvas, so
+ * `markSvg` rebuilds the same lighting model in SVG — a linear body ramp, a radial specular
+ * bloom per lobe, a blurred rim light and counter-edge, and two hard glints — and lets sharp
+ * rasterize it through librsvg. Vector in, so every size is resampled from the outline
+ * rather than from a bitmap. If you change the look in one, change it in the other;
+ * `lib/mark.js` is what keeps the inputs honest.
  *
  * THE PROPORTIONS
  *
- * Every scale and offset below was measured off the icons this replaced, so the new mark
- * lands where the old one did rather than wherever looked right:
- *
- *   iOS 1024 / legacy launcher   mark 0.60 of canvas width, centered
- *   adaptive foreground          mark 0.398 of canvas width, centered
+ *   iOS 1024 / legacy launcher   mark 0.72 of canvas width, centered
+ *   adaptive foreground          mark 0.48 of canvas width, centered
  *   splash                       mark 0.159 of canvas width, center at y = 0.40
  *
- * The splash offset is the "tilted up" placement — the mark sits above the optical centre
- * so it reads correctly with the status bar. Note these are fractions of the *mark's
- * bounding box*, which is why the gloss is drawn into a padded viewBox and the padding is
- * divided back out before compositing: the rim light and glints bleed past the outline,
- * and sizing to the padded bitmap would render the mark ~12% small.
+ * The splash values were measured off the icons this replaced, offset included — the mark
+ * sits above the optical centre so it reads correctly with the status bar. The icon values
+ * are not: they were raised to 0.72 to fill the field the way Messages and Spotify do.
+ *
+ * These are fractions of the *mark's bounding box*, which is why the gloss is drawn into a
+ * padded viewBox and the padding is divided back out before compositing: the rim light and
+ * glints bleed past the outline, and sizing to the padded bitmap would render the mark ~12%
+ * small.
  *
  * WHY THE ADAPTIVE FOREGROUND IS SMALLER
  *
  * Android composites the foreground over the background and lets the launcher mask the
  * result to whatever shape the OEM picked. Only the central 72dp of the 108dp canvas
  * survives every mask; the outer 18dp is reserved for the parallax the launcher applies on
- * scroll. 0.398 keeps the mark inside that safe circle — and it is what the old icon used.
+ * scroll. 0.48 is 0.72 x (72/108) — the same optical size as the others, expressed as a
+ * fraction of a canvas that is 1.5x larger than what shows.
  */
 
 import { Buffer } from "node:buffer"
@@ -56,18 +59,27 @@ import { MARK_LOBES, MARK_PATHS, MARK_SIZE, paletteFor } from "../src/lib/mark.j
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const { width: W, height: H } = MARK_SIZE
 
-/* The launcher icon is a flat white mark on a vertical green gradient — the Messages /
- * WhatsApp shape. The mark itself stays flat: it is rendered at 48px, behind an OEM mask,
- * next to thirty other icons, where specular highlights read as noise rather than as
- * material. The depth comes from the field behind it instead. The splash keeps the gloss,
- * because it gets a whole screen.
+/* The launcher icon is a flat green mark on a dark gradient field — the Spotify
+ * arrangement, inverted from the Messages one it replaced.
  *
- * The stops are the brand green lifted and dropped in oklch (L ±0.07 / −0.10 at constant
- * hue), so #2BBB9C lands almost exactly at the midpoint and the icon still reads as the
- * brand colour rather than as two arbitrary greens. */
-const ICON_GRADIENT = { top: "#47D2B2", bottom: "#009A7E" }
-const ICON_BG = "#2BBB9C"
-const ICON_MARK = "#FFFFFF"
+ * **The gradient belongs to the field, and the mark stays flat.** Putting the ramp on the
+ * mark instead was tried and dropped: its lower stop had to darken to read as a gradient at
+ * all, and darkening green against black is exactly where contrast is scarcest, so the
+ * bottom of the mark started dissolving into the field.
+ *
+ * So the field carries it. `#052B22` is the brand hue at oklch L=0.26 — dark enough to read
+ * as black at a glance, light enough that the ramp down to true black is visible at icon
+ * size. The flat mark holds 6.3:1 against the top of that field and 8.7:1 against the
+ * bottom, so it stays crisp over the whole run.
+ *
+ * No gloss either: the icon renders at 48px, behind an OEM mask, next to thirty other
+ * icons, where specular highlights read as noise rather than as material. The splash keeps
+ * the gloss, because it gets a whole screen. */
+const ICON_MARK = "#2BBB9C"
+const ICON_FIELD = { top: "#052B22", bottom: "#000000" }
+
+/* The adaptive icon's colour-resource fallback: the field's midpoint. See buildAndroid. */
+const ICON_BG = "#031510"
 
 /* The splash follows the system appearance, exactly as the icons this replaced did: white
  * by day, the app's near-black by night. Collapsing the two to one colour is the bug that
@@ -210,21 +222,6 @@ function markSvg(palette) {
 }
 
 /**
- * The mark as flat colour — no gradients, no blooms, no rim light. Used for the launcher
- * icon.
- *
- * Shares `markSvg`'s padded viewBox even though nothing here bleeds into the padding, so
- * that `compose` places both the same way and the flat icon lands at exactly the measured
- * proportions rather than `1 / (1 + BLEED * 2)` of them.
- */
-function flatMarkSvg(fill) {
-    const pad = BLEED * W
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}" width="${W + pad * 2}" height="${H + pad * 2}">
-  <path d="${MARK_PATHS.join(" ")}" fill="${fill}" fill-rule="evenodd"/>
-</svg>`
-}
-
-/**
  * A square of the icon's vertical gradient, edge to edge.
  *
  * No rounded corners on purpose: both platforms apply their own mask — iOS a superellipse,
@@ -233,13 +230,29 @@ function flatMarkSvg(fill) {
  */
 function gradientFieldSvg(size) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
-  <defs>
-    <linearGradient id="field" x1="0" y1="0" x2="0" y2="${size}" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="${ICON_GRADIENT.top}"/>
-      <stop offset="1" stop-color="${ICON_GRADIENT.bottom}"/>
-    </linearGradient>
-  </defs>
+  <defs>${FIELD_GRADIENT_DEF(size)}</defs>
   <rect width="${size}" height="${size}" fill="url(#field)"/>
+</svg>`
+}
+
+/** The field ramp, spanning the full canvas height. */
+const FIELD_GRADIENT_DEF = (size) => `
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="${size}" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${ICON_FIELD.top}"/>
+      <stop offset="1" stop-color="${ICON_FIELD.bottom}"/>
+    </linearGradient>`
+
+/**
+ * The mark alone, flat, on transparency — Android's adaptive foreground layer, which the
+ * launcher composites over the background itself.
+ *
+ * Shares `markSvg`'s padded viewBox so `compose` places it identically; nothing bleeds into
+ * that padding here.
+ */
+function flatMarkSvg(fill) {
+    const pad = BLEED * W
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}" width="${W + pad * 2}" height="${H + pad * 2}">
+  <path d="${MARK_PATHS.join(" ")}" fill="${fill}" fill-rule="evenodd"/>
 </svg>`
 }
 
@@ -258,12 +271,7 @@ function iconSvg(size, markScale) {
     const top = (size - markWidth * (H / W)) / 2
 
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
-  <defs>
-    <linearGradient id="field" x1="0" y1="0" x2="0" y2="${size}" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="${ICON_GRADIENT.top}"/>
-      <stop offset="1" stop-color="${ICON_GRADIENT.bottom}"/>
-    </linearGradient>
-  </defs>
+  <defs>${FIELD_GRADIENT_DEF(size)}</defs>
   <rect width="${size}" height="${size}" fill="url(#field)"/>
   <g transform="translate(${left} ${top}) scale(${scale})">
     <path d="${MARK_PATHS.join(" ")}" fill="${ICON_MARK}" fill-rule="evenodd"/>
@@ -348,7 +356,7 @@ async function buildIos(splashSvg) {
     await write(
         path.join(ROOT, "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"),
         await sharp(await renderSquare(iconSvg(1024, IOS_SCALE), 1024))
-            .flatten({ background: ICON_GRADIENT.bottom })
+            .flatten({ background: ICON_FIELD.bottom })
             .png()
             .toBuffer(),
     )
@@ -386,7 +394,7 @@ async function buildAndroid(splashSvg) {
     console.log("\nAndroid")
     const res = path.join(ROOT, "android/app/src/main/res")
 
-    const markSvgFlat = flatMarkSvg(ICON_MARK)
+    const foregroundSvg = flatMarkSvg(ICON_MARK)
 
     for (const { name, legacy, adaptive } of DENSITIES) {
         const dir = path.join(res, `mipmap-${name}`)
@@ -400,7 +408,7 @@ async function buildAndroid(splashSvg) {
         await write(
             path.join(dir, "ic_launcher_foreground.png"),
             await compose({
-                svg: markSvgFlat,
+                svg: foregroundSvg,
                 width: adaptive,
                 height: adaptive,
                 markWidth: adaptive * ADAPTIVE_SCALE,
@@ -484,7 +492,7 @@ async function main() {
     const splashPalette = paletteFor("jungle")
     console.log(
         `Generating icons — flat ${ICON_MARK} at ${IOS_SCALE} on a ` +
-            `${ICON_GRADIENT.top} → ${ICON_GRADIENT.bottom} gradient, ` +
+            `${ICON_FIELD.top} → ${ICON_FIELD.bottom} field, ` +
             `splash "${splashPalette.key}" on ${SPLASH_BG} / ${SPLASH_DARK_BG}`,
     )
     /* Flat mark on a gradient field for the icon, glossy mark for the splash. */

@@ -4,8 +4,17 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useShallow } from 'zustand/react/shallow'
 
-import { ACCESS, OTP_RESEND_SECONDS, ROLE_LEVEL, ROLES, ROUTES } from "@/lib/constants"
+import {
+    ACCESS,
+    OTP_RESEND_SECONDS,
+    ROLE_LEVEL,
+    ROLES,
+    ROUTES,
+    UPLOAD_PURPOSES,
+} from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { isNative, onAppState } from "@/lib/native"
+import { useUpload } from "@/lib/store/uploads/hook"
 import useAuthStore, { viewerAuthor } from "./store"
 
 /* The login form's whole surface: request a code, then verify it.
@@ -132,6 +141,43 @@ export const useOnboarding = () => {
     }), [user, submit, checkHandle, loading, error, clearError])
 }
 
+/* Changing the viewer's profile picture, as one call for the surface that offers it.
+ *
+ * The two halves stay in their own stores — `uploads` gets the bytes into storage, `auth`
+ * persists the URL and takes the updated viewer — and this hook is where they meet, the same
+ * way the composer pairs `useUpload` with `usePublish`. Doing it here rather than inside the
+ * auth store is what keeps avatars on the one upload path every other file in the app uses.
+ *
+ * `busy` covers both legs, because to the person waiting they are one action: the photo is
+ * not theirs until the second one lands, and a control that re-enabled between them would
+ * invite a second pick against a profile still holding the old picture.
+ *
+ * Failures are already parked by whichever store owned the leg that failed, and toasted by
+ * `useErrorListener`, so this only reports whether it worked. */
+export const useAvatarUpload = () => {
+    const [setAvatar, saving] = useAuthStore(
+        useShallow(state => ([state.setAvatar, state.loading.avatar])),
+    )
+    const { upload, uploading } = useUpload(UPLOAD_PURPOSES.AVATAR)
+
+    const pick = useCallback(
+        async (files) => {
+            const [uploaded] = await upload(files)
+            /* The upload already parked and toasted its own failure; stopping here is what
+             * keeps a failed transfer from clearing the picture that is still perfectly
+             * good. */
+            if (!uploaded) return false
+            return setAvatar(uploaded.url)
+        },
+        [upload, setAvatar],
+    )
+
+    return useMemo(
+        () => ({ pick, busy: uploading || saving }),
+        [pick, uploading, saving],
+    )
+}
+
 export const useLogout = () => {
     const logoutUser = useAuthStore(state => state.logout)
     const router = useRouter()
@@ -198,6 +244,48 @@ export const useGatewayDestination = () => {
     })
 }
 
+/* Keeps the session alive across the gaps when the app isn't running.
+ *
+ * A session does not usually die because it expired; it dies because nothing was awake to
+ * renew it. A phone spends most of its life with this app suspended, its timers frozen and
+ * its access token quietly ageing out, and the moment the reader taps the icon the first
+ * request goes out on a token that expired in the night. So the shell tells the store when
+ * it wakes, and the store renews before anything is asked of the API.
+ *
+ * Three signals, because no one of them covers the ground:
+ *
+ *   appStateChange   native, and the authoritative one — the OS saying the app is back.
+ *   online           either target regaining a connection, which is when a viewer left on
+ *                    a cached profile can finally be confirmed.
+ *   visibilitychange web only. On native supabase-js's own visibility handling has already
+ *                    been taken over (see `startAutoRefresh`), and doubling it up here
+ *                    would just fire a second refresh at every wake.
+ *
+ * All three land on the same idempotent `resume()`, so overlapping wakes cost nothing. */
+const useSessionResume = () => {
+    const [resume, suspend] = useAuthStore(
+        useShallow((state) => [state.resume, state.suspend]),
+    )
+
+    useEffect(() => {
+        const offAppState = onAppState((active) => (active ? resume() : suspend()))
+
+        const onOnline = () => resume()
+        window.addEventListener("online", onOnline)
+
+        const onVisible = () => {
+            if (document.visibilityState === "visible") resume()
+        }
+        if (!isNative()) document.addEventListener("visibilitychange", onVisible)
+
+        return () => {
+            offAppState()
+            window.removeEventListener("online", onOnline)
+            document.removeEventListener("visibilitychange", onVisible)
+        }
+    }, [resume, suspend])
+}
+
 /* Boots the auth store. Mounted once by <App/>, which sits in the root layout *outside*
  * both route groups — so the session is resolved no matter which URL the app is opened at.
  *
@@ -212,6 +300,8 @@ export const useAuthInit = () => {
     useEffect(() => {
         init()
     }, [init])
+
+    useSessionResume()
 
     /* Scrub the magic-link callback out of the address bar.
      *

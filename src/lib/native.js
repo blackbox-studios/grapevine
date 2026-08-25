@@ -19,6 +19,32 @@ export const isNative = () => Capacitor.isNativePlatform()
 export const platform = () => Capacitor.getPlatform()
 
 /* ------------------------------------------------------------------------- */
+/* Foreground / background                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* Subscribes to the shell moving between foreground and background, calling `handler(true)`
+ * on resume and `handler(false)` on suspend. Returns an unsubscribe.
+ *
+ * The web has `visibilitychange` for roughly this, and it is what supabase-js uses — but a
+ * WebView is not a tab, and Android in particular fires that event unevenly enough that the
+ * session refresh cannot be hung off it. `appStateChange` is the platform telling us
+ * directly, so it is what the auth store listens to. See `resume` in the auth store.
+ *
+ * A no-op returning a no-op off-device, so callers register unconditionally like every
+ * other native affordance here. */
+export const onAppState = (handler) => {
+    if (!isNative()) return () => {}
+
+    const listener = CapacitorApp.addListener("appStateChange", ({ isActive }) =>
+        handler(isActive),
+    )
+
+    return () => {
+        listener.then((handle) => handle.remove()).catch(() => {})
+    }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Haptics                                                                   */
 /* ------------------------------------------------------------------------- */
 

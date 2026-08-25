@@ -1,6 +1,6 @@
 {
-    "appId": "chat.synaxis.app",
-    "appName": "Synaxis",
+    "appId": "chat.grapevine.app",
+    "appName": "Grapevine",
     "webDir": "out",
     "backgroundColor": "#0a1014",
     "ios": {

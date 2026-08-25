@@ -1,103 +1,51 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import VerifiedIcon from "@/assets/svg/icons/verified.svg";
-import { useUser, useLogout } from "@/lib/store/auth/hook";
-import { ROLES, ROUTES } from "@/lib/constants";
-import { displayName, initials } from "@/lib/name";
-import { roleLabel } from "@/lib/utils";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 
+import { Avatar } from "@/components/Widgets"
+import { ROUTES } from "@/lib/constants"
+import { useUser } from "@/lib/store/auth/hook"
+import { cn, isRouteActive } from "@/lib/utils"
 
-export default function ProfilePopover() {
-    const [open, setOpen] = useState(false);
-    const user = useUser();
-    const { logout } = useLogout();
-    const router = useRouter();
-
-    const handleSettings = () => {
-        setOpen(false);
-        /* The layout scrolls to top after its cross-fade; Next's own scroll would fire
-           first and yank the outgoing page. */
-        router.push(ROUTES.SETTINGS, { scroll: false });
-    };
-
-    const handleLogout = () => {
-        setOpen(false);
-        logout();
-    };
+/* The way into the account surface, in the nav on both breakpoints.
+ *
+ * **A link, not a menu.** It used to be a popover holding a Settings button and a Logout
+ * button, which put the viewer's identity and everything that hangs off it inside a container
+ * that could hold about two of them — so Settings became a page with a tab rail of its own,
+ * and the same set of destinations was expressed twice, differently, at two sizes. `/profile`
+ * is one place with one list, so adding a destination is a row rather than a decision about
+ * which of the two surfaces it belongs on.
+ *
+ * The avatar is the viewer's real profile picture via <Avatar/>, with the same gradient-and-
+ * initials fallback every other avatar in the app uses — the old trigger drew its own bordered
+ * circle of initials and could never show a photo at all.
+ *
+ * The ring marks it as the current tab, resolved through `isRouteActive` like every other nav
+ * destination rather than a `pathname ===` of its own. */
+export const ProfileTrigger = ({ pathname: pathnameProp, className }) => {
+    const user = useUser()
+    const livePathname = usePathname()
+    const pathname = pathnameProp ?? livePathname
+    const active = isRouteActive(pathname, ROUTES.PROFILE)
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <button
-                    type="button"
-                    aria-label="Account menu"
-                    className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-current outline-hidden"
-                >
-                    <p className="font-semibold uppercase">
-                        {initials(user) || "X"}
-                    </p>
-                </button>
-            </PopoverTrigger>
-            <PopoverContent
-                side="right"
-                align="end"
-                sideOffset={16}
-                className="relative w-72 items-center gap-0 p-6 text-center"
-            >
-                <div
-                    aria-hidden="true"
-                    className="h-24 w-24 rounded-full shadow-md bg-[radial-gradient(circle_at_30%_25%,#bfe1ff_0%,#5aa6f0_45%,#1f5fb5_100%)]"
-                />
-
-                <div className="mt-5 flex items-baseline justify-center gap-2">
-                    <h3 className="text-2xl font-semibold tracking-tight text-foreground">
-                        {displayName(user) || "—"}
-                    </h3>
-
-                    {/* The check is the admin badge, and it used to render for everyone —
-                      * it was hardcoded here rather than read from anything. It now follows
-                      * the viewer's role in their primary group, which is the same rule the
-                      * server applies to an author's check. */}
-                    {user?.role === ROLES.ADMIN && (
-                        <VerifiedIcon
-                            aria-label="Group administrator"
-                            className="shrink-0 text-foreground pb-px"
-                        />
-                    )}
-                </div>
-
-
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                    {roleLabel(user?.role)}
-                </p>
-
-
-                {user?.email && (
-                    <p className="mt-1 text-sm text-foreground">{user.email}</p>
-                )}
-
-                <div className="mt-6 grid w-full grid-rows-2 gap-3">
-                    <Button variant="outline" size="lg" type="button" onClick={handleSettings}>
-                        Settings
-                    </Button>
-                    <Button
-                        variant="destructive"
-                        size="lg"
-                        type="button"
-                        onClick={handleLogout}
-                    >
-                        Logout
-                    </Button>
-                </div>
-            </PopoverContent>
-        </Popover>
-    );
+        <Link
+            href={ROUTES.PROFILE}
+            aria-label="Your profile"
+            data-current={active}
+            /* The layout scrolls the container to top itself once the cross-fade has played;
+               Next's own scroll fires up front and yanks the outgoing page. */
+            scroll={false}
+            className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-full outline-hidden transition-[box-shadow]",
+                active && "ring-2 ring-foreground ring-offset-0 ring-offset-background",
+                className,
+            )}
+        >
+            <Avatar person={user} className="size-8" />
+        </Link>
+    )
 }
+
+export default ProfileTrigger

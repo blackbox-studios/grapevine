@@ -1,67 +1,27 @@
 "use client"
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-
-import { Privileged } from "@/components/Auth"
 import PageTransition from "@/components/PageTransition"
-import { ROLES, ROUTES } from "@/lib/constants"
-import { cn } from "@/lib/utils"
 
-/* `privileged` tabs only render for admins, via <Privileged>. The roster page redirects a
- * member who reaches it anyway, but a tab that bounces you is a worse answer than a tab
- * that was never there — and the API refuses the underlying read regardless, so a member
- * following the link could only ever have been shown an error. */
-const TABS = [
-    { title: "General", to: ROUTES.SETTINGS, end: true },
-    { title: "Users", to: ROUTES.SETTINGS_USERS, privileged: true },
-]
-
-const SettingsLayout = ({ children }) => {
-    const pathname = usePathname()
-
-    /* `pt-12 md:pt-0` is the same mobile top gutter Inbox takes, for the same reason. */
-    return (
-        <div className="grid grid-cols-[10rem_1fr] gap-16 pt-12 md:pt-0 pb-10">
-            <nav className="flex flex-col gap-3.5 sm:-ml-6">
-                {TABS.map(({ title, to, end, privileged }) => {
-                    const isActive = end ? pathname === to : pathname.startsWith(to)
-                    const link = (
-                        <Link
-                            key={to}
-                            href={to}
-                            /* Sub-tabs cross-fade in place; Next's scroll-to-top would
-                               throw the reader to the top of Settings on every switch. */
-                            scroll={false}
-                            className={cn(
-                                "rounded-full px-6 py-3.5 text-sm font-medium transition-colors",
-                                isActive
-                                    ? "bg-muted text-foreground"
-                                    : "text-muted-foreground hover:text-foreground",
-                            )}
-                        >
-                            {title}
-                        </Link>
-                    )
-
-                    return privileged ? (
-                        <Privileged key={to} role={ROLES.ADMIN}>
-                            {link}
-                        </Privileged>
-                    ) : (
-                        link
-                    )
-                })}
-            </nav>
-
-            <div className="min-h-[60dvh] border-l pl-16">
-                {/* Nested transition: fades between General/Users while the Settings
-                    pane itself stays mounted. Its own FrozenRouter keeps this working
-                    at the nested level. */}
-                <PageTransition initial={false}>{children}</PageTransition>
-            </div>
-        </div>
-    )
-}
+/* The shared frame around the settings sub-pages, and nothing more.
+ *
+ * **There is no tab rail here.** A fixed 10rem column of pill links used to sit to the left of
+ * every settings page, which worked on a desktop and pushed the roster table clean off the
+ * right edge of a phone — a grid track has `min-width: auto`, so the table could never shrink
+ * into its own horizontal scroller and the whole page overflowed instead. Those destinations
+ * now live as rows on `/profile`, which is one list at every width and is also where logging
+ * out is, so the account surface answers "where do I go from here" in one place.
+ *
+ * `min-w-0` is what is left of that lesson: it lets a wide child — the roster table — resolve
+ * to its container's width and scroll sideways inside itself, rather than forcing this column
+ * wider than the viewport.
+ *
+ * The nested <PageTransition/> stays, and `/settings` stays in NESTED_TRANSITION_ROUTES with
+ * it: this wrapper persists across General ↔ Users, so the two sub-pages cross-fade against a
+ * frame that does not move, and the top-level transition leaves the tree alone. */
+const SettingsLayout = ({ children }) => (
+    <div className="min-w-0 pb-10 md:pt-0">
+        <PageTransition initial={false}>{children}</PageTransition>
+    </div>
+)
 
 export default SettingsLayout

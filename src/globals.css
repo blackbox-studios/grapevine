@@ -5,8 +5,19 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: 'ES Rebond Grotesque', ui-sans-serif, system-ui, sans-serif;
-    --font-display: 'Tangerine', ui-serif, Georgia, 'Times New Roman', serif;
+    /* Two roles, and the base layer at the bottom of this file is what assigns them:
+     * `h1..h6` take --font-heading, then `h1` alone is overridden to --font-display. So
+     * --font-display is the h1 face and --font-heading is every *other* heading.
+     *
+     * Babe Sans holds the h1 slot, which Tangerine used to (now removed — nothing else
+     * referenced it). It is a display face and only ever sets one line at a time; putting
+     * it on h2..h6 as well is what made it feel overused. Everything below h1 is Helvetica,
+     * and body copy stays on --font-sans.
+     *
+     * An h1 that carries an explicit `font-heading` class beats the base rule and lands on
+     * Helvetica instead — that is a utility winning over a base layer, not a bug. */
+    --font-display: 'Babe Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-heading: 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
     --color-sidebar-ring: var(--sidebar-ring);
@@ -29,6 +40,8 @@
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-link: var(--link);
+    --color-brand-foreground: var(--brand-foreground);
+    --color-brand: var(--brand);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -133,6 +146,12 @@
     --success: oklch(0.64 0.13 168);
     --warning: oklch(73% 39% 71deg);
     --link: oklch(56% 51% 274deg);
+    /* Grapevine's accent. Deliberately NOT `--primary`: primary is the near-black button
+     * fill, and the brand green is the check, the unread dot, and the mark. Jungle green
+     * (#2BBB9C) in light, lime (#B7FF00) in dark — see the `.dark` block. The app icon's
+     * background is the jungle green, since an icon has no theme to switch on. */
+    --brand: oklch(0.7114 0.1257 174.07);
+    --brand-foreground: oklch(1 0 none);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
     --ring: oklch(0.87 0.0022 17.2);
@@ -171,6 +190,10 @@
     --success: oklch(0.78 0.11 168);
     --warning: oklch(67% 36% 72deg);
     --link: oklch(78% 15% 235deg);
+    /* Lime is far lighter than the jungle green it replaces, so `--brand-foreground` flips
+     * to near-black — white on #B7FF00 is unreadable. */
+    --brand: oklch(0.9177 0.2382 127.48);
+    --brand-foreground: oklch(0.205 0 0);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(0.95 0 272 / 0.35);
     --ring: oklch(0.556 0 0);
@@ -331,134 +354,26 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Babe Sans — the rebrand's display face, on h1 only. It took this slot from Tangerine,
+   * which has been removed from the project along with ES Rebond; nothing referenced
+   * either once --font-display and --font-heading were repointed.
+   *
+   * It is one static cut at weight 400, so the `100 900` range is a deliberate lie: it
+   * claims every weight so the browser never *synthesises* a bold. Headings in this app
+   * ask for `font-medium` and `font-semibold`, and without this the WebView would smear
+   * the outline to fake them — which on a display face reads far worse than uniform
+   * weight. The trade is that heading weight contrast is now flat; that is the intended
+   * starting point, to be tuned per-heading by hand.
+   *
+   * No italic exists either, so `font-style: italic` on a heading would be synthesised as
+   * an oblique. Nothing currently does that. */
   @font-face {
-    font-family: 'Tangerine';
+    font-family: 'Babe Sans';
     font-style: normal;
-    font-weight: 400 700;
+    font-weight: 100 900;
     font-display: swap;
-    src: url('./assets/fonts/Tangerine/TangerineRegular.woff2') format('woff2'),
-         url('./assets/fonts/Tangerine/TangerineRegular.woff') format('woff');
-  }
-  @font-face {
-    font-family: 'Tangerine';
-    font-style: italic;
-    font-weight: 400 700;
-    font-display: swap;
-    src: url('./assets/fonts/Tangerine/TangerineItalic.woff2') format('woff2'),
-         url('./assets/fonts/Tangerine/TangerineItalic.woff') format('woff');
-  }
-
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 100;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Thin.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 100;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Thin-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 200;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Extralight.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 200;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Extralight-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 300;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Light.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 300;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Light-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Regular.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 400;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 500;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Medium.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 500;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Medium-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Semibold.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 600;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Semibold-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Bold.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 700;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Bold-Italic.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: normal;
-    font-weight: 800;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Extrabold.otf') format('opentype');
-  }
-  @font-face {
-    font-family: 'ES Rebond Grotesque';
-    font-style: italic;
-    font-weight: 800;
-    font-display: swap;
-    src: url('./assets/fonts/ESRebondGrotesque/ESRebondGrotesque-Extrabold-Italic.otf') format('opentype');
+    src: url('./assets/fonts/BabeSans/BabeSansRegular.woff2') format('woff2'),
+         url('./assets/fonts/BabeSans/BabeSansRegular.woff') format('woff');
   }
 
 

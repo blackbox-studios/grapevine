@@ -1,6 +1,6 @@
-# Synaxis
+# Grapevine
 
-Synaxis ([synaxis.chat](https://synaxis.chat)) is a lightweight **Next.js 15 + React 19** app template. It runs 100% on in-session mock data today, so you can click around the flows (dashboard, connections, settings, users) before wiring in a real backend — then grow it into a full product.
+Grapevine ([grapevine.chat](https://grapevine.chat)) is a lightweight **Next.js 15 + React 19** app template. It runs 100% on in-session mock data today, so you can click around the flows (dashboard, connections, settings, users) before wiring in a real backend — then grow it into a full product.
 
 Every Zustand store reads seed data from `src/lib/metadata.js` and mutates its own in-memory copy in-session. No backend required to run it. **Prisma** (Postgres) is included and wired but idle — turn it on when you need to persist real data.
 

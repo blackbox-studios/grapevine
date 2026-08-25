@@ -2,6 +2,11 @@ export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
     POST: "/p",
+    NOTIFICATIONS: "/notifications",
+    /* The account surface: who the viewer is, and every destination that hangs off them.
+     * A route rather than a menu, because it is where Settings and the roster are now
+     * reached from — see `app/(protected)/profile/page.jsx`. */
+    PROFILE: "/profile",
     SETTINGS: "/settings",
     SETTINGS_USERS: "/settings/users",
     /* Signed in, but not yet through the door — see components/MemberGate.jsx. */
@@ -27,6 +32,9 @@ export const ROUTES = {
  *   base   — the route whose surface stays mounted underneath and gets pushed. */
 export const SLIDE_ROUTES = [
     { prefix: ROUTES.POST, base: ROUTES.DEFAULT },
+    /* No dynamic segment on this one — `slideRouteFor` simply resolves a null `param`,
+     * which the surface ignores. A slide route is a presentation, not a shape of URL. */
+    { prefix: ROUTES.NOTIFICATIONS, base: ROUTES.DEFAULT },
 ]
 
 /* Route trees that must collapse to a single top-level page-transition key, because a
@@ -94,12 +102,21 @@ export const API_ENDPOINTS = {
     /* DELETE only — the author's own comment, or anyone's for an admin of the group. */
     COMMENT: (commentId) => `/comments/${commentId}`,
     COMMENT_LIKES: (commentId) => `/comments/${commentId}/likes`,
+    /* The panel behind the bell. Three endpoints rather than one because the tally is
+     * wanted on every boot and the list only when somebody opens the panel — see the
+     * header of `app/api/notifications/unread/route.api.js`. */
+    NOTIFICATIONS: "/notifications",
+    NOTIFICATIONS_UNREAD: "/notifications/unread",
+    NOTIFICATIONS_READ: "/notifications/read",
 }
 
 /* How many items a page pulls, per collection. The server clamps to its own maximum. */
 export const PAGE_SIZE = {
     FEED: 5,
     COMMENTS: 8,
+    /* Comfortably more than the desktop popover shows at once, so the first page fills it
+     * and the reader has something to scroll before the next one is asked for. */
+    NOTIFICATIONS: 15,
 }
 
 /* ---------------------------------------------------------------------------

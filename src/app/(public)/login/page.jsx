@@ -334,7 +334,7 @@ const LoginPage = () => {
     )
 
     const COPY = {
-        intro: { heading: "Welcome to Synaxis", subheading: "By Holy Trinity Cathedral" },
+        intro: { heading: "Welcome to Grapevine", subheading: "By Holy Trinity Cathedral" },
         email: {
             heading: "What's your email?",
             subheading: "We'll send you a code to sign in with.",

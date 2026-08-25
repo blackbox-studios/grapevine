@@ -13,7 +13,7 @@ export default function Providers({ children }) {
             attribute="class"
             defaultTheme="system"
             enableSystem
-            storageKey="synaxis-ui-theme"
+            storageKey="grapevine-ui-theme"
             disableTransitionOnChange
         >
             <TooltipProvider>

@@ -7,6 +7,13 @@ import { prisma } from "@/lib/db"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
 import { membershipIn, requireMembership, readableOrgIds } from "@/lib/server/auth"
+import {
+    newPostRecipients,
+    notifyLike,
+    notifyNewPost,
+    unnotifyComment,
+    unnotifyLike,
+} from "@/lib/server/notifications.service"
 import { projectComment, projectPost } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
 import { uploadPrefix } from "@/lib/server/uploads.service"
@@ -359,31 +366,46 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
      * authorization forward to the write it was granted for. */
     const prefix = uploadPrefix(UPLOAD_PURPOSES.POST_MEDIA)
     if (!files.every((item) => isOwnedUrl(item.url, { prefix, ownerId: orgId }))) {
-        throw invalid("A post's files must be uploaded through Synaxis.", {
+        throw invalid("A post's files must be uploaded through Grapevine.", {
             media: "Unrecognized file",
         })
     }
 
-    const post = await prisma.post.create({
-        data: {
-            orgId,
-            authorId: viewer.id,
-            title: title?.trim() || null,
-            body: text,
-            media: {
-                create: files.map((item, index) => ({
-                    kind: item.kind ?? "IMAGE",
-                    url: item.url,
-                    width: item.width ?? null,
-                    height: item.height ?? null,
-                    mimeType: item.mimeType ?? null,
-                    fileName: item.fileName ?? null,
-                    sizeBytes: item.sizeBytes ?? null,
-                    position: index,
-                })),
+    /* Who to tell, resolved before the transaction opens so it holds a connection for the
+     * two writes and not for a read as well. See `newPostRecipients`. */
+    const recipients = await newPostRecipients(orgId, viewer.id)
+
+    /* **The second interactive transaction in this file**, and it earns it for the reason
+     * the first one does not: the notification rows need the id of the post being created
+     * alongside them, which is precisely the dependency the array form cannot express. The
+     * two commit together, so a parish is never told about a post that failed to publish —
+     * and a publish never half-succeeds into a feed nobody is told about. */
+    const post = await prisma.$transaction(async (tx) => {
+        const created = await tx.post.create({
+            data: {
+                orgId,
+                authorId: viewer.id,
+                title: title?.trim() || null,
+                body: text,
+                media: {
+                    create: files.map((item, index) => ({
+                        kind: item.kind ?? "IMAGE",
+                        url: item.url,
+                        width: item.width ?? null,
+                        height: item.height ?? null,
+                        mimeType: item.mimeType ?? null,
+                        fileName: item.fileName ?? null,
+                        sizeBytes: item.sizeBytes ?? null,
+                        position: index,
+                    })),
+                },
             },
-        },
-        include: postInclude(viewer.id),
+            include: postInclude(viewer.id),
+        })
+
+        await notifyNewPost(tx, { recipients, actorId: viewer.id, postId: created.id })
+
+        return created
     })
 
     /* Freshly created: the author cannot have liked it, and nobody else has seen it. Whoever
@@ -438,14 +460,25 @@ export const deletePost = async (viewer, postId) => {
  * `$transaction(async tx => ...)` only when a later statement genuinely depends on an
  * earlier one's return value. */
 export const togglePostLike = async (viewer, postId) => {
-    await loadReadablePost(viewer, postId)
+    const { post: subject } = await loadReadablePost(viewer, postId)
 
     const key = { profileId_postId: { profileId: viewer.id, postId } }
     const existing = await prisma.postLike.findUnique({ where: key })
 
+    /* The author's notification rides in the same transaction as the like, so the two
+     * cannot disagree, and in the same dispatch, so it costs no round trip. Null for a
+     * self-like, which is why the array is filtered. See notifications.service.js. */
+    const notification = {
+        recipientId: subject.authorId,
+        actorId: viewer.id,
+        type: "POST_LIKE",
+        subjectId: postId,
+        postId,
+    }
+
     try {
         const [, post] = await prisma.$transaction(
-            existing
+            (existing
                 ? [
                       prisma.postLike.delete({ where: key }),
                       prisma.post.update({
@@ -453,6 +486,7 @@ export const togglePostLike = async (viewer, postId) => {
                           data: { likeCount: { decrement: 1 } },
                           select: { likeCount: true },
                       }),
+                      unnotifyLike(notification),
                   ]
                 : [
                       prisma.postLike.create({ data: { profileId: viewer.id, postId } }),
@@ -461,7 +495,9 @@ export const togglePostLike = async (viewer, postId) => {
                           data: { likeCount: { increment: 1 } },
                           select: { likeCount: true },
                       }),
-                  ],
+                      notifyLike(notification),
+                  ]
+            ).filter(Boolean),
         )
 
         return { liked: !existing, likes: post.likeCount }
@@ -490,7 +526,7 @@ export const togglePostLike = async (viewer, postId) => {
 export const toggleCommentLike = async (viewer, commentId) => {
     const comment = await prisma.comment.findFirst({
         where: { id: commentId, deletedAt: null },
-        select: { id: true, postId: true },
+        select: { id: true, postId: true, authorId: true },
     })
     if (!comment) throw notFound("Comment not found.")
 
@@ -499,9 +535,19 @@ export const toggleCommentLike = async (viewer, commentId) => {
     const key = { profileId_commentId: { profileId: viewer.id, commentId } }
     const existing = await prisma.commentLike.findUnique({ where: key })
 
+    /* The subject is the comment; the post is where it is read. Same shape and same
+     * reasoning as `togglePostLike`. */
+    const notification = {
+        recipientId: comment.authorId,
+        actorId: viewer.id,
+        type: "COMMENT_LIKE",
+        subjectId: commentId,
+        postId: comment.postId,
+    }
+
     try {
         const [, row] = await prisma.$transaction(
-            existing
+            (existing
                 ? [
                       prisma.commentLike.delete({ where: key }),
                       prisma.comment.update({
@@ -509,6 +555,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
                           data: { likeCount: { decrement: 1 } },
                           select: { likeCount: true },
                       }),
+                      unnotifyLike(notification),
                   ]
                 : [
                       prisma.commentLike.create({
@@ -519,7 +566,9 @@ export const toggleCommentLike = async (viewer, commentId) => {
                           data: { likeCount: { increment: 1 } },
                           select: { likeCount: true },
                       }),
-                  ],
+                      notifyLike(notification),
+                  ]
+            ).filter(Boolean),
         )
 
         return { liked: !existing, likes: row.likeCount }
@@ -619,5 +668,10 @@ export const deleteComment = async (viewer, commentId) => {
             data: { commentCount: { decrement: 1 } },
             select: { id: true },
         })
+
+        /* Inside the claim, so it runs once for the request that actually deleted the row —
+         * and inside the transaction, so a thread can never be left with notifications
+         * pointing at a comment that is gone. */
+        await unnotifyComment(tx, commentId)
     })
 }

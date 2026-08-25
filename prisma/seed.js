@@ -50,8 +50,8 @@ const SERVICE_ROLE_KEY =
 /* The two addresses that can actually sign in. Defaults are placeholders on a domain
  * nobody receives mail at, which is fine for creating the rows but useless for signing
  * in — see the header. */
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@synaxis.chat"
-const MEMBER_EMAIL = process.env.SEED_MEMBER_EMAIL || "member@synaxis.chat"
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@grapevine.chat"
+const MEMBER_EMAIL = process.env.SEED_MEMBER_EMAIL || "member@grapevine.chat"
 
 /* ── The parish ──────────────────────────────────────────────────────────── */
 
@@ -462,6 +462,52 @@ const main = async () => {
                 },
             })
         }
+
+        /* The notifications those likes would have produced, written here because the seed
+         * inserts the like rows directly rather than through `togglePostLike` — which is the
+         * one place that pairs the two in the running app. Without this a fresh database has
+         * a feed full of likes and an empty bell, and the panel cannot be looked at until
+         * somebody taps a heart.
+         *
+         * Timestamps match the like they stand for, so the panel's newest-first order agrees
+         * with the order the likes were laid down in above. Nothing is marked read: an unlit
+         * bell on a fresh database demonstrates nothing. */
+        await prisma.notification.createMany({
+            data: likers.flatMap((handle, index) => {
+                const likerId = byHandle.get(handle)
+                if (!likerId || likerId === authorId) return []
+                return [{
+                    recipientId: authorId,
+                    actorId: likerId,
+                    type: "POST_LIKE",
+                    subjectId: fixture.id,
+                    postId: fixture.id,
+                    createdAt: new Date(createdAt.getTime() + (index + 1) * 1000),
+                }]
+            }),
+            skipDuplicates: true,
+        })
+
+        /* And the fan-out every publish now performs: one row per approved member of the
+         * group except the author. This is what puts something in the *member* account's
+         * bell — the admin authors nearly everything in this corpus, so post likes alone
+         * would only ever fill one of the two sign-innable accounts. */
+        await prisma.notification.createMany({
+            data: PEOPLE.flatMap((person) => {
+                const profileId = byHandle.get(person.handle)
+                if (!profileId || profileId === authorId) return []
+                if ((person.status ?? "APPROVED") !== "APPROVED") return []
+                return [{
+                    recipientId: profileId,
+                    actorId: authorId,
+                    type: "NEW_POST",
+                    subjectId: fixture.id,
+                    postId: fixture.id,
+                    createdAt,
+                }]
+            }),
+            skipDuplicates: true,
+        })
     }
 
     console.log("→ Diocese")

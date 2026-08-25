@@ -96,7 +96,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
                     aria-label="Back"
                     className="-ml-2.5 flex size-11 cursor-pointer items-center justify-center text-foreground transition-opacity active:opacity-60"
                 >
-                    <Icon size="lg">arrow_back</Icon>
+                    <Icon size="xl">arrow_back</Icon>
                 </button>
             )}
         </div>
@@ -107,7 +107,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 pb-4 text-center">
                 {mark}
                 <div className="flex flex-col gap-2">
-                    <h1 className="font-heading text-3xl font-semibold leading-tight text-foreground">
+                    <h1 className="text-3xl font-semibold leading-tight text-foreground">
                         {heading}
                     </h1>
                     {subheading && (
@@ -123,7 +123,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
                  * as a question when it sits where reading starts. */
                 <div className="flex shrink-0 flex-col gap-2 pt-2 pb-6">
                     {heading && (
-                        <h1 className="font-heading text-3xl font-semibold leading-tight text-foreground">
+                        <h1 className="text-3xl font-semibold leading-tight text-foreground">
                             {heading}
                         </h1>
                     )}
@@ -230,11 +230,11 @@ const GatewayShell = ({
             className="relative flex min-h-dvh w-full flex-col overflow-hidden bg-background"
             style={{ "--mark-accent": palette.accent }}
         >
-            {/* Wordmark, desktop only. Its paths ship as solid white, so recolour them with
-              * currentColor to track the theme. */}
+            {/* Wordmark, desktop only. Its paths already ship as currentColor, so it
+              * tracks the theme through the text colour alone. */}
             <TypeLogo
-                aria-label="Synaxis"
-                className="absolute left-10 top-8 hidden h-12 w-auto text-(--mark-accent) [&_path]:fill-current lg:block"
+                aria-label="Grapevine"
+                className="absolute left-10 top-8 hidden h-12 w-auto text-(--mark-accent) lg:block"
             />
 
             {/* Mobile spreads the mark across the free space with the content pinned low;
@@ -258,7 +258,7 @@ const GatewayShell = ({
                     {(heading || subheading) && (
                         <div className="flex flex-col items-center gap-1.5 px-4 text-center">
                             {heading && (
-                                <h1 className="font-heading text-2xl font-semibold text-foreground">
+                                <h1 className="text-2xl font-semibold text-foreground">
                                     {heading}
                                 </h1>
                             )}

@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS, ROLES, ROUTES } from '@/lib/constants'
-import { supabase } from '@/lib/supabase'
+import { API_ENDPOINTS, ERROR_CODES, ROLES, ROUTES } from '@/lib/constants'
+import { isNative } from '@/lib/native'
+import { startAutoRefresh, stopAutoRefresh, supabase } from '@/lib/supabase'
 import useGlobalStore from '@/lib/store/global.store'
 import { toErrorList } from '@/lib/utils'
 
@@ -49,6 +51,7 @@ const ERROR_INIT = {
     verify: false,
     logout: false,
     onboarding: false,
+    avatar: false,
 }
 
 const LOADING_INIT = {
@@ -56,6 +59,7 @@ const LOADING_INIT = {
     verify: false,
     logout: false,
     onboarding: false,
+    avatar: false,
 }
 
 const INIT = {
@@ -65,6 +69,12 @@ const INIT = {
 
     loggedIn: false,
     user: null,
+
+    /* The viewer on screen came out of storage and has not been confirmed against
+     * `/api/me` this session — the app booted with no usable network. Not an error state:
+     * the cached viewer is almost certainly still accurate, and the alternative (signing
+     * out) is strictly worse. `resume()` clears it the moment a request gets through. */
+    stale: false,
 
     /* The address a code was sent to. Drives the second step of the login form and is what
      * `resendCode` re-sends to, so the form never has to hold it. */
@@ -78,6 +88,19 @@ const INIT = {
 
 /* Guards against a second `onAuthStateChange` subscription on hot reload. */
 let subscription = null
+
+/* Failures that say nothing about whether the viewer is still signed in.
+ *
+ * `NETWORK` is the request never completing; `UNAVAILABLE` is the API's own 503, which
+ * `lib/server/auth.js` answers when it could not *run* the token check (a JWKS fetch that
+ * timed out, a paused project) precisely so it does not have to lie and say 401; `INTERNAL`
+ * is a bug on our side. None of them is a verdict on the session, so none of them may cost
+ * someone theirs. A real 401 never reaches here — `lib/api.js` has already signed out. */
+const TRANSIENT = new Set([
+    ERROR_CODES.NETWORK,
+    ERROR_CODES.UNAVAILABLE,
+    ERROR_CODES.INTERNAL,
+])
 
 /* The viewer, in the shape the API stamps on a post or comment author.
  *
@@ -144,7 +167,7 @@ const isRateLimited = (error) =>
 
 /* Why a code could not be sent.
  *
- * These used to collapse into one "Synaxis is invite-only — check with your parish
+ * These used to collapse into one "Grapevine is invite-only — check with your parish
  * administrator" message, which is actively misleading for every cause except the one it
  * names: a rate-limited admin was told their own address was not recognised, and went
  * looking for a problem that did not exist.
@@ -165,7 +188,7 @@ const requestFailureMessage = (error) => {
     /* `shouldCreateUser: false` refusing an address with no account — the invite-only gate
      * doing its job. */
     if (code === "otp_disabled" || code === "signup_disabled" || status === 422) {
-        return "We could not send a code to that address. Synaxis is invite-only — check with your parish administrator."
+        return "We could not send a code to that address. Grapevine is invite-only — check with your parish administrator."
     }
 
     if (code === "validation_failed") {
@@ -199,17 +222,26 @@ const useStore = create(
                     const callbackError = readCallbackError()
 
                     try {
-                        const { data } = await supabase().auth.getSession()
+                        const { data, error } = await supabase().auth.getSession()
 
                         if (data.session) {
                             await get()._loadProfile()
+                        } else if (error) {
+                            /* A session is on disk but could not be refreshed — the app
+                             * was opened with no network, or Supabase is unreachable. That
+                             * is not a signed-out viewer and must not be treated as one:
+                             * the persisted `loggedIn`/`user` stand, the app opens on its
+                             * cached feed, and `resume()` reconciles when the connection
+                             * comes back. See `sessionToken` in lib/supabase.js. */
+                            set(state => { state.stale = state.loggedIn })
                         } else {
-                            /* No session, but possibly a stale persisted `loggedIn: true`
-                             * from a previous visit. Clear it, or the gate renders the
-                             * shell for a viewer who cannot load anything. */
+                            /* No session at all, but possibly a stale persisted
+                             * `loggedIn: true` from a previous visit. Clear it, or the gate
+                             * renders the shell for a viewer who cannot load anything. */
                             set(state => {
                                 state.loggedIn = false
                                 state.user = null
+                                state.stale = false
                             })
                         }
 
@@ -224,16 +256,46 @@ const useStore = create(
                                         set(state => {
                                             state.loggedIn = false
                                             state.user = null
+                                            state.stale = false
                                         })
+                                    }
+
+                                    /* A token that came back after the app had been
+                                     * running on a cached viewer — the connection
+                                     * returned. Confirm the viewer now rather than making
+                                     * the reader wait for the next foreground. */
+                                    if (event === 'TOKEN_REFRESHED' && get().stale) {
+                                        get()._loadProfile().catch(() => {})
                                     }
                                 },
                             )
                             subscription = listener.subscription
                         }
                     } catch (error) {
+                        /* Almost always `/api/me` failing. **What it failed with decides
+                         * whether this is a sign-out**, and getting that wrong is how a
+                         * cold start on a train ejects someone from the app: a network
+                         * fault used to land here and clear the viewer outright, even
+                         * though the session on disk was untouched and would have worked
+                         * ten seconds later.
+                         *
+                         * A genuine 401 does not reach this branch — `lib/api.js` has
+                         * already called `expire()` — so a transient code here means the
+                         * question was never answered, and an unanswered question leaves
+                         * the cached viewer exactly where it was. The one case that still
+                         * has to sign out is a transient failure with nothing cached to
+                         * fall back on: rendering the shell around a null viewer is a
+                         * blank screen with no way forward. */
+                        const transient = TRANSIENT.has(error?.code) && Boolean(get().user)
+
                         set(state => {
+                            if (transient) {
+                                state.stale = true
+                                return
+                            }
                             state.loggedIn = false
                             state.user = null
+                            state.stale = false
                             if (!callbackError) {
                                 state.error.verify = toErrorList(
                                     error,
@@ -392,7 +454,38 @@ const useStore = create(
                         state.ready = true
                         state.loggedIn = false
                         state.user = null
+                        state.stale = false
                     })
+                },
+
+                /* The app came back — foregrounded on a phone, or a tab regaining focus or
+                 * a connection. Two jobs, and both exist because time passed while nothing
+                 * was watching.
+                 *
+                 * 1. **Restart the token ticker (native only).** A suspended WebView's
+                 *    timers are frozen, so an app asleep for two hours wakes with a token
+                 *    that expired ninety minutes ago and a refresh loop that has not run
+                 *    since. `startAutoRefresh` ticks immediately, which renews it before
+                 *    the first request goes out rather than after one has already 401ed.
+                 *    The web is left to supabase-js's own `visibilitychange` handling —
+                 *    see the note on `startAutoRefresh`.
+                 *
+                 * 2. **Reconcile a viewer that was never confirmed.** Only when `stale`:
+                 *    foregrounding is frequent and `/api/me` on every one of them would be
+                 *    a request each time the reader glances at their phone, for
+                 *    information that has not changed. A failure here is silent on purpose
+                 *    — it means the connection is still down, the cached viewer is still
+                 *    the best answer available, and the next resume tries again. */
+                resume: async () => {
+                    if (isNative()) startAutoRefresh()
+                    if (!get().loggedIn || !get().stale) return
+                    await get()._loadProfile().catch(() => {})
+                },
+
+                /* Backgrounded. Stops the refresh loop so one cannot be in flight when the
+                 * OS freezes the app — see `stopAutoRefresh` for why that costs a session. */
+                suspend: () => {
+                    if (isNative()) stopAutoRefresh()
                 },
 
                 /* Is this @handle free? Asked while the viewer types one during
@@ -452,12 +545,60 @@ const useStore = create(
                     }
                 },
 
+                /* Replaces the viewer's profile picture with an already-uploaded object.
+                 *
+                 * **Takes a URL, not a file.** Getting bytes into storage is the `uploads`
+                 * store's job for every purpose in the app, and the surface that collects the
+                 * file calls it directly (see `useUpload`, and the composer that established
+                 * the pattern). What is left for this store is the half that is genuinely
+                 * about the viewer: persisting the URL and swapping in the profile that comes
+                 * back. Doing the upload here as well would give avatars a private path that
+                 * every other upload does not have.
+                 *
+                 * Not optimistic. The response *is* the new viewer, and it arrives one round
+                 * trip after a photo has already been sent to storage — so there is nothing
+                 * to be gained by guessing at it, and a picture that appeared and then
+                 * reverted would be a worse answer than a spinner. */
+                setAvatar: async (url) => {
+                    if (!url) return false
+
+                    set(state => {
+                        state.loading.avatar = true
+                        state.error.avatar = false
+                    })
+                    try {
+                        const user = await api.patch(API_ENDPOINTS.ME, { avatar: url })
+                        /* The whole viewer, so the nav's avatar, the profile header, and the
+                         * face on the viewer's own optimistic comment rows all move at once. */
+                        set(state => { state.user = user })
+                        /* After the await, never before it. This write is not optimistic — the
+                         * picture on screen is still the old one until the line above runs — so
+                         * a toast raised alongside the request would be claiming something that
+                         * had not happened yet. (The one place this app toasts early is a
+                         * comment deletion, where the row disappears in the same frame; there is
+                         * no such gesture to acknowledge here.) */
+                        toast.success('Profile picture updated.')
+                        return true
+                    } catch (error) {
+                        set(state => {
+                            state.error.avatar = toErrorList(
+                                error,
+                                'Could not update your profile picture.',
+                            )
+                        })
+                        return false
+                    } finally {
+                        set(state => { state.loading.avatar = false })
+                    }
+                },
+
                 /* GET /api/me → the viewer. The single place `loggedIn` is set true. */
                 _loadProfile: async () => {
                     const user = await api.get(API_ENDPOINTS.ME)
                     set(state => {
                         state.user = user
                         state.loggedIn = true
+                        state.stale = false
                     })
                     return user
                 },
@@ -468,13 +609,13 @@ const useStore = create(
             }),
             {
                 /* Only the cached view of "there is a session" survives a reload. The token
-                 * is supabase-js's to persist (under its own `synaxis-auth` key), and
+                 * is supabase-js's to persist (under its own `grapevine-auth` key), and
                  * duplicating it here would create a second copy to go stale. */
                 partialize: (state) => ({
                     loggedIn: state.loggedIn,
                     user: state.user,
                 }),
-                name: 'synaxis-user',
+                name: 'grapevine-user',
             },
         ),
     ),

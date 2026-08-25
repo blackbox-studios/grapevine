@@ -1,12 +1,15 @@
 "use client"
 
 import { cloneElement } from "react"
+import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 
+import NotificationsView from "@/components/NotificationsView"
 import PostView from "@/components/PostView"
 import { ROUTES } from "@/lib/constants"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
 
@@ -23,6 +26,7 @@ import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
  * SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
 const SURFACES = {
     [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
+    [ROUTES.NOTIFICATIONS]: (param, variant) => <NotificationsView variant={variant} />,
 }
 
 /* The base surface a slide route pushes: the shell's scroll container, holding the route
@@ -64,48 +68,76 @@ export const SlideBase = ({ ref, className, children }) => {
     )
 }
 
-/* Renders the active slide route's surface. The shell owns it so it outlives the URL
- * change that opened it (see useSlideRoute). Mount it last in the layout so it stacks
- * above the nav.
+/* Renders every open slide-route surface, outermost first. The shell owns them so they
+ * outlive the URL change that opened them (see useSlideRoute). Mount it last in the layout
+ * so the stack sits above the nav.
  *
- * The surface is given a stable key off its prefix so AnimatePresence tracks one
- * instance across open → dismiss: on dismiss it retains this element, props and all,
- * and plays the surface's exit to completion before unmounting. That's also why the
- * param is read at render time rather than during the exit — the retained element
- * keeps the value it opened with, so the surface never blanks mid-animation.
+ * **Usually one, but not always.** A slide route can be opened from inside another — a
+ * notification opens the post it is about — and rendering the whole stack rather than only
+ * the topmost is what makes that read correctly in both directions. The covering surface
+ * slides in over one that is still mounted underneath, so there is no moment of blank
+ * screen; on dismissal the top exits and reveals the one below already in place, instead of
+ * a second surface animating in from the right as though it were being opened afresh.
+ * Everything below the top is completely covered, so it costs a mounted subtree and nothing
+ * visual.
  *
- * No scroll lock is needed while it's up: the surface is a separate fixed layer over the
- * scroll container, so the container behind it can't be reached and scrolled. It keeps
+ * Each surface is keyed by the **path it was opened at**, so AnimatePresence tracks one
+ * instance across open → dismiss and two stacked surfaces of the same kind stay distinct.
+ * On dismiss it retains that element, props and all, and plays the exit to completion — which
+ * is also why the param is read at render time rather than during the exit: the retained
+ * element keeps the value it opened with, so a surface never blanks mid-animation.
+ *
+ * No scroll lock is needed while any of this is up: a surface is a separate fixed layer over
+ * the scroll container, so the container behind it can't be reached and scrolled. It keeps
  * its offset untouched and the reader lands right where they left off on dismiss. */
 export const SlideRouter = () => {
-    const { route, open } = useActiveSlide()
-    const surface = route ? SURFACES[route.prefix] : null
+    const { slides } = useActiveSlide()
 
     return (
         <AnimatePresence>
-            {open && surface
-                ? cloneElement(surface(route.param, "modal"), { key: route.prefix })
-                : null}
+            {slides.map((slide) => {
+                const surface = SURFACES[slide.prefix]
+                if (!surface) return null
+                return cloneElement(surface(slide.param, "modal"), { key: slide.path })
+            })}
         </AnimatePresence>
     )
 }
 
 /* The cold-load half: a slide route reached by a hard navigation, a refresh, or a
  * shared link, where nothing is mounted behind it to overlay. It renders the same
- * registered surface in its `page` presentation, which portals to <body> and covers
- * the viewport instead of sliding.
+ * registered surface in its `page` presentation, which covers the viewport instead of
+ * sliding.
  *
  * This resolves the *pathname*, not a route segment, which is the whole point: a slide
  * route needs no page file of its own, so no dynamic segment exists for the static
  * export to enumerate and no post id has to be known at build time. It is mounted from
  * the protected shell's catch-all, so every registered slide route gets cold-load
- * handling for free — `fallback` is what that catch-all renders otherwise (the 404). */
+ * handling for free — `fallback` is what that catch-all renders otherwise (the 404).
+ *
+ * **The portal to <body> lives here rather than in each surface**, because it is a property
+ * of the cold load and not of any surface: a `page` is mounted inside the shell's page
+ * wrapper, a low `z-1` context that a slide route may itself be mid-transform on, and only
+ * escaping it lets the surface cover the viewport. The in-app `modal` needs none of this —
+ * <SlideRouter/> already renders it above the nav, and portaling it would trap its exit. */
 export const SlidePage = ({ fallback = null }) => {
     const pathname = usePathname()
+    const mounted = useMounted()
+    const { open } = useActiveSlide()
     const route = slideRouteFor(pathname)
     const surface = route ? SURFACES[route.prefix] : null
 
-    return surface ? surface(route.param, "page") : fallback
+    /* **The cold-load half only, which is what `open` decides.** This resolves the pathname
+     * alone, so on its own it cannot tell a URL this session opened from one it landed on —
+     * and once a slide route is cold-loaded, this page stays mounted while a *second* slide
+     * route is opened from inside it (a post tapped in a cold-loaded notifications panel).
+     * The pathname now names the post, so without this the post renders twice: once here as
+     * a `page` and once in <SlideRouter/> as a `modal`, two subtrees and two fetches, with
+     * dismissing one leaving the other on screen. `open` is true exactly when the stack
+     * already covers this pathname, which is exactly when this must render nothing. */
+    if (open) return null
+    if (!surface) return fallback
+    return mounted ? createPortal(surface(route.param, "page"), document.body) : null
 }
 
 export default SlideRouter

@@ -16,7 +16,7 @@ This document describes the frontend architecture and the patterns ALL agents mu
 | Forms | `react-hook-form` + `zod` (via `@hookform/resolvers`) |
 | Styling | **Tailwind CSS v4** (via `@tailwindcss/postcss`) |
 | Animation | `motion` (Framer Motion) |
-| Theming | **`next-themes`** (class strategy, `storageKey` `synaxis-ui-theme`) |
+| Theming | **`next-themes`** (class strategy, `storageKey` `grapevine-ui-theme`) |
 | Auth | **Supabase Auth** (emailed one-time code, browser client) — gates in `components/AuthGate.jsx`, role gating in `components/Auth.jsx` |
 | Native shell | **Capacitor 8** (iOS + Android) over a static export — see `native-architecture.md` |
 | Component Library | **shadcn/ui** (radix-ui primitives) — `components.json` at the repo root |
@@ -82,7 +82,9 @@ Reference files:
 │   │   ├── FrozenRouter.jsx         # "use client": freezes LayoutRouterContext for exiting routes
 │   │   ├── SlideRouter.jsx          # "use client": the slide-route surface registry —
 │   │   │                            #   <SlideRouter/> (in-app overlay), <SlidePage/> (cold
-│   │   │                            #   load), <SlideBase/> (the base surface it pushes)
+│   │   │                            #   load, portals to <body>), <SlideBase/> (the pushed base)
+│   │   ├── SlideSurface.jsx         # "use client": the full-screen sheet a slide route takes
+│   │   │                            #   on a phone — box, safe area, keyboard lift, enter/exit
 │   │   ├── Loading.jsx              # <Spinner/> — no full-screen loading surface; the gates render nothing
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
@@ -128,7 +130,8 @@ Reference files:
 │   │       ├── org/                 # { store.js, hook.js } — the selected group + the switcher
 │   │       ├── feed/                # { store.js, hook.js } — the paginated list
 │   │       ├── post/                # { store.js, hook.js } — the one open post + all post writes
-│   │       └── comments/            # { store.js, hook.js } — the one open thread
+│   │       ├── comments/            # { store.js, hook.js } — the one open thread
+│   │       └── notifications/       # { store.js, hook.js } — the bell's tally + the panel's list
 └── app/api/**/route.api.js          # the API. `.api.js`, NOT `route.js` — see backend-architecture.md
 ```
 
@@ -755,7 +758,7 @@ return (
 | Registry (`lib/constants.js`) | Meaning |
 |---|---|
 | `NESTED_TRANSITION_ROUTES` | Route trees that collapse to one top-level key because a nested layout runs its own `<PageTransition/>` (currently `/settings`). |
-| `SLIDE_ROUTES` | Routes that open as a sliding overlay over a base surface that stays mounted (currently `/p`). See **Slide routes** below. |
+| `SLIDE_ROUTES` | Routes that open as a sliding overlay over a base surface that stays mounted (`/p` and `/notifications`). See **Slide routes** below. |
 
 | Resolver (`lib/utils.js`) | Answers |
 |---|---|
@@ -799,14 +802,21 @@ The tradeoff to know about: while a slide route is open, the router's segment tr
 
 `<SlidePage/>` is the cold-load half, mounted from the protected shell's `[...not-found]` catch-all. It reads `usePathname()`, resolves it through `slideRouteFor`, and renders the matched surface in its `page` presentation; anything that isn't a registered slide route falls through to the `fallback` it was given (the 404). Because the catch-all matches infinitely many paths off a single sentinel `generateStaticParams` entry, every registered slide route gets cold-load handling with **zero** per-route enumeration.
 
-#### Open/close gating
+#### Open/close gating, and stacking
 
-`useActiveSlide()` reports `open` only when **both** are true:
+`openedStack` (module-level state in `useSlideRoute.hook.js`) is the list of paths **the app itself has opened**, oldest first. `useActiveSlide()` derives from it:
 
-- the **pathname** matches a registered slide route, and
-- that exact path is the one **the app itself opened** (`openedPath`, module-level state in `useSlideRoute.hook.js`).
+- **`slides`** — every surface that should be on screen, outermost first. `activeSlides` truncates the stack at the current pathname: everything above it belongs to a forward history entry the reader has left, and a pathname that appears nowhere in the stack means the URL has moved off the slide routes entirely, which closes all of them.
+- **`open`** — `slides.length > 0`.
+- **`pushed`** — the base slides a full viewport, whatever the depth; one surface already covers it.
 
-Both halves are load-bearing. The `openedPath` half is the **soft- vs cold-load signal**: a cold load of `/p/:id` (a shared link, or a refresh) has a matching pathname but nothing mounted behind it, so `<SlidePage/>` must render it as a full-viewport page rather than an overlay. The pathname half closes the surface the moment the URL moves anywhere else — dismissal or a tap on another nav tab — with nothing to reset, which is why `openedPath` stores the path rather than a boolean.
+Two things follow, and both are load-bearing:
+
+**The stack is the soft- vs cold-load signal.** A cold load of `/p/:id` (a shared link, or a refresh) has a matching pathname but an empty stack, because *this session* never opened it — so nothing is mounted behind it and `<SlidePage/>` must render it as a full-viewport page rather than an overlay. This is why paths are stored rather than a boolean or a count.
+
+**A slide route can be opened from inside another one, and that is why it is a stack.** A notification opens the post it is about; the post has to sit *over* the list, and dismissing it must uncover the list rather than dump the reader on the feed. `<SlideRouter/>` renders the whole stack — the covered surfaces are completely hidden, so it costs a mounted subtree and nothing visual, and it is what makes the back gesture reveal what was underneath instead of animating a second surface in from the right as though it were being opened fresh.
+
+**What is open is derived, never mutated on navigation.** There is no popstate listener and no ordering hazard: the URL is the source of truth and the stack is only the record of what this session opened. The single place that prunes is `openSlide`, which drops anything above the current path before appending — so backing out of one post and opening another cannot resurrect the first.
 
 #### Adding a new slide route
 
@@ -825,7 +835,15 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
 
    This alone makes the top-level `<PageTransition/>` stop cross-fading the base, and keeps the base's nav tab highlighted while the surface is open.
 
-2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param. It owns its own presentation *and* its own enter/exit animation, so it can differ by breakpoint. For the mobile push, animate `x: "100%" → 0` (and `exit: { x: "100%" }`) with `SLIDE_TRANSITION` from `@/lib/utils`, full-viewport wide — that's the contract that keeps it locked to `<SlideBase/>`. Model it on `components/PostView.jsx`.
+2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param, and **compose it out of the three shared pieces rather than reimplementing them** — that is what keeps two slide routes moving identically instead of nearly so:
+
+   | Piece | From | What it gives you |
+   |---|---|---|
+   | `<SlideSurface variant>` | `components/SlideSurface.jsx` | The full-screen sheet: `fixed` box, `--safe-top` inset, the lift over `--keyboard-inset`, and the enter/exit animation. Pass `className` for the surface's background; pass `ref` if it must measure itself. |
+   | `useSlideDismiss()` | `lib/hooks/useSlideRoute.hook.js` | The close action *and* the Escape binding. Unwinds the pushed history entry, and falls back to a real navigation to the registry's `base` when there is none (a cold deep link). |
+   | `slideSurfaceAnim(variant)` | `lib/utils.js` | The raw animation, if a surface needs its own wrapper. `modal` travels a full viewport on `SLIDE_TRANSITION`, locked to `<SlideBase/>`'s push; `page` fades, because a cold load has nothing behind it to be coupled to. |
+
+   A surface still owns everything above that — `components/PostView.jsx` branches to a dialog on desktop and a Reels-style sheet on mobile; `components/NotificationsView.jsx` is the small version of the same shape. Model a new one on the second.
 
 3. **Register the surface** in `components/SlideRouter.jsx`. One entry serves both presentations — the in-app overlay and the cold load:
 
@@ -836,9 +854,11 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
    }
    ```
 
-   The `page` variant portals to `<body>` (see `PostView`) so it escapes the shell's `z-1` page wrapper — which a slide route may be mid-transform on — and covers the viewport.
+   A route with no dynamic segment (`/notifications`) simply resolves `param` as `null` and ignores it — a slide route is a presentation, not a shape of URL.
 
 4. **Open it with `openSlide`** from the trigger (see `Feed.jsx`'s `openPost`), not `router.push`.
+
+`<SlidePage/>` portals the `page` variant to `<body>` for you, so it escapes the shell's `z-1` page wrapper — which a slide route may itself be mid-transform on — and covers the viewport. A surface must **not** portal itself: the in-app `modal` is already rendered above the nav by `<SlideRouter/>`, and portaling it would trap its exit animation.
 
 **Do not add a route folder.** There is no step for `app/(protected)/u/[handle]/page.jsx`, and adding one is a regression: a dynamic segment forces `generateStaticParams` under the export, which puts you back to enumerating every handle at build time. `<SlidePage/>` in the catch-all already serves the cold load for any registered prefix, for any param value, resolved at runtime. Nothing in `app/(protected)/layout.jsx` changes either — it already renders `<SlideRouter/>` generically.
 
@@ -847,8 +867,10 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
 - **Never** re-derive slide-route behaviour inline (`pathname.startsWith("/p/")`) in a component. Use the resolvers, or add to the registry.
 - **Never** open one with `router.push` — that unmounts the base and the push has nothing to slide.
 - **Never** give a slide route its own route folder or an intercepting route. Both reintroduce build-time enumeration; interception additionally fails the export outright.
-- Keep the surface and `<SlideBase/>` on the **same distance, curve, and trigger**. If you change one, change the other; if they diverge, the push decouples.
-- Give the surface a stable key across open→dismiss (handled for you by `SlideRouter`, which keys off the route prefix) so `AnimatePresence` tracks a single instance rather than remounting it.
+- Keep the surface and `<SlideBase/>` on the **same distance, curve, and trigger**. Using `<SlideSurface/>` is what guarantees this; if you hand-roll the motion instead, take it from `slideSurfaceAnim` rather than restating it.
+- **Don't reimplement dismissal.** `useSlideDismiss()` already resolves the base off the registry, handles the cold-link fallback, and binds Escape. A surface that rolls its own is one that will not have the fallback.
+- Give the surface a stable key across open→dismiss (handled for you by `SlideRouter`, which keys off the path it was opened at) so `AnimatePresence` tracks a single instance rather than remounting it.
+- **Opening a slide route from inside one stacks it.** That is supported and needs no special handling — just call `openSlide` (see the notification rows in `components/Notifications.jsx`). A container that is *not* itself a slide route has to get out of the way itself, though: the desktop notifications popover closes on open, because Radix has no idea a surface appeared behind it.
 
 ### Route guards — `components/AuthGate.jsx`
 
@@ -863,7 +885,7 @@ Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so
 
 **That window shows nothing — don't put a spinner back in it.** One used to live there, with a one-second minimum on screen so it couldn't flicker, which meant every cold start paid a full second whether or not there was anything to wait for. A blank frame or two is the honest picture of a fast session check; a spinner with a floor makes the app slower than it is on every launch. If a future boot genuinely takes long enough to need covering, fix the wait, not the picture of it.
 
-**This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `synaxis-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
+**This is deliberately not middleware.** `src/middleware.js` used to do it, gating on a `grapevine-auth` cookie, and that is the idiomatic Next approach — but `output: "export"` (the native build) drops middleware silently, so the gate would vanish precisely where it matters. A client gate is the one form that works in both build targets. The cost is that the decision lands after mount rather than before the response; the `mounted` gate is what keeps that from flashing.
 
 Full detail, and how to attach a real session, is in `auth-architecture.md`.
 
@@ -1013,7 +1035,7 @@ import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 - **`@utility` declarations** in `globals.css` (e.g. `panel`, `bg-dotted`) are off-limits unless the user explicitly asks.
 - **No inline color literals** in `className`. Forbidden: `bg-[#ABCDEF]`, `text-[oklch(...)]`. Use theme tokens (`bg-primary`, `text-muted-foreground`, `border-border`, `text-success`, `text-warning`, `text-destructive`).
 - **No `style={{...}}` prop** unless Tailwind genuinely can't express it. Always prefer string className.
-- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `synaxis-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
+- **Dark mode** is class-based (`.dark` on `<html>`), driven by **`next-themes`** (configured in `app/providers.jsx`, `localStorage` key `grapevine-ui-theme`). Use `dark:` variants in className. For runtime theme changes use `useTheme()` imported from `@/lib/providers/Theme` (a thin re-export of next-themes) — **never** roll your own. When rendering UI that depends on the *current* theme value (e.g. a theme switcher's active state), gate it on a `mounted` flag (`useEffect(() => setMounted(true), [])`) — next-themes returns the theme only after mount, so reading it during render without the gate causes a hydration mismatch (see `settings/page.jsx`).
 
 ### Layout tokens
 
@@ -1427,7 +1449,7 @@ There is no `main.jsx`. Three files split the responsibilities the old `main.jsx
 
 ```jsx
 // app/layout.jsx (essence)
-export const metadata = { title: "Synaxis", icons: { icon: "/favicon.svg" } }
+export const metadata = { title: "Grapevine", icons: { icon: "/favicon.svg" } }
 
 export default function RootLayout({ children }) {
     return (
@@ -1442,7 +1464,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="synaxis-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="grapevine-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

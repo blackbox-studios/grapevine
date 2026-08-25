@@ -94,7 +94,7 @@ export const PostMenuTrigger = ({ post, dismiss, className }) => {
                             className,
                         )}
                     >
-                        <Icon>more_horiz</Icon>
+                        <Icon size="lg">more_horiz</Icon>
                     </button>
                 </DropdownMenuTrigger>
                 {/* The primitive sizes its panel to the trigger, which here is a single

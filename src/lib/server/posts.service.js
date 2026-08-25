@@ -11,6 +11,7 @@ import {
     newPostRecipients,
     notifyLike,
     notifyNewPost,
+    unnotifyComment,
     unnotifyLike,
 } from "@/lib/server/notifications.service"
 import { projectComment, projectPost } from "@/lib/server/projections"
@@ -667,5 +668,10 @@ export const deleteComment = async (viewer, commentId) => {
             data: { commentCount: { decrement: 1 } },
             select: { id: true },
         })
+
+        /* Inside the claim, so it runs once for the request that actually deleted the row —
+         * and inside the transaction, so a thread can never be left with notifications
+         * pointing at a comment that is gone. */
+        await unnotifyComment(tx, commentId)
     })
 }

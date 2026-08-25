@@ -176,9 +176,18 @@ export const useSlideDismiss = () => {
         if (!closeSlide()) router.push(base)
     }, [router, base])
 
+    /* **One dismissal per keypress, however many surfaces are stacked.** Every mounted surface
+     * calls this hook, and with a post opened over the notifications panel both are mounted —
+     * so both listeners see the same Escape and, unguarded, `history.back()` runs twice and
+     * takes the panel down with the post. Marking the event handled is what settles it: the
+     * listeners share one event object, so the first to run claims it and the rest fall
+     * through. Which one runs first does not matter, because they all do the same thing —
+     * `closeSlide` unwinds the topmost entry no matter who asked. */
     useEffect(() => {
         const onKey = (event) => {
-            if (event.key === "Escape") dismiss()
+            if (event.key !== "Escape" || event.defaultPrevented) return
+            event.preventDefault()
+            dismiss()
         }
         window.addEventListener("keydown", onKey)
         return () => window.removeEventListener("keydown", onKey)

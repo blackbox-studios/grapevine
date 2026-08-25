@@ -123,9 +123,19 @@ export const SlideRouter = () => {
 export const SlidePage = ({ fallback = null }) => {
     const pathname = usePathname()
     const mounted = useMounted()
+    const { open } = useActiveSlide()
     const route = slideRouteFor(pathname)
     const surface = route ? SURFACES[route.prefix] : null
 
+    /* **The cold-load half only, which is what `open` decides.** This resolves the pathname
+     * alone, so on its own it cannot tell a URL this session opened from one it landed on —
+     * and once a slide route is cold-loaded, this page stays mounted while a *second* slide
+     * route is opened from inside it (a post tapped in a cold-loaded notifications panel).
+     * The pathname now names the post, so without this the post renders twice: once here as
+     * a `page` and once in <SlideRouter/> as a `modal`, two subtrees and two fetches, with
+     * dismissing one leaving the other on screen. `open` is true exactly when the stack
+     * already covers this pathname, which is exactly when this must render nothing. */
+    if (open) return null
     if (!surface) return fallback
     return mounted ? createPortal(surface(route.param, "page"), document.body) : null
 }

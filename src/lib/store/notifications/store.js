@@ -87,7 +87,7 @@ const useStore = create(immer((set, get) => ({
      * because a list already loaded is left alone and only the tally is re-read. */
     load: async () => {
         if (get().ready) {
-            get().refreshUnread()
+            await get().refreshUnread()
             return
         }
         await get().refresh()
@@ -160,10 +160,17 @@ const useStore = create(immer((set, get) => ({
      * tints what was unread when it opened, and that tint is the reader's answer to "which
      * of these are new" — clearing it in the same frame they opened it would take the
      * information away at exactly the moment it is wanted. The next `refresh` brings the rows
-     * back marked read, which is the right time for the highlight to go. */
+     * back marked read, which is the right time for the highlight to go.
+     *
+     * **Posts unconditionally, and must.** The obvious guard — skip when `unread` is already
+     * 0 — trusts a cached count that nothing refreshes between boot and the panel opening.
+     * There is no polling here by design, so a like that lands while the app is open leaves
+     * the store holding 0 while the server holds 1: the guard would bail, the panel would be
+     * read, and the bell would light up *immediately after* on the next tally. The same
+     * happens whenever the boot `refreshUnread` failed, since it swallows its error. The
+     * cost of being right is one POST per open with nothing to mark. */
     markRead: async () => {
         const wasUnread = get().unread
-        if (wasUnread === 0) return
 
         set(state => { state.unread = 0 })
 

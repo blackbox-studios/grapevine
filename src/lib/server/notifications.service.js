@@ -189,6 +189,22 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
     })
 }
 
+/* Retracts every "liked your comment" for a comment that has just been deleted.
+ *
+ * **The one gap the cascade cannot cover.** `postId` carries the foreign key, so deleting a
+ * post takes its notifications with it — including the ones about its comments. A *comment*
+ * has no such column, and could not usefully have one: its deletion is soft, so there is no
+ * DDL-level event to cascade from at all. Without this the panel keeps saying "liked your
+ * comment" for a comment no longer in the thread, the unread tally counts it, and tapping
+ * the row opens a post the comment does not appear in.
+ *
+ * Takes the transaction client, like `notifyNewPost` and for the same reason as everything
+ * else here: the retraction commits with the deletion that justifies it or not at all. */
+export const unnotifyComment = (tx, commentId) =>
+    tx.notification.deleteMany({
+        where: { type: "COMMENT_LIKE", subjectId: commentId },
+    })
+
 /* Who hears about a new post: every APPROVED member of the group except whoever wrote it.
  *
  * Read *outside* the publish transaction on purpose. It is the one statement here that does

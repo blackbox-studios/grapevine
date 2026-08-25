@@ -11,7 +11,8 @@ import useNotificationsStore from "./store"
  *
  * Reading is a side effect of that mount, and it is the whole "the bell stays lit until you
  * read the page" behaviour: the badge clears the moment the list is on screen. `markRead` is
- * called unconditionally and is a no-op when nothing is unread, so re-opening costs nothing.
+ * called on every open, including the ones with nothing to mark — see the note on it in the
+ * store for why it may not be skipped on a cached count of zero.
  *
  * The list is **not** cleared on unmount, unlike the open post's. There is one panel, its
  * contents are the same whichever surface showed them, and keeping the rows means re-opening
@@ -30,9 +31,18 @@ export const useNotifications = () => {
             ])),
         )
 
+    /* **Ordered, not concurrent.** Both halves touch `unread`: `load` reads the tally (on a
+     * re-open directly, on a first open inside `refresh`'s Promise.all) and `markRead` writes
+     * it to zero. Fired together, the read can be answered before the mark-read commits and
+     * still settle last — likely on a first open, where it waits on the heavier list query —
+     * which writes the pre-read count back over the cleared badge. Awaiting the read first
+     * means the only tally left standing is the one `markRead` gets back. */
     useEffect(() => {
-        load()
-        markRead()
+        const open = async () => {
+            await load()
+            await markRead()
+        }
+        open()
     }, [load, markRead])
 
     /* Truthy on the very first render, so the skeleton is present on frame one rather than

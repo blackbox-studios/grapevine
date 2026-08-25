@@ -56,10 +56,16 @@ import { MARK_LOBES, MARK_PATHS, MARK_SIZE, paletteFor } from "../src/lib/mark.j
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const { width: W, height: H } = MARK_SIZE
 
-/* The launcher icon is flat: a plain white mark on the brand green, no gloss. It is the
- * one surface rendered at 48px, behind an OEM mask, next to thirty other icons — where
- * specular highlights read as noise rather than as material. The splash keeps the gloss,
- * because it gets a whole screen. */
+/* The launcher icon is a flat white mark on a vertical green gradient — the Messages /
+ * WhatsApp shape. The mark itself stays flat: it is rendered at 48px, behind an OEM mask,
+ * next to thirty other icons, where specular highlights read as noise rather than as
+ * material. The depth comes from the field behind it instead. The splash keeps the gloss,
+ * because it gets a whole screen.
+ *
+ * The stops are the brand green lifted and dropped in oklch (L ±0.07 / −0.10 at constant
+ * hue), so #2BBB9C lands almost exactly at the midpoint and the icon still reads as the
+ * brand colour rather than as two arbitrary greens. */
+const ICON_GRADIENT = { top: "#47D2B2", bottom: "#009A7E" }
 const ICON_BG = "#2BBB9C"
 const ICON_MARK = "#FFFFFF"
 
@@ -71,11 +77,19 @@ const ICON_MARK = "#FFFFFF"
 const SPLASH_BG = "#FFFFFF"
 const SPLASH_DARK_BG = "#0A1014"
 
-/* Fractions of canvas width taken up by the mark's bounding box, measured off the icons
- * this replaced. See the header. */
-const IOS_SCALE = 0.60
-const LEGACY_SCALE = 0.60
-const ADAPTIVE_SCALE = 0.398
+/* Fractions of canvas width taken up by the mark's bounding box.
+ *
+ * The icon values are set by eye against the Messages icon, whose bubble fills roughly 0.72
+ * of its canvas — deliberately larger than the 0.60 measured off the icons this replaced,
+ * which left the mark looking lost inside its field.
+ *
+ * `ADAPTIVE_SCALE` is not 0.72 because it is a fraction of a *different* canvas: only the
+ * central 72dp of Android's 108dp adaptive square is guaranteed to survive an OEM mask, so
+ * matching the others optically means 0.72 x (72/108) = 0.48 of the full square. The splash
+ * keeps its measured value — it is a whole screen, not an icon. */
+const IOS_SCALE = 0.72
+const LEGACY_SCALE = 0.72
+const ADAPTIVE_SCALE = 0.48
 const SPLASH_SCALE = 0.159
 
 /** Splash mark centre, as a fraction of canvas height. 0.40 = above centre. */
@@ -211,6 +225,61 @@ function flatMarkSvg(fill) {
 }
 
 /**
+ * A square of the icon's vertical gradient, edge to edge.
+ *
+ * No rounded corners on purpose: both platforms apply their own mask — iOS a superellipse,
+ * Android whatever shape the OEM picked — and corners baked in here would show up as dark
+ * notches inside that mask.
+ */
+function gradientFieldSvg(size) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="${size}" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${ICON_GRADIENT.top}"/>
+      <stop offset="1" stop-color="${ICON_GRADIENT.bottom}"/>
+    </linearGradient>
+  </defs>
+  <rect width="${size}" height="${size}" fill="url(#field)"/>
+</svg>`
+}
+
+/**
+ * The whole launcher icon as one document: gradient field, mark centred on top.
+ *
+ * Built as a single SVG rather than composited from two bitmaps so the mark's edge is
+ * antialiased against the gradient itself. Compositing a separately-rasterized mark would
+ * blend its edge pixels against whatever flat colour the canvas was created with, leaving a
+ * faint halo wherever the gradient had moved away from it.
+ */
+function iconSvg(size, markScale) {
+    const markWidth = size * markScale
+    const scale = markWidth / W
+    const left = (size - markWidth) / 2
+    const top = (size - markWidth * (H / W)) / 2
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="${size}" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${ICON_GRADIENT.top}"/>
+      <stop offset="1" stop-color="${ICON_GRADIENT.bottom}"/>
+    </linearGradient>
+  </defs>
+  <rect width="${size}" height="${size}" fill="url(#field)"/>
+  <g transform="translate(${left} ${top}) scale(${scale})">
+    <path d="${MARK_PATHS.join(" ")}" fill="${ICON_MARK}" fill-rule="evenodd"/>
+  </g>
+</svg>`
+}
+
+/** Rasterizes a self-contained square SVG at `size` px. */
+function renderSquare(svg, size) {
+    return sharp(Buffer.from(svg), { density: 512 })
+        .resize({ width: size, height: size })
+        .png()
+        .toBuffer()
+}
+
+/**
  * Rasterizes the mark so its **outline** is `width` px wide.
  *
  * The SVG is padded by `BLEED` so the gloss has room; this renders the padded document
@@ -271,20 +340,17 @@ async function write(file, buffer) {
     console.log(`  ${path.relative(ROOT, file)}`)
 }
 
-async function buildIos(iconSvg, splashSvg) {
+async function buildIos(splashSvg) {
     console.log("\niOS")
 
-    const icon = await compose({
-        svg: iconSvg,
-        width: 1024,
-        height: 1024,
-        markWidth: 1024 * IOS_SCALE,
-        background: ICON_BG,
-    })
-    /* The App Store rejects an icon with an alpha channel. */
+    /* The App Store rejects an icon with an alpha channel. The gradient is opaque already,
+     * so `flatten` only strips the channel rather than changing any pixel. */
     await write(
         path.join(ROOT, "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"),
-        await sharp(icon).flatten({ background: ICON_BG }).png().toBuffer(),
+        await sharp(await renderSquare(iconSvg(1024, IOS_SCALE), 1024))
+            .flatten({ background: ICON_GRADIENT.bottom })
+            .png()
+            .toBuffer(),
     )
 
     const splash = (background) => compose({
@@ -316,32 +382,55 @@ async function buildIos(iconSvg, splashSvg) {
     }
 }
 
-async function buildAndroid(iconSvg, splashSvg) {
+async function buildAndroid(splashSvg) {
     console.log("\nAndroid")
     const res = path.join(ROOT, "android/app/src/main/res")
+
+    const markSvgFlat = flatMarkSvg(ICON_MARK)
 
     for (const { name, legacy, adaptive } of DENSITIES) {
         const dir = path.join(res, `mipmap-${name}`)
 
-        const square = await compose({
-            svg: iconSvg,
-            width: legacy,
-            height: legacy,
-            markWidth: legacy * LEGACY_SCALE,
-            background: ICON_BG,
-        })
+        const square = await renderSquare(iconSvg(legacy, LEGACY_SCALE), legacy)
         await write(path.join(dir, "ic_launcher.png"), square)
         await write(path.join(dir, "ic_launcher_round.png"), await circleMask(square, legacy))
 
+        /* The adaptive layers are separate files because Android animates them independently
+         * — the launcher slides the foreground against the background on scroll. */
         await write(
             path.join(dir, "ic_launcher_foreground.png"),
             await compose({
-                svg: iconSvg,
+                svg: markSvgFlat,
                 width: adaptive,
                 height: adaptive,
                 markWidth: adaptive * ADAPTIVE_SCALE,
                 background: null,
             }),
+        )
+        await write(
+            path.join(dir, "ic_launcher_background.png"),
+            await renderSquare(gradientFieldSvg(adaptive), adaptive),
+        )
+    }
+
+    /* The adaptive background is a *bitmap* now, not `@color/ic_launcher_background`: a
+     * colour resource is one flat value and cannot hold a gradient. These two XMLs are
+     * rewritten to point at the mipmap so the adaptive icon matches the legacy and iOS ones
+     * instead of being the only flat-green variant.
+     *
+     * The colour resource is kept and set to the gradient's midpoint. Nothing references it
+     * once these XMLs are repointed, but Android Studio's icon tooling and some launcher
+     * previews still read it, and a stale brand colour there would be a trap later. */
+    for (const file of ["ic_launcher.xml", "ic_launcher_round.xml"]) {
+        await write(
+            path.join(res, "mipmap-anydpi-v26", file),
+            Buffer.from(
+                `<?xml version="1.0" encoding="utf-8"?>\n` +
+                    `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n` +
+                    `    <background android:drawable="@mipmap/ic_launcher_background"/>\n` +
+                    `    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n` +
+                    `</adaptive-icon>\n`,
+            ),
         )
     }
 
@@ -394,14 +483,14 @@ async function buildAndroid(iconSvg, splashSvg) {
 async function main() {
     const splashPalette = paletteFor("jungle")
     console.log(
-        `Generating icons — flat ${ICON_MARK} on ${ICON_BG}, ` +
+        `Generating icons — flat ${ICON_MARK} at ${IOS_SCALE} on a ` +
+            `${ICON_GRADIENT.top} → ${ICON_GRADIENT.bottom} gradient, ` +
             `splash "${splashPalette.key}" on ${SPLASH_BG} / ${SPLASH_DARK_BG}`,
     )
-    /* Flat for the icon, glossy for the splash — see ICON_BG above. */
-    const iconSvg = flatMarkSvg(ICON_MARK)
+    /* Flat mark on a gradient field for the icon, glossy mark for the splash. */
     const splashSvg = markSvg(splashPalette)
-    await buildIos(iconSvg, splashSvg)
-    await buildAndroid(iconSvg, splashSvg)
+    await buildIos(splashSvg)
+    await buildAndroid(splashSvg)
     console.log("\nDone. Run `npm run sync` to push these into the native projects.")
 }
 

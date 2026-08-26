@@ -2,7 +2,14 @@ import "server-only"
 
 import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
-import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN, UPLOAD_PURPOSES } from "@/lib/constants"
+import {
+    HANDLE_MAX,
+    HANDLE_MIN,
+    HANDLE_PATTERN,
+    MAX_ORG_BIO_LENGTH,
+    MAX_ORG_NAME_LENGTH,
+    UPLOAD_PURPOSES,
+} from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { approvedMemberships, requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
@@ -342,6 +349,94 @@ export const listOrgs = async (viewer) => {
         items: memberships.map((membership) => projectOrg(membership.org, membership)),
         nextCursor: null,
     }
+}
+
+/* A group's name, description and picture — the group settings form.
+ *
+ * Admin of *that* group, which is the same permission as publishing into it and for the same
+ * reason: these three fields are the parish's public face. They appear in the switcher, on
+ * the Groups surface, and beside every post the group has ever published, so changing one is
+ * an act of administration rather than a member's preference.
+ *
+ * **`slug` and `kind` are deliberately not editable here.** The slug is the natural key the
+ * seeds upsert on and the only stable handle anything outside the database has on a group;
+ * letting it move would break every such reference for a cosmetic gain, since nothing in the
+ * UI shows it. `kind` decides what a group *is* (parish, diocese, monastery) and sits above
+ * a parish admin — a diocese that could be renamed into a monastery by one of its parish
+ * priests is not a permission this app should hand out. Both belong to whatever creates
+ * groups; see the "Adding groups without editing the seed" note in backend-architecture.md.
+ *
+ * Every field is optional and absent means "leave alone", so the form can send only what
+ * changed and the avatar picker can save a picture without touching the name mid-edit. An
+ * explicitly null `bio` does clear it — that is the one way to remove a description, and it
+ * is distinguishable from absence because `undefined` is what Prisma ignores.
+ */
+export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
+    requireMembership(viewer, orgId, { role: "ADMIN" })
+
+    const data = {}
+
+    if (name !== undefined) {
+        const value = String(name ?? "").trim().replace(/\s+/g, " ")
+        if (!value) throw invalid("Enter a name for this group.", { name: "Required" })
+        if (value.length > MAX_ORG_NAME_LENGTH) {
+            throw invalid(
+                `A group name can be at most ${MAX_ORG_NAME_LENGTH} characters.`,
+                { name: "Too long" },
+            )
+        }
+        data.name = value
+    }
+
+    if (bio !== undefined) {
+        /* Trimmed to null rather than to "": the column is nullable and the projection hands
+         * the client `bio` verbatim, so an empty string would render as a description that is
+         * present and blank — a surface with nothing in it instead of no surface. */
+        const value = String(bio ?? "").trim()
+        if (value.length > MAX_ORG_BIO_LENGTH) {
+            throw invalid(
+                `A description can be at most ${MAX_ORG_BIO_LENGTH} characters.`,
+                { bio: "Too long" },
+            )
+        }
+        data.bio = value || null
+    }
+
+    if (avatar !== undefined) {
+        const url = String(avatar ?? "").trim()
+        if (!url) throw invalid("A picture is required.", { avatar: "Required" })
+
+        /* The same check `updateAvatar` makes, with the group as the owner. Without it this
+         * endpoint would take any string as a picture, and a crafted request could point a
+         * parish's avatar at an off-site image the switcher would then render as parish
+         * identity — or at another group's object, whose path is unguessable and reachable
+         * no other way. Only a grant from POST /api/uploads mints a URL that passes, and
+         * that grant already ran this exact authorization. */
+        if (
+            !isOwnedUrl(url, {
+                prefix: uploadPrefix(UPLOAD_PURPOSES.ORG_AVATAR),
+                ownerId: orgId,
+            })
+        ) {
+            throw invalid("A group picture must be uploaded through Grapevine.", {
+                avatar: "Unrecognized file",
+            })
+        }
+        data.avatarUrl = url
+    }
+
+    if (Object.keys(data).length === 0) {
+        throw invalid("Nothing to update.", { name: "Required" })
+    }
+
+    const org = await prisma.organization.update({ where: { id: orgId }, data })
+
+    /* Projected with the viewer's own membership, so the response carries the same `role`
+     * and `status` shape every other org the client holds does — the store swaps this row
+     * into the viewer's list, and a row missing those two fields would read as a group the
+     * viewer has no standing in. */
+    const membership = viewer.memberships.find((entry) => entry.orgId === orgId)
+    return projectOrg(org, membership)
 }
 
 /* ---------------------------------------------------------------------------

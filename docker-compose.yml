@@ -1,0 +1,65 @@
+# The development database.
+#
+#     npm run db:up      start it (first run also creates the roles below)
+#     npm run db:down    stop it, keeping the data
+#     npm run db:nuke    stop it and delete the volume
+#
+# ── What this does and does not isolate ──────────────────────────────────────
+#
+# It isolates **Postgres**: schema, migrations, and every row the app reads or writes
+# through Prisma. Point DATABASE_URL and DIRECT_URL at it and the feed, the roster,
+# posts, comments and notifications are all local, so a destructive `db:reset` or a
+# fixture re-seed can never touch the parish's real data.
+#
+# It does **not** isolate Supabase Auth or Supabase Storage. Those stay pointed at the
+# hosted project, because they are separate services and this container is only
+# Postgres. The practical consequences, both fine but worth knowing:
+#
+#   - Sign-in still authenticates against the hosted project, so the same accounts work
+#     locally and `npm run dev:login` still consumes no email quota. `Profile.id`
+#     mirrors `auth.users.id`, and the dev seed reuses the *existing* auth user for an
+#     address rather than minting a new one — so the local database and the hosted
+#     identity stay in agreement.
+#   - Photos uploaded while developing land in the hosted `media` bucket. They are
+#     orphaned when the local database is reset (nothing points at them any more), which
+#     costs storage but leaks nothing — see the path note in lib/server/storage.js.
+#
+# If either of those ever needs to be local too, the answer is the Supabase CLI's own
+# stack (`supabase start`), which runs GoTrue and Storage in Docker beside Postgres.
+# That is a bigger change than this file: the anon/secret keys, the JWKS the API
+# verifies tokens against, and the seeded auth users all move with it.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: grapevine-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: grapevine
+      POSTGRES_PASSWORD: grapevine
+      POSTGRES_DB: grapevine
+      # Match Supabase's collation so an ORDER BY on a name sorts identically in both
+      # places. A roster that sorts differently in dev than in prod is the kind of
+      # difference that is invisible until someone reports it.
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    ports:
+      # 54322, not 5432, so this cannot collide with a Postgres already installed on the
+      # host — and cannot be mistaken for one either. It is also the port the Supabase
+      # CLI uses for its own local database, so the number is already familiar.
+      - "127.0.0.1:54322:5432"
+    volumes:
+      - grapevine-dev-db:/var/lib/postgresql/data
+      # Runs once, on an empty data directory only. Delete the volume (`npm run db:nuke`)
+      # to make it run again.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # `db:up` waits on this, so the migrate that follows cannot race the server's
+      # first-boot initialisation — Postgres briefly accepts connections during initdb
+      # and then restarts, which a naive sleep loop reads as "ready".
+      test: ["CMD-SHELL", "pg_isready -U grapevine -d grapevine"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  grapevine-dev-db:

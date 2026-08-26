@@ -52,6 +52,7 @@ const ERROR_INIT = {
     logout: false,
     onboarding: false,
     avatar: false,
+    org: false,
 }
 
 const LOADING_INIT = {
@@ -60,6 +61,7 @@ const LOADING_INIT = {
     logout: false,
     onboarding: false,
     avatar: false,
+    org: false,
 }
 
 const INIT = {
@@ -589,6 +591,51 @@ const useStore = create(
                         return false
                     } finally {
                         set(state => { state.loading.avatar = false })
+                    }
+                },
+
+                /* PATCH /api/orgs/:id → the group's name, description or picture.
+                 *
+                 * **This lives in the auth store because the auth store owns the groups.**
+                 * `user.orgs` arrives with the viewer from `/api/me` and is the single copy
+                 * the switcher, the Groups surface and `useCurrentOrg` all read — exactly as
+                 * `user.avatar` is the single copy behind every face on screen. So a group
+                 * edit is the same shape as `setAvatar`: PATCH, then swap the row that came
+                 * back into the viewer. Putting it in the `org` store instead would have
+                 * meant that store reaching into this one to invalidate a list it does not
+                 * own, which is the cycle its header warns about.
+                 *
+                 * The row is replaced rather than the whole viewer refetched: the response is
+                 * already the same projection `/me` ships, so a second round trip would learn
+                 * nothing. Everything downstream re-renders because `orgs` is a new array —
+                 * the name in the switcher, the picture beside it, and the header of the edit
+                 * screen itself all move together. */
+                updateOrg: async (orgId, changes) => {
+                    if (!orgId) return false
+
+                    set(state => {
+                        state.loading.org = true
+                        state.error.org = false
+                    })
+                    try {
+                        const org = await api.patch(API_ENDPOINTS.ORG(orgId), changes)
+                        set(state => {
+                            const orgs = state.user?.orgs
+                            if (!orgs) return
+                            const index = orgs.findIndex(entry => entry.id === orgId)
+                            if (index !== -1) orgs[index] = org
+                        })
+                        return true
+                    } catch (error) {
+                        set(state => {
+                            state.error.org = toErrorList(
+                                error,
+                                'Could not save this group.',
+                            )
+                        })
+                        return false
+                    } finally {
+                        set(state => { state.loading.org = false })
                     }
                 },
 

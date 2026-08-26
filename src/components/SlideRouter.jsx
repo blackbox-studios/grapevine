@@ -5,29 +5,20 @@ import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 
-import NotificationsView from "@/components/NotificationsView"
-import PostView from "@/components/PostView"
-import { ROUTES } from "@/lib/constants"
+import { RUNTIME_SURFACES } from "@/components/RuntimeRoute"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
 
-/* The surface each registered slide route renders, keyed by its prefix. This is the
- * only place that maps a slide route to a component — adding one is a single entry
- * here plus the SLIDE_ROUTES entry in constants.js. There is no per-route page file:
- * <SlideRouter/> draws the in-app overlay and <SlidePage/> serves the same URL when
- * it's opened cold, both off this one map.
+/* The surfaces come from `RUNTIME_SURFACES` in <RuntimeRoute/>, which both presentations
+ * share — see that file for what a runtime route is and why the map is not owned here. This
+ * file is now only the *sliding* half: the in-app overlay stack, the base it pushes, and the
+ * cold-load page for a slide route.
  *
- * A surface receives the route's dynamic param and the presentation it should take
- * (`modal` in-app, `page` for a cold load) and is responsible for its own presentation
- * *and* its own enter/exit animation (so it can differ by breakpoint — PostView swipes
- * on mobile and fades as a dialog on desktop). Animate horizontally with
- * SLIDE_TRANSITION over a full viewport to stay locked to the pushed base. */
-const SURFACES = {
-    [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
-    [ROUTES.NOTIFICATIONS]: (param, variant) => <NotificationsView variant={variant} />,
-}
+ * Adding a slide route is an entry in RUNTIME_ROUTES with `slide: true` plus one in
+ * RUNTIME_SURFACES. There is no per-route page file, which is the point.
+ */
 
 /* The base surface a slide route pushes: the shell's scroll container, holding the route
  * that stays mounted underneath. Slides a full viewport left — the same distance,
@@ -96,7 +87,7 @@ export const SlideRouter = () => {
     return (
         <AnimatePresence>
             {slides.map((slide) => {
-                const surface = SURFACES[slide.prefix]
+                const surface = RUNTIME_SURFACES[slide.prefix]
                 if (!surface) return null
                 return cloneElement(surface(slide.param, "modal"), { key: slide.path })
             })}
@@ -125,7 +116,7 @@ export const SlidePage = ({ fallback = null }) => {
     const mounted = useMounted()
     const { open } = useActiveSlide()
     const route = slideRouteFor(pathname)
-    const surface = route ? SURFACES[route.prefix] : null
+    const surface = route ? RUNTIME_SURFACES[route.prefix] : null
 
     /* **The cold-load half only, which is what `open` decides.** This resolves the pathname
      * alone, so on its own it cannot tell a URL this session opened from one it landed on —

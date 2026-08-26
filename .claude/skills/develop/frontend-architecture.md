@@ -97,7 +97,7 @@ Reference files:
 │   │   └── Grain.jsx
 │   ├── lib/
 │   │   ├── api.js                   # API wrapper + ApiError — the only layer that fetches
-│   │   ├── constants.js             # ROUTES, SLIDE_ROUTES, NESTED_TRANSITION_ROUTES,
+│   │   ├── constants.js             # ROUTES, RUNTIME_ROUTES, NESTED_TRANSITION_ROUTES,
 │   │   │                            #   API_BASE / API_ENDPOINTS / PAGE_SIZE / ERROR_CODES, MOCK_*_MS
 │   │   ├── mock.js                  # mockDelay / mockId — the `app` store's skeleton floor + temp ids
 │   │   ├── utils.js                 # Shared pure helpers (cn, formatDate, appPath/basePath,
@@ -758,7 +758,7 @@ return (
 | Registry (`lib/constants.js`) | Meaning |
 |---|---|
 | `NESTED_TRANSITION_ROUTES` | Route trees that collapse to one top-level key because a nested layout runs its own `<PageTransition/>` (currently `/settings`). |
-| `SLIDE_ROUTES` | Routes that open as a sliding overlay over a base surface that stays mounted (`/p` and `/notifications`). See **Slide routes** below. |
+| `RUNTIME_ROUTES` | Routes whose dynamic segment is only knowable at runtime, so they have no page file (`/p`, `/notifications`, `/g`). Each declares how it presents — `slide: true` for an overlay, `slide: false` for an ordinary page. See **Runtime routes** below. |
 
 | Resolver (`lib/utils.js`) | Answers |
 |---|---|
@@ -771,11 +771,37 @@ Page components do **not** add their own top-level `PageTransition` — the layo
 
 > **`eslint`:** `FrozenRouter` reads a ref during render on purpose; `react-hooks/refs` is disabled for it in `eslint.config.js`. Don't re-enable it there.
 
+### Runtime routes — real URLs with no page file
+
+A **runtime route** is a real, shareable URL whose dynamic segment could not have been known when the bundle was built: a post id, a group id. `output: "export"` requires `generateStaticParams` for every dynamic segment, so a `/p/[postId]` folder would mean enumerating every openable id ahead of time — impossible against a live database, and it would cap the app at a build-time corpus.
+
+The way out is to stop asking the router. These routes are reached by **shallow history navigation** — `pushRoute(path)`, which is `history.pushState`, which the App Router treats as a URL sync and reflects through `usePathname()` without touching the segment tree — and the shell resolves the *pathname* against the `RUNTIME_ROUTES` registry. No segment exists, so there is nothing to enumerate, and the URL is still real and shareable. `router.push` is not an alternative: in the export there is no route to push to.
+
+Adding one is two lines — an entry in `RUNTIME_ROUTES` declaring how it presents, and an entry in `RUNTIME_SURFACES` (`components/RuntimeRoute.jsx`) saying what it draws.
+
+**The mechanism and the presentation are deliberately separate.** The sliding overlay was the first consumer of the URL trick, not the reason for it, and for a while the two were welded together. They are now split at `slideRouteFor`, which resolves only `slide: true` entries — and *everything* overlay-flavoured keys off that function rather than off `runtimeRouteFor`:
+
+| | `slide: true` | `slide: false` |
+|---|---|---|
+| Drawn by | `<SlideRouter/>`, over the shell | `<RuntimeRoute/>`, in the shell's page slot |
+| Base surface | stays mounted, pushed off-screen | replaced |
+| Page transition | suppressed (`pageTransitionKey` → base) | ordinary cross-fade |
+| Nav highlight | stays on the base route | none |
+| Cold load | `<SlidePage/>` from the catch-all | same component as in-app |
+| Example | `/p/:postId`, `/notifications` | *(none yet — registered and waiting)* |
+
+Pick `slide: false` for anything that is a *place you go* rather than something you peek at and come back from.
+
+> **First ask whether it needs a URL at all.** Group settings went `page with a query param` → `slide route` → `page runtime route` → **dialog/sheet**, and the last move was the right one: nobody links to a settings form, so it is `<OrgEditor/>` opened from component state, shaped after the composer. A surface that is *acted in and dismissed* wants a dialog; a runtime route is for something that is genuinely addressable. Two lessons survive from the detour, both worth keeping:
+>
+> - **A page whose subject comes from the URL wants its id in the path, not a query parameter.** `/settings/groups/edit?org=<id>` flashed "Group not found" on every exit — leaving a page clears its search params while the outgoing surface is still cross-fading, so a screen deriving its subject from the param had one frame with no subject.
+> - **`<RuntimeRoute/>` resolves its route once, on mount.** `<FrozenRouter/>` pins `LayoutRouterContext` for an exiting subtree but *not* the pathname, so a live `usePathname()` read inside the outgoing page swaps its content to the incoming route before the fade-out plays — the surface appears at full opacity, fades out, then fades in. Two flashes for one navigation. Latching makes the exiting instance render what it was mounted for.
+
 ### Slide routes — `<SlideRouter/>` (overlay routes that push the page behind them)
 
 A **slide route** is a real, shareable URL that, when reached by a soft nav from inside the app, opens as a full-screen surface sliding in from the right while the page behind it stays mounted and is pushed off to the left. Dismissing reverses it. The same URL opened cold (hard nav / refresh / a shared link) renders the same surface as a full-viewport page instead. `/p/:id` (a post) is the reference implementation.
 
-**A slide route has no page file of its own.** There is no `app/(protected)/p/[postId]/page.jsx` — deliberately. A dynamic segment would force `generateStaticParams` under `output: "export"`, which means every openable id would have to be enumerated at build time; that caps the app at a corpus known to the build and bloats the bundle with per-id HTML the native app never serves. Instead both presentations resolve the **pathname** off the `SLIDE_ROUTES` registry, so ids are only ever known at runtime, which is what lets the feed be genuinely live and paginated.
+**A slide route has no page file of its own**, because it is a runtime route — see above for why, and for the registry both presentations resolve against.
 
 Three properties make it more than a modal:
 
@@ -827,13 +853,13 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
    ```javascript
    export const ROUTES = { /* … */ USER: "/u" }
 
-   export const SLIDE_ROUTES = [
-       { prefix: ROUTES.POST, base: ROUTES.DEFAULT },
-       { prefix: ROUTES.USER, base: ROUTES.DEFAULT },   // ← base = the surface it overlays
+   export const RUNTIME_ROUTES = [
+       { prefix: ROUTES.POST, slide: true, base: ROUTES.DEFAULT },
+       { prefix: ROUTES.USER, slide: true, base: ROUTES.DEFAULT },  // ← base = what it overlays
    ]
    ```
 
-   This alone makes the top-level `<PageTransition/>` stop cross-fading the base, and keeps the base's nav tab highlighted while the surface is open.
+   `slide: true` is what makes it an overlay: it alone stops the top-level `<PageTransition/>` cross-fading the base and keeps the base's nav tab highlighted while the surface is open. Declare `slide: false` instead — and omit `base`, which is meaningless without a surface underneath — and the same registration gives you an ordinary page at a runtime-resolved URL, rendered by `<RuntimeRoute/>` in the page slot. Steps 2 and 3 below are the slide-route path; a page route needs only the surface and the `RUNTIME_SURFACES` entry.
 
 2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param, and **compose it out of the three shared pieces rather than reimplementing them** — that is what keeps two slide routes moving identically instead of nearly so:
 
@@ -1215,7 +1241,13 @@ Same rule extends to anything above or below the collapsible. If you want spacin
 
 ### Forms
 
-Use `react-hook-form` + `zod` + the shadcn `Form`/`FormField`/`FormControl`/`FormMessage` wrappers (see `pages/public/login/page.jsx`):
+**Every form uses `react-hook-form` + `zod` + the `Form` primitives in `components/ui/form.jsx`. This is the default, not one option among several.** Reach for `<Form>`, `<FormField>`, `<FormItem>`, `<FormLabel>`, `<FormControl>`, `<FormDescription>` and `<FormMessage>` before writing a `<label>` or a `useState` per field.
+
+The reason is not consistency for its own sake. Those wrappers carry things that are invisible until they are missing: `<FormLabel>` owns the `htmlFor`/`id` pairing, `<FormControl>` wires `aria-describedby` and `aria-invalid` off the field's error state, and `<FormMessage>` renders the resolver's message in the one place a screen reader has been told to look. Hand-rolled markup reproduces the visible half and silently drops the rest, and the loss does not show up in review — it shows up for someone using the app with a screen reader. A hand-rolled character counter and a manual `disabled` gate are the usual first symptoms; both are already solved by `<FormDescription>` and a schema.
+
+Deviate only where a form is genuinely doing something the primitives cannot express, and say why in a comment. `<ComposeForm/>` is the one such case and is worth reading as the shape of a *justified* deviation: it still uses `<Form>`, `<FormField>` and `<FormControl>` throughout, and departs on exactly one point — validation is toasted rather than rendered through `<FormMessage>`, because its fields are borderless writing surfaces with no box to hang a message off and a line of red text under the caption shoves the photo strip down the moment someone taps Post. That is a deviation *inside* the system, argued from the layout. "This form is simple enough to do by hand" is not a reason; a simple form is exactly the one that costs nothing to do properly.
+
+See `components/OrgEditor.jsx` for a plain instance, or the login screen for one with a two-step flow:
 
 ```jsx
 const schema = z.object({
@@ -1241,6 +1273,11 @@ const form = useForm({ resolver: zodResolver(schema), defaultValues: { email: ''
 ```
 
 Validation errors render inside `<FormMessage/>` (per-field, RHF-driven). Server errors still flow through `error.<key>` → toast.
+
+Two habits that go with it:
+
+- **`useWatch({ control, name })`, not `form.watch(...)`.** The latter hands back a function the React compiler cannot memoize safely, so it bails out of optimizing the whole component.
+- **Re-seed by remounting, not by effect.** When a form's subject can change under it (editing a second group, a second post), give it `key={subject.id}` from the parent rather than resetting from a `useEffect` — `defaultValues` is then read once and is always the right subject's, and there is no effect to fight the `react-hooks/set-state-in-effect` rule with.
 
 ### Memoize `disabled` logic
 

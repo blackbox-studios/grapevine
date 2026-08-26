@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { ROLES } from "@/lib/constants"
 import { usePrivileged, useUser } from "@/lib/store/auth/hook"
+import useAuthStore from "@/lib/store/auth/store"
 import useOrgStore from "./store"
 
 /* The group the app is currently scoped to, and the switcher that changes it.
@@ -73,6 +74,58 @@ export const useCurrentOrg = () => {
          * skeleton through this rather than fetching with a null id. */
         skeleton: !ready,
     }), [current, orgs, isAdmin, select, ready])
+}
+
+/* Opening the group-settings surface — for the switcher, which is the only entrance.
+ *
+ * Split from `useOrgEditor` below because the callers are different subtrees with different
+ * needs: the switcher only ever needs "open it for this group", and subscribing it to the
+ * editor's loading and error state would re-render the whole menu on every keystroke saved
+ * inside the dialog. */
+export const useEditOrg = () => {
+    const editOrg = useOrgStore(state => state.editOrg)
+    return useMemo(() => ({ editOrg }), [editOrg])
+}
+
+/* The group being edited, and everything the surface needs to edit it.
+ *
+ * **Reads the group out of the viewer rather than fetching it**, for the reason the org
+ * store's header gives: `user.orgs` is the single copy, and a second fetch would be a second
+ * thing to go stale. `save` PATCHes and the auth store swaps the row back in, so the name in
+ * the switcher and the heading of the dialog move on the same frame.
+ *
+ * `open` is derived from `editingId` rather than stored separately — one source for "is the
+ * editor up", so it cannot disagree with which group it is up for. A viewer whose membership
+ * is revoked mid-edit stops resolving an `org`, which the surface renders as a dead end. */
+export const useOrgEditor = () => {
+    const [editingId, closeEditor] = useOrgStore(
+        useShallow(state => ([state.editingId, state.closeEditor])),
+    )
+    const { orgs } = useOrgs()
+    const [updateOrg, saving] = useAuthStore(
+        useShallow(state => ([state.updateOrg, state.loading.org])),
+    )
+
+    const org = useMemo(
+        () => orgs.find(entry => entry.id === editingId) ?? null,
+        [orgs, editingId],
+    )
+
+    const save = useCallback(
+        (changes) => updateOrg(editingId, changes),
+        [updateOrg, editingId],
+    )
+
+    return useMemo(() => ({
+        open: Boolean(editingId),
+        close: closeEditor,
+        org,
+        save,
+        saving,
+        /* The surface is reached only from a menu that offers it on admin rows, but a role can
+         * be revoked while the dialog is open — so it checks rather than trusting the entrance. */
+        canEdit: org?.role === ROLES.ADMIN,
+    }), [editingId, closeEditor, org, save, saving])
 }
 
 /* The mobile switcher's open state, and the shift it applies to the shell.

@@ -19,6 +19,8 @@ import { OrgNavPanel, OrgSwitcher } from "@/components/OrgNav";
 import NotificationsMenu from "@/components/Notifications";
 import { ProfileTrigger } from "@/components/Profile";
 import PageTransition from "@/components/PageTransition";
+import OrgEditor from "@/components/OrgEditor";
+import RuntimeRoute from "@/components/RuntimeRoute";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
 import { useOrgNav } from "@/lib/store/org/hook";
@@ -105,7 +107,7 @@ const NavSlot = ({ children }) => (
  * Slide routes need nothing from this file beyond <SlideBase/> (the surface they push)
  * and <SlideRouter/> (the surface itself): they open by shallow history navigation, so
  * the route rendered here never changes while one is up. Everything slide-route-specific
- * lives in the SLIDE_ROUTES registry; nothing about a given slide route is hard-coded
+ * lives in the RUNTIME_ROUTES registry; nothing about a given slide route is hard-coded
  * here. */
 const ProtectedShell = ({ children }) => {
     const pathname = usePathname()
@@ -227,8 +229,15 @@ const ProtectedShell = ({ children }) => {
                             pageTransitionKey off the route registries — nested trees
                             that fade their own sub-routes, and slide routes that must
                             leave their base mounted, unfaded, and unscrolled. */}
+                        {/* <RuntimeRoute/> renders an ordinary (`slide: false`) runtime route
+                            here in place of whatever the router resolved. Those routes change
+                            the URL with `pushRoute` and never touch the segment tree, so
+                            `children` is still the page they were opened from; substituting
+                            inside <PageTransition/> is what makes the swap a normal cross-fade
+                            rather than an overlay. None is registered yet — anything else
+                            falls straight through, which is every route today. */}
                         <PageTransition getKey={pageTransitionKey} onExitComplete={scrollToTop}>
-                            {children}
+                            <RuntimeRoute>{children}</RuntimeRoute>
                         </PageTransition>
                     </main>
                 </motion.div>
@@ -265,6 +274,12 @@ const ProtectedShell = ({ children }) => {
 
             {/* The slide-route surface. Last child so it stacks above the nav. */}
             <SlideRouter />
+
+            {/* Group settings, opened from the switcher in either rail. Mounted here rather
+                than beside either trigger because the desktop dropdown and the mobile panel
+                are separate subtrees that must not each own a copy — what is open lives in
+                the org store, and this is the one thing that draws it. */}
+            <OrgEditor />
         </>
     )
 }

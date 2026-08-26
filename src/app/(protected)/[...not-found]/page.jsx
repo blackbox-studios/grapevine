@@ -5,15 +5,20 @@ import { SlidePage } from "@/components/SlideRouter"
  *
  *  - A cold load of a registered slide route (`/p/:id` opened from a shared link, a
  *    refresh, or a hard nav) renders that route's surface as a full-viewport page.
- *    <SlidePage/> resolves it off the SLIDE_ROUTES registry.
+ *    <SlidePage/> resolves it off the RUNTIME_ROUTES registry.
  *  - Anything else is an unknown route, and renders the 404 with the full shell chrome
  *    (matching the old `path: '*'` behaviour).
  *
- * Slide routes deliberately have *no page file of their own*. That is what keeps post ids
+ * Runtime routes deliberately have *no page file of their own*. That is what keeps post ids
  * out of the build: a `/p/[postId]` segment would force `generateStaticParams` under
  * `output: "export"`, so every openable id would have to be enumerated ahead of time.
  * Resolving the path here instead means ids are only ever known at runtime, which is what
- * lets the feed be genuinely live/paginated. Interception (`@modal/(.)p/[postId]`) is not
+ * lets the feed be genuinely live/paginated.
+ *
+ * Note this file only handles the *slide* half. An ordinary (`slide: false`) runtime route is
+ * substituted into the page slot by <RuntimeRoute/> in the shell's layout, which runs above
+ * this — so a cold load of one renders the surface and never reaches the fallback below.
+ * None is registered today; the path is wired and waiting. Interception (`@modal/(.)p/[postId]`) is not
  * an option either — the export rejects it outright ("Intercepting routes are not
  * supported with static export"). See native-architecture.md.
  *

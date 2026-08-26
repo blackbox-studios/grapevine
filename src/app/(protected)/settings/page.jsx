@@ -18,8 +18,16 @@ const SettingsGeneralPage = () => {
      * the switcher lights up the current choice. */
     const mounted = useMounted()
 
+    /* The same centered column `/profile` uses, and for the same reason: this page holds one
+     * small control, and left-aligning it against the full width of a desktop shell put the
+     * heading and three thumbnails in the top-left corner of an otherwise empty screen. The
+     * roster next door genuinely needs the width — it is a table that scrolls sideways inside
+     * itself — so the constraint belongs on this page rather than on the settings layout.
+     *
+     * `max-w-[470px]` and the `md:pt-0` are lifted verbatim from `/profile`, so arriving here
+     * from that list does not change the shape of the page under the reader. */
     return (
-        <section className="flex flex-col gap-6">
+        <section className="mx-auto flex w-full max-w-[470px] flex-col gap-6 pt-6 pb-10 md:pt-0">
             <h2 className="text-xl font-semibold text-foreground">Appearance</h2>
 
             <div className="flex flex-wrap gap-6">

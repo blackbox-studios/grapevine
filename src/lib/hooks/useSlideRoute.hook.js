@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 
 import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { appPath, basePath, slideRouteFor } from "@/lib/utils"
+import { appPath, basePath, runtimeRouteFor, slideRouteFor } from "@/lib/utils"
 
 /* The other half of a slide route: how one is opened, and how the shell knows to draw it.
  *
@@ -75,7 +75,7 @@ const useOpenedStack = () =>
     )
 
 /* The current pathname as the registries spell it — `window.location` carries the base path
- * and `SLIDE_ROUTES` does not, so a subpath deployment would otherwise never match. */
+ * and the registry does not, so a subpath deployment would otherwise never match. */
 const currentPath = () => {
     const base = basePath()
     const path = window.location.pathname
@@ -97,8 +97,34 @@ const activeSlides = (stack, pathname) => {
     return stack.slice(0, top + 1).map((path) => ({ path, ...slideRouteFor(path) }))
 }
 
+/* **The primitive: change the URL without changing the rendered route.**
+ *
+ * This is the whole mechanism that lets a route carry an id nobody knew at build time.
+ * `history.pushState` is the only thing Next gives you for "new URL, same route" — the App
+ * Router treats it as a URL sync and reflects it through `usePathname()` without touching the
+ * segment tree — so no dynamic segment has to exist, and `generateStaticParams` has nothing
+ * to enumerate under `output: "export"`. It is also why the hardware/browser back gesture
+ * unwinds one of these for free: it is a real history entry.
+ *
+ * Use it for **any** route in RUNTIME_ROUTES, whichever presentation it declares. A slide
+ * route wraps it in `openSlide` to also record the stack entry its overlay needs; an ordinary
+ * page route (group settings) calls this directly and is drawn by <RuntimeRoute/> in the
+ * shell's page slot, where <PageTransition/> cross-fades it like any other page.
+ *
+ * `router.push` is not an alternative here and never becomes one. In the export there is no
+ * route to push to — the id was never enumerated — so the client router has nothing to
+ * resolve; and for a slide route it would additionally unmount the surface underneath, which
+ * is the one thing a slide route cannot survive.
+ *
+ * Not a hook, so it can be called straight from an event handler. */
+export const pushRoute = (path) => {
+    if (!runtimeRouteFor(path)) return false
+    window.history.pushState(null, "", appPath(path))
+    return true
+}
+
 /* Opens a registered slide route. Call this instead of `router.push` for any path in the
- * SLIDE_ROUTES registry — a real navigation would unmount the surface underneath, which
+ * RUNTIME_ROUTES registry — a real navigation would unmount the surface underneath, which
  * is the one thing a slide route can't survive.
  *
  * Not a hook, so it can be called straight from an event handler. The push is recorded
@@ -117,6 +143,22 @@ export const openSlide = (path) => {
     const top = openedStack.lastIndexOf(currentPath())
     publish([...(top === -1 ? [] : openedStack.slice(0, top + 1)), path])
     window.history.pushState(null, "", appPath(path))
+}
+
+/* The **page**-presentation runtime route the shell should draw right now, or null.
+ *
+ * Read by <RuntimeRoute/> in the page slot. Deliberately resolves only `slide: false`
+ * entries: a slide route is drawn by <SlideRouter/> as an overlay and must not also appear
+ * in the page slot underneath it.
+ *
+ * A page runtime route is never recorded in `openedStack`, and that is load-bearing rather
+ * than an omission — the stack is what `useActiveSlide` reports as `open`, which pushes the
+ * base container off-screen. A settings page that registered itself there would shove the
+ * shell sideways on the way in. */
+export const useRuntimePage = () => {
+    const pathname = usePathname()
+    const route = runtimeRouteFor(pathname)
+    return route && !route.slide ? route : null
 }
 
 /* Dismisses the topmost slide route by unwinding the entry `openSlide` pushed, so the
@@ -164,7 +206,7 @@ export const useActiveSlide = () => {
  * `closeSlide` returns false when there is nothing to unwind — a cold deep link, opened from
  * a shared URL or a refresh, which has no entry of its own — and the way out of that is a
  * real navigation to the surface the route overlays. That surface is recorded as `base` in
- * SLIDE_ROUTES, so resolving it here is what keeps a new slide route from having to restate
+ * RUNTIME_ROUTES, so resolving it here is what keeps a new slide route from having to restate
  * its own base at its call site. */
 export const useSlideDismiss = () => {
     const pathname = usePathname()

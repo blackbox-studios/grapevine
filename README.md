@@ -20,12 +20,19 @@ there is no mock mode to fall back on.
 ```bash
 npm install                    # also runs `prisma generate`
 cp .env.example .env.local     # then fill it in — it documents every value
+npm run db:up                  # start the local Postgres container
 npm run prisma:migrate         # create the tables
 npm run db:secure              # REQUIRED — see below
-npm run prisma:seed            # a cathedral, its people, and a post corpus
+npm run db:seed                # two groups, a roster, and a post corpus
 npm run storage:setup          # create the "media" bucket, once per environment
 npm run dev                    # http://localhost:3000
 ```
+
+Develop against the container, not against the parish's live database. `docker-compose.yml`
+runs Postgres on `127.0.0.1:54322`; point `DATABASE_URL` and `DIRECT_URL` there. It isolates
+Postgres only — Supabase Auth and Storage stay hosted, so the same accounts sign in and
+`dev:login` still works. Both destructive commands (`db:seed`, `db:reset`) refuse to run
+against a non-local host.
 
 `.env.example` is the committed source of truth for configuration and explains each value
 in place, including why the database needs two connection URLs and how email delivery is
@@ -90,12 +97,24 @@ Because the export contains no API, a native build must point at a deployed inst
 ## Database
 
 ```bash
+npm run db:up            # start the local Postgres container
+npm run db:down          # stop it, keeping the data
+npm run db:nuke          # stop it and delete the volume
+
 npm run prisma:migrate   # create/apply a dev migration
 npm run db:secure        # RLS + revoke Data API grants — after EVERY migration
-npm run prisma:seed      # Holy Trinity Cathedral, its people, and the post corpus
+npm run db:seed          # DEV: two groups, a roster, the post corpus (local only)
+npm run db:seed:prod     # PROD: one group, two admins, no posts — idempotent, additive
 npm run prisma:studio    # browse the data
-npm run db:reset         # DESTRUCTIVE: drop, re-migrate, re-secure, re-seed
+npm run db:reset         # DESTRUCTIVE: drop, re-migrate, re-secure, re-seed (local only)
 ```
+
+**Two seeds, and the difference is not the row count.** `prisma/seed.dev.js` owns its fixture
+ids and deletes and rewrites them on every run. `prisma/seed.prod.js` contains no delete at
+all: it guarantees *access* — the two admins exist, confirmed, with APPROVED ADMIN
+memberships — and writes content only when creating a row. Names, handles and the group's own
+name are left alone forever after, because they belong to the people who set them in the app.
+`prisma/seed.js` only chooses between the two.
 
 `prisma/schema.prisma` is the domain — read its header first; it explains the two decisions
 that carry the design. Seeding is never automatic: it has to land *after* `db:secure`, which

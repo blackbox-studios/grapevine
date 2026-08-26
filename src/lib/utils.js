@@ -1,7 +1,7 @@
 import { clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
-import { NESTED_TRANSITION_ROUTES, ROUTES, SLIDE_ROUTES } from "@/lib/constants"
+import { NESTED_TRANSITION_ROUTES, ROUTES, RUNTIME_ROUTES } from "@/lib/constants"
 
 /* Custom classes */
 const twMerge = extendTailwindMerge({
@@ -155,7 +155,7 @@ export const postPath = (id) => `${ROUTES.POST}/${id}`
  * Route resolution
  *
  * Every "this pathname is special" question the shell asks is answered here, off
- * the SLIDE_ROUTES / NESTED_TRANSITION_ROUTES registries in constants.js. Never
+ * the RUNTIME_ROUTES / NESTED_TRANSITION_ROUTES registries in constants.js. Never
  * re-derive these with an inline `pathname.startsWith(...)` at a call site — add
  * the route to the registry instead, and every consumer picks it up at once.
  * ------------------------------------------------------------------------- */
@@ -164,13 +164,31 @@ export const postPath = (id) => `${ROUTES.POST}/${id}`
 const isUnder = (pathname, prefix) =>
     pathname === prefix || pathname.startsWith(`${prefix}/`)
 
-/* The registered slide route this pathname belongs to, with the dynamic segment it
- * was opened with — `{ prefix, base, param }` — or null for an ordinary route. */
-export const slideRouteFor = (pathname) => {
-    const route = SLIDE_ROUTES.find((r) => isUnder(pathname, r.prefix))
+/* The registered **runtime route** this pathname belongs to, with the dynamic segment it
+ * carries — `{ prefix, slide, base, param }` — or null for an ordinary route.
+ *
+ * This is the primitive: "resolve a URL whose id could not have been known at build time".
+ * Both presentations are built on it, and so is anything added later — a route only has to
+ * appear in RUNTIME_ROUTES and have a surface registered to become reachable by real URL
+ * with no page file and nothing for `generateStaticParams` to enumerate. */
+export const runtimeRouteFor = (pathname) => {
+    const route = RUNTIME_ROUTES.find((r) => isUnder(pathname, r.prefix))
     if (!route) return null
     const param = pathname.slice(route.prefix.length + 1).split("/")[0] || null
     return { ...route, param }
+}
+
+/* The subset that presents as a sliding overlay.
+ *
+ * **Everything that makes a slide route behave like one keys off this, not off
+ * `runtimeRouteFor`** — the suppressed page transition, the nav staying lit on the base, the
+ * pushed container, the surface stack. So a runtime route declared `slide: false` gets the
+ * URL mechanism and an ordinary cross-fading page, with no further branching anywhere. That
+ * separation is the whole point of the split; collapsing these two back into one function
+ * would silently give every future settings screen an overlay's semantics. */
+export const slideRouteFor = (pathname) => {
+    const route = runtimeRouteFor(pathname)
+    return route?.slide ? route : null
 }
 
 /* The route the shell should behave as if it's on. A slide route resolves to the
@@ -336,6 +354,23 @@ export function roleLabel(role) {
         .split("_")
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ")
+}
+
+/* What kind of group this is, for a human — "Parish", "Diocese", "Monastery".
+ *
+ * Mirrors the `OrgKind` enum. Written out rather than title-cased through `roleLabel`
+ * because the two answer different questions and sharing one function would mean a new
+ * `OrgKind` silently rendering as whatever its enum name happens to look like; here an
+ * unmapped value falls back to the neutral "Group", which is the word the interface uses
+ * for an organization anyway. */
+const ORG_KIND_LABELS = {
+    PARISH: "Parish",
+    DIOCESE: "Diocese",
+    MONASTERY: "Monastery",
+}
+
+export function orgKindLabel(kind) {
+    return ORG_KIND_LABELS[kind] ?? "Group"
 }
 
 /* Deterministic per-value avatar gradient. Same input always maps to the same

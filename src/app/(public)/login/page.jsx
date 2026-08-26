@@ -212,19 +212,31 @@ const CodeStep = ({ onSubmit, onResend, onBack, loading, resendIn, fill }) => {
                                         <Fragment key={groupIndex}>
                                             {groupIndex > 0 && <InputOTPSeparator />}
                                             {/* The groups share the row and the slots inside
-                                              * them flex, rather than each slot being a fixed
-                                              * 44px square. Eight fixed squares plus the
-                                              * separator need ~384px, which is wider than the
-                                              * content column on any phone narrower than a Pro
-                                              * Max — and the overflow was centred, so the code
-                                              * was clipped at *both* ends. They still cap at
-                                              * 44px, so nothing changes where there is room. */}
+                                              * them flex to fill it, rather than each slot
+                                              * being a fixed square. Fixed squares overflow
+                                              * the content column on a narrow phone, and the
+                                              * overflow was centred, so the code got clipped
+                                              * at *both* ends.
+                                              *
+                                              * **Nothing caps a slot's width.** There was a
+                                              * `max-w-11` here, sized for eight digits, where
+                                              * the slots wanted more than the column had and
+                                              * so the cap never bound. At six it does bind:
+                                              * the row needs 264px of a ~345px column, and
+                                              * the 49px left over stranded the field short of
+                                              * both edges and pushed the separator off the
+                                              * optical centre. The container is already
+                                              * bounded — `max-w-88` on desktop, the shell's
+                                              * `px-6` column on mobile — so a second bound
+                                              * here only under-fills whatever it doesn't
+                                              * anticipate. Slots are ~52x44 at six digits and
+                                              * resize with the length. */}
                                             <InputOTPGroup className="min-w-0 flex-1">
                                                 {Array.from({ length: count }, (_, slot) => (
                                                     <InputOTPSlot
                                                         key={slot}
                                                         index={groupOffset(groupIndex) + slot}
-                                                        className="h-11 min-w-0 max-w-11 flex-1 rounded-none border-transparent bg-muted text-base first:rounded-l-xl last:rounded-r-xl"
+                                                        className="h-11 min-w-0 flex-1 rounded-none border-transparent bg-muted text-base first:rounded-l-xl last:rounded-r-xl"
                                                     />
                                                 ))}
                                             </InputOTPGroup>
@@ -240,7 +252,7 @@ const CodeStep = ({ onSubmit, onResend, onBack, loading, resendIn, fill }) => {
                 {/* Above the action, not below it. On mobile the button's bottom edge is
                   * the top of the keyboard, so this row would otherwise wedge itself into
                   * that seam and push the button away from the thumb. */}
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground pl-2">
                     {/* Supabase rejects a second code for the same address inside 60
                       * seconds, so the button waits the window out rather than firing
                       * into an error the reader can do nothing about. */}

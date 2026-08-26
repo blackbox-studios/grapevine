@@ -111,7 +111,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
                         {heading}
                     </h1>
                     {subheading && (
-                        <p className="font-heading font-medium leading-snug text-muted-foreground">
+                        <p className="font-heading leading-snug text-muted-foreground">
                             {subheading}
                         </p>
                     )}
@@ -128,7 +128,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => 
                         </h1>
                     )}
                     {subheading && (
-                        <p className="font-heading font-medium leading-snug text-muted-foreground">
+                        <p className="font-heading leading-snug text-muted-foreground">
                             {subheading}
                         </p>
                     )}
@@ -258,12 +258,12 @@ const GatewayShell = ({
                     {(heading || subheading) && (
                         <div className="flex flex-col items-center gap-1.5 px-4 text-center">
                             {heading && (
-                                <h1 className="text-2xl font-semibold text-foreground">
+                                <h1 className="text-3xl font-semibold text-foreground">
                                     {heading}
                                 </h1>
                             )}
                             {subheading && (
-                                <p className="font-heading font-medium leading-snug tracking-normal text-muted-foreground">
+                                <p className="font-heading leading-snug tracking-normal text-muted-foreground">
                                     {subheading}
                                 </p>
                             )}

@@ -26,8 +26,8 @@ export const MARK_PATHS = [
 
 /* The mark reads as two rounded counters side by side, each with a tail dropping from its
  * lower right. Each counter is lit like a sphere, which is what gives the shape its
- * blown-glass volume. Values are fractions of the mark's width/height — so unlike the old
- * Synaxis mark, whose lobes ran on a diagonal, these share a `y`. */
+ * blown-glass volume. Values are fractions of the mark's width/height — and because the
+ * two counters sit side by side rather than on a diagonal, both lobes share a `y`. */
 export const MARK_LOBES = [
     { x: 0.23, y: 0.32, r: 0.23 },
     { x: 0.77, y: 0.32, r: 0.23 },

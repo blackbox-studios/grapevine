@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "chat.grapevine.app"
+    namespace = "com.throughgrapevine.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "chat.grapevine.app"
+        applicationId "com.throughgrapevine.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

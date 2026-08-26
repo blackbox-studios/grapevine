@@ -50,8 +50,8 @@ const SERVICE_ROLE_KEY =
 /* The two addresses that can actually sign in. Defaults are placeholders on a domain
  * nobody receives mail at, which is fine for creating the rows but useless for signing
  * in — see the header. */
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@grapevine.chat"
-const MEMBER_EMAIL = process.env.SEED_MEMBER_EMAIL || "member@grapevine.chat"
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@throughgrapevine.com"
+const MEMBER_EMAIL = process.env.SEED_MEMBER_EMAIL || "member@throughgrapevine.com"
 
 /* ── The parish ──────────────────────────────────────────────────────────── */
 

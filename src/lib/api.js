@@ -42,7 +42,7 @@ class API {
         /* The Supabase access token, as a bearer header.
          *
          * A header rather than a cookie, because the native app is cross-origin against a
-         * deployed API (`capacitor://localhost` → `https://grapevine.chat/api`) and a
+         * deployed API (`capacitor://localhost` → `https://throughgrapevine.com/api`) and a
          * third-party cookie is not something to build a session on. The token is read
          * fresh per request — `sessionToken()` refreshes it if it is near expiry — so it
          * must never be hoisted or cached, or a long session starts 401ing when the token

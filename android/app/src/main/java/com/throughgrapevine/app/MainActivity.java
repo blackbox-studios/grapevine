@@ -1,4 +1,4 @@
-package chat.grapevine.app;
+package com.throughgrapevine.app;
 
 import android.content.pm.ApplicationInfo;
 import android.os.Bundle;

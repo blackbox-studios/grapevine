@@ -1,93 +1,155 @@
 # Grapevine
 
-Grapevine ([grapevine.chat](https://grapevine.chat)) is a lightweight **Next.js 15 + React 19** app template. It runs 100% on in-session mock data today, so you can click around the flows (dashboard, connections, settings, users) before wiring in a real backend — then grow it into a full product.
+Grapevine ([throughgrapevine.com](https://throughgrapevine.com)) is a private social feed for
+Orthodox parishes and dioceses — a **Next.js 15 (App Router) + React 19** app that also ships
+as a native iOS and Android app through **Capacitor**, from one codebase.
 
-Every Zustand store reads seed data from `src/lib/metadata.js` and mutates its own in-memory copy in-session. No backend required to run it. **Prisma** (Postgres) is included and wired but idle — turn it on when you need to persist real data.
+It is **invite-only and organization-scoped**. People belong to groups (a parish, a diocese)
+through a membership, and what a viewer may read is the union of the groups they belong to —
+there is no unscoped read anywhere in the API. Only a group's admin may publish into it;
+everyone else reads, likes, and comments. An admin adds people; nobody asks to join.
+
+There is a real API and a real database: the app is client-rendered and talks HTTP to Next
+route handlers under `src/app/api/`, which query **Postgres on Supabase** through **Prisma**.
 
 ## Quick start
 
-```bash
-npm install
-npm run dev              # http://localhost:3000
-```
-
-Login accepts any credentials (the whole gate is `loggedIn = true`). The app boots seeded with a demo user, a few dashboard cards, and some recent activity — everything reflects in real time until you reload.
-
-## Build
+You need a Supabase project (Postgres + Auth + Storage) before the app will do anything —
+there is no mock mode to fall back on.
 
 ```bash
-npm run build            # production build → .next/
-npm run start            # serve the production build
+npm install                    # also runs `prisma generate`
+cp .env.example .env.local     # then fill it in — it documents every value
+npm run prisma:migrate         # create the tables
+npm run db:secure              # REQUIRED — see below
+npm run prisma:seed            # a cathedral, its people, and a post corpus
+npm run storage:setup          # create the "media" bucket, once per environment
+npm run dev                    # http://localhost:3000
 ```
+
+`.env.example` is the committed source of truth for configuration and explains each value
+in place, including why the database needs two connection URLs and how email delivery is
+set up. Read it rather than guessing.
+
+> **`npm run db:secure` must follow every migration.** It applies `prisma/policies.sql`,
+> which enables row-level security and revokes the `anon`/`authenticated` grants. Supabase
+> auto-generates a REST API over the `public` schema that answers to the publishable key
+> compiled into our own client bundle — without that lockdown it serves every parish's
+> posts, bypassing the entire `/api` authorization layer.
+
+### Signing in
+
+Sign-in is an emailed one-time code (6 digits), not a password and not a magic link — a
+Capacitor WebView has no origin for a link to redirect back to. Since the app is invite-only,
+an address with no account can never be sent a code.
+
+For development, don't use your inbox:
+
+```bash
+npm run dev:login              # print a sign-in code for the seeded admin
+npm run dev:login -- member    # ...or the seeded member
+```
+
+It mints the same token through the Admin API and prints it rather than mailing it, so it
+consumes no email quota and works on a device as well as in a browser. Seeding provisions
+two real sign-innable accounts — an ADMIN priest who can publish and a MEMBER layperson who
+cannot — so both sides of the permission model can be demonstrated.
+
+Production email goes out over Resend from `no-reply@throughgrapevine.com`; the host, ports
+and DNS records are documented in `.env.example`.
+
+## Two build targets, one codebase
+
+```bash
+npm run build            # Node server build → .next/   (the only target that serves /api)
+npm run start            # serve it
+
+npm run build:native     # static export → out/         (the bundle Capacitor ships)
+npm run sync             # build:native + cap sync
+npm run ios              # sync + open Xcode
+npm run android          # sync + open Android Studio
+```
+
+The static export is the constraining target: it forbids middleware, intercepting routes,
+and route handlers, and every dynamic segment needs `generateStaticParams`.
+
+> **Route handlers are named `route.api.js`, not `route.js`.** `pageExtensions` in
+> `next.config.mjs` only treats `api.js` as a route in the Node build, which is what makes
+> the whole `src/app/api/` tree invisible to the static export. Name one `route.js` and the
+> native build breaks — possibly days later, in CI.
+
+> **Do not add `src/middleware.js`.** Vendor quickstarts all tell you to, and `output:
+> "export"` drops middleware *silently* — no build error, no runtime error, the app just
+> ships with no auth gate. Route protection lives in `src/components/AuthGate.jsx`.
+
+Because the export contains no API, a native build must point at a deployed instance via
+`NEXT_PUBLIC_API_BASE_URL`. Re-run `npm run sync` after any web change — `android/` and
+`ios/` hold a *copy* of `out/`, not a live reference. Note that `build:native` overwrites
+`.next`, so re-run `npm run build` before `npm run start` if you've built native in between.
+
+## Database
+
+```bash
+npm run prisma:migrate   # create/apply a dev migration
+npm run db:secure        # RLS + revoke Data API grants — after EVERY migration
+npm run prisma:seed      # Holy Trinity Cathedral, its people, and the post corpus
+npm run prisma:studio    # browse the data
+npm run db:reset         # DESTRUCTIVE: drop, re-migrate, re-secure, re-seed
+```
+
+`prisma/schema.prisma` is the domain — read its header first; it explains the two decisions
+that carry the design. Seeding is never automatic: it has to land *after* `db:secure`, which
+is why `db:reset` passes `--skip-seed` and re-seeds itself.
 
 ## Lint
 
 ```bash
-npm run lint
+npm run lint             # eslint, --max-warnings 0
 ```
-
-## Database (Prisma)
-
-Prisma is installed and configured against Postgres but **nothing imports the client yet** — the app runs without a database. When you're ready:
-
-1. Set `DATABASE_URL` in `.env.local` (see `.env.example`).
-2. Model your domain in `prisma/schema.prisma` (an `ExampleNote` model is there to prove the wiring).
-3. `npm run prisma:migrate` to create the tables, then `import { prisma } from "@/lib/db"` from a route handler under `src/app/api/**/route.js`.
-
-## Stack
-
-- Next.js 15 (App Router), React 19, Tailwind CSS 4
-- Zustand (with immer + persist), react-hook-form, Zod
-- UI: shadcn/Radix primitives under `src/components/ui/`
-- Prisma (Postgres) — wired but idle
-- Capacitor 8 (iOS + Android) over a static export
-- Client auth gate via `src/components/AuthGate.jsx` (mock login today)
 
 ## Layout
 
 ```
 src/
-  app/              Next.js App Router — (public)/ and (protected)/ route groups
+  app/
+    (public)/       login — reachable signed out
+    (gateway)/      welcome, access — signed in but not yet through onboarding
+    (protected)/    feed, profile, settings, inbox
+    api/            route handlers (route.api.js), Node build only
   lib/
-    metadata.js     seed data (users, events)
-    mock.js         mockDelay / mockId
-    db.js           Prisma client singleton (idle until used)
-    store/          zustand stores (auth, app, …)
+    api.js          the only thing that fetches; attaches the bearer token
+    store/          zustand stores — feed, post, comments, auth, members,
+                    notifications, org, uploads, app
+    server/         services, authorization, cursors, storage — server only
     hooks/          shared hooks
     providers/      Theme, Tooltip, Scroll
-  components/       reusable UI pieces + shadcn primitives (ui/)
+    name.js         the only place name parts become a display name
+  components/       UI, with shadcn/Radix primitives under ui/
 prisma/
-  schema.prisma     Postgres schema (ExampleNote placeholder)
-public/             static assets served as-is
-android/, ios/      Capacitor native projects (generated; hold a copy of out/)
+  schema.prisma     the domain
+  policies.sql      RLS + grant revocation, applied by db:secure
+scripts/            db:secure, seeding, dev:login, icon generation
+android/, ios/      Capacitor native projects (hold a copy of out/)
 ```
 
-## Adapting the template
+Layering is strict and enforced by convention: **API → store → hook → component**.
+`src/lib/api.js` is the only thing that fetches, stores are the only thing that call it, and
+hooks are the only thing that touch a store.
 
-1. **Adjust seed data.** Edit `src/lib/metadata.js` to define your entities. Store hooks derive the app-visible shape, so most changes only touch that one file.
-2. **Swap the brand assets.** The logo/crest lives in `src/assets/svg/`. Replace those files to update the login artwork and sidebar mark.
-3. **Wire a real backend.** Point store actions at a `fetch`-based API client (or Prisma-backed route handlers) instead of in-memory mutations. The Zustand stores' shape (`loading`, `error`, `ready`, `refresh()`) already matches a networked implementation.
-4. **Add real auth.** Have your login endpoint set an HTTP-only session cookie and point the gates in `src/components/AuthGate.jsx` at a real session check; their redirect logic stays unchanged.
-5. **Rename the app.** `capacitor.config.json` holds the native `appId` / `appName`.
+## Stack
 
-## Native (iOS / Android)
-
-The same app ships natively through Capacitor, from a static export:
-
-```bash
-npm run build:native   # static export → out/
-npm run sync           # build:native + cap sync
-npm run ios            # sync + open Xcode
-npm run android        # sync + open Android Studio
-```
-
-The static target is the constraining one — no middleware, no intercepting routes, and
-every dynamic segment needs `generateStaticParams`. Re-run `npm run sync` after any web
-change; `android/` and `ios/` hold a copy of `out/`, not a live reference.
+- Next.js 15 (App Router), React 19, Tailwind CSS 4
+- Zustand (immer), react-hook-form, Zod, `motion`
+- UI: shadcn / Radix primitives under `src/components/ui/`
+- Prisma 6 against Postgres on Supabase
+- Supabase Auth (email OTP), verified locally per request with `jose`
+- Capacitor 8 (iOS + Android) over a static export
 
 ## Documentation
 
-- `CLAUDE.md` — canonical rules for AI assistants (auto-loaded by Claude Code).
-- `.claude/skills/develop/frontend-architecture.md` — architecture, patterns, UI components.
-- `.claude/skills/develop/auth-architecture.md` — how the lightweight mock auth works and how to replace it.
+- `CLAUDE.md` — the project's canonical rules, auto-loaded by Claude Code. Start here.
+- `.env.example` — every environment value, and why.
+- `.claude/skills/develop/frontend-architecture.md` — patterns, stores, slide routes, UI.
+- `.claude/skills/develop/backend-architecture.md` — the API contract and the server layer.
+- `.claude/skills/develop/auth-architecture.md` — sessions, the OTP flow, staying signed in.
 - `.claude/skills/develop/native-architecture.md` — the Capacitor build and its constraints.

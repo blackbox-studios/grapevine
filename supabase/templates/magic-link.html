@@ -1,0 +1,183 @@
+<!--
+  Grapevine sign-in code — Supabase's "Magic Link" template.
+
+  PASTE THIS INTO Authentication → Email Templates → Magic Link. It is checked in because
+  the dashboard is the only place it actually runs, and a template that exists in exactly
+  one un-versioned textarea is one careless edit from breaking every sign-in.
+
+  Subject line (a separate field above the body):
+
+      {{ .Token }} is your Grapevine code
+
+  Putting the code in the subject is deliberate: on a phone the whole flow becomes reading
+  the lock-screen notification and typing six digits, without opening the mail app at all.
+
+  ── THERE IS NO LINK IN HERE, ON PURPOSE ──────────────────────────────────────
+  Supabase implements email OTP and magic link as one template, and whichever variable you
+  reference is what the reader gets. `{{ .ConfirmationURL }}` is deliberately absent: a
+  Capacitor WebView has no origin for a link to redirect back to, so a link that works in a
+  browser dead-ends in the app — and offering both trains people to click the one that
+  fails. See the auth store's header.
+
+  **`{{ .Token }}` is load-bearing.** Remove it and Supabase still sends mail, still returns
+  200, and no code ever reaches anyone. That failure is silent at every layer.
+
+  ── EMAIL HTML, NOT WEB HTML ──────────────────────────────────────────────────
+  Tables, inline styles, no shorthand `background`, no flex, no grid. The `<style>` block
+  carries dark mode only — it is progressive enhancement, and every client that ignores it
+  still gets the fully-styled light rendering from the inline attributes.
+
+  The logo is a hosted PNG rather than inline SVG because Gmail strips `<svg>` and blocks
+  `data:` URIs in `src`. It lives in Supabase Storage, not on throughgrapevine.com, so it
+  cannot 404 in a sign-in email during a deploy — regenerate it with
+  `node scripts/generate-email-logo.mjs`.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<!-- Tells Apple Mail and iOS the design handles both appearances itself, which stops
+     them applying their own colour inversion on top of the media query below. -->
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your Grapevine sign-in code</title>
+<style>
+  /* Dark mode. `[data-ogsc]` is Outlook.com's dark-mode hook, which rewrites the DOM
+     instead of honouring the media query, so both selectors carry every rule. */
+  @media (prefers-color-scheme: dark) {
+    .gv-bg     { background-color: #0a1014 !important; }
+    .gv-card   { background-color: #131b21 !important; border-color: #24313a !important; }
+    .gv-title  { color: #f2f6f8 !important; }
+    .gv-text   { color: #a9b8c2 !important; }
+    .gv-muted  { color: #7d8f9b !important; }
+    .gv-code-box   { background-color: #0a1014 !important; border-color: #2f4a44 !important; }
+    .gv-code   { color: #4fd6b8 !important; }
+    .gv-rule   { border-color: #24313a !important; }
+  }
+  [data-ogsc] .gv-bg    { background-color: #0a1014 !important; }
+  [data-ogsc] .gv-card  { background-color: #131b21 !important; border-color: #24313a !important; }
+  [data-ogsc] .gv-title { color: #f2f6f8 !important; }
+  [data-ogsc] .gv-text  { color: #a9b8c2 !important; }
+  [data-ogsc] .gv-muted { color: #7d8f9b !important; }
+  [data-ogsc] .gv-code-box { background-color: #0a1014 !important; border-color: #2f4a44 !important; }
+  [data-ogsc] .gv-code  { color: #4fd6b8 !important; }
+  [data-ogsc] .gv-rule  { border-color: #24313a !important; }
+
+  /* Phones: the code is the one thing that must never wrap, so it sheds tracking before
+     it sheds size. */
+  @media only screen and (max-width: 480px) {
+    .gv-pad     { padding-left: 24px !important; padding-right: 24px !important; }
+    .gv-code    { font-size: 34px !important; letter-spacing: 6px !important; }
+  }
+</style>
+</head>
+
+<body class="gv-bg" style="margin:0; padding:0; width:100%; background-color:#f1f4f3;">
+
+  <!-- Preview text: what the inbox list shows beside the subject. The spacer stops the
+       client from padding it out with the first words of the body. -->
+  <div style="display:none; font-size:1px; color:#f1f4f3; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">
+    Your code expires in one hour and can only be used once.
+    &#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+  </div>
+
+  <table role="presentation" class="gv-bg" width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="background-color:#f1f4f3;">
+    <tr>
+      <td align="center" style="padding:40px 16px;">
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+               style="max-width:480px; width:100%;">
+
+          <!-- Mark -->
+          <tr>
+            <td align="center" style="padding:0 0 28px 0;">
+              <img src="https://svyqhmbtdiqgtdttwgem.supabase.co/storage/v1/object/public/media/brand/email-mark.png"
+                   width="64" height="64" alt="Grapevine"
+                   style="display:block; width:64px; height:64px; border:0; outline:none; text-decoration:none;">
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td class="gv-card"
+                style="background-color:#ffffff; border:1px solid #e3e9e7; border-radius:18px;">
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="gv-pad" style="padding:40px 40px 8px 40px;">
+                    <h1 class="gv-title"
+                        style="margin:0 0 12px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:22px; line-height:1.3; font-weight:600; color:#111b21; letter-spacing:-0.01em;">
+                      Your sign-in code
+                    </h1>
+                    <p class="gv-text"
+                       style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; color:#5a6b74;">
+                      Enter this code in Grapevine to finish signing in.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- The code -->
+                <tr>
+                  <td class="gv-pad" style="padding:28px 40px 0 40px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td class="gv-code-box" align="center"
+                            style="background-color:#f4f8f7; border:1px solid #d5e4e0; border-radius:12px; padding:22px 12px;">
+                          <!-- Tracking is on the span, not the cell, so the trailing gap
+                               after the last digit doesn't push the run off-centre. -->
+                          <span class="gv-code"
+                                style="font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace; font-size:38px; line-height:1.1; font-weight:600; color:#16806B; letter-spacing:10px; margin-right:-10px; white-space:nowrap;">{{ .Token }}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="gv-pad" style="padding:20px 40px 0 40px;">
+                    <p class="gv-muted"
+                       style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:1.6; color:#8496a0;">
+                      It expires in one hour and can only be used once.
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="gv-pad" style="padding:24px 40px 32px 40px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td class="gv-rule" style="border-top:1px solid #e3e9e7; font-size:0; line-height:0; height:1px;">&nbsp;</td>
+                      </tr>
+                    </table>
+                    <p class="gv-muted"
+                       style="margin:20px 0 0 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:1.6; color:#8496a0;">
+                      If you didn’t try to sign in, you can ignore this email — the code is
+                      useless to anyone who can’t read this inbox. Never share it with anyone,
+                      including someone claiming to be from your parish.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 16px 0 16px;">
+              <p class="gv-muted"
+                 style="margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:12px; line-height:1.6; color:#94a5ae;">
+                Grapevine · throughgrapevine.com
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

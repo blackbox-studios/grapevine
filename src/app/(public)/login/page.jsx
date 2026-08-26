@@ -64,8 +64,8 @@ const emailSchema = z.object({
 /* Validation is deliberately a *range*, not `OTP_LENGTH` exactly.
  *
  * The code length is a Supabase dashboard setting (Authentication → Sign In / Providers →
- * Email → Email OTP Length), currently 8 on this project despite most documentation saying
- * six. Pinning the regex to one number means someone changing that setting silently locks
+ * Email → Email OTP Length), set to 6 on this project — note that a fresh Supabase project
+ * defaults to 8. Pinning the regex to one number means someone changing that setting silently locks
  * every user out of the app, with the form rejecting a code that is perfectly valid. The
  * check exists only to avoid spending a round trip and a rate-limit slot on something
  * obviously incomplete — the server is what actually decides whether a code is right, so

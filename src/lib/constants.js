@@ -222,16 +222,18 @@ export const MAX_POST_DOCUMENTS = 1
 
 /* How many digits the emailed sign-in code has.
  *
- * **This is a project setting, not a constant of nature.** Supabase exposes it under
- * Authentication → Sign In / Providers → Email → Email OTP Length, and the current default
- * is 8 — despite a lot of documentation (and every tutorial) saying six. Hardcoding 6 here
- * is what made the login form silently unusable: `maxLength` truncated the real code and
- * validation then rejected what was left.
+ * **This is a project setting, not a constant of nature — and the two must agree.** Supabase
+ * exposes it under Authentication → Sign In / Providers → Email → Email OTP Length. A new
+ * project defaults to **8**, not the six most documentation assumes; this one is set to 6
+ * deliberately, because six digits is what people expect to retype and what every other app
+ * has trained them on. If you change it in the dashboard, change it here in the same sitting:
+ * a mismatch is how the login form went silently unusable once already, `maxLength`
+ * truncating the real code and validation then rejecting what was left.
  *
- * Used for the placeholder and the on-screen copy. Validation is deliberately looser (see
- * the login page) so changing the dashboard setting cannot lock anyone out before someone
- * remembers to change this. */
-export const OTP_LENGTH = 8
+ * Used for the placeholder, the on-screen copy, and the slot grouping. Validation is
+ * deliberately looser (see the login page) so a dashboard change cannot lock anyone out
+ * before someone remembers to come here. */
+export const OTP_LENGTH = 6
 
 /* How long Supabase makes a user wait between OTP requests for the same address. Its
  * `/auth/v1/otp` endpoint enforces a 60-second window and rejects anything inside it, so

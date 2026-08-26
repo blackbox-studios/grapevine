@@ -13,9 +13,10 @@
 ## TL;DR
 
 - **Supabase Auth**, emailed one-time code. No passwords, no OAuth, no magic-link redirect.
-  The code is **8 digits on this project**, not the six most documentation assumes — it is a
-  dashboard setting (Authentication → Sign In / Providers → Email → Email OTP Length),
-  mirrored as `OTP_LENGTH` in `lib/constants.js`.
+  The code is **6 digits on this project** — a dashboard setting (Authentication → Sign In /
+  Providers → Email → Email OTP Length) mirrored as `OTP_LENGTH` in `lib/constants.js`. Note
+  that a *fresh* Supabase project defaults to 8, so the two have to be set to agree; the
+  emailed template lives in `supabase/templates/magic-link.html`.
 - **Invite-only, enforced by the provider.** `signInWithOtp({ shouldCreateUser: false })` —
   an email with no `auth.users` row can never be sent a code.
 - **Two identities, kept apart.** Supabase owns the *session*; `GET /api/me` owns the
@@ -93,8 +94,13 @@ in the same email works in a browser as a bonus.
 > the email step, since there would be nothing to type.
 >
 > Raising the cap means custom SMTP, and every provider worth using (Resend, Postmark, SES)
-> requires a **verified sending domain** — there is no shared test sender. So this is
-> blocked on owning a domain, and `dev:login` is the answer until then.
+> requires a **verified sending domain** — there is no shared test sender. That domain is
+> `throughgrapevine.com` and the provider is Resend, sending from
+> `no-reply@throughgrapevine.com`; the host, ports, DNS records and the reason the root
+> domain is verified rather than a `send.*` subdomain are in `.env.example` under "Custom
+> SMTP". Custom SMTP still starts at 30 messages/hour — raise it under Authentication →
+> Rate Limits before a parish roster's first sign-ins land in one sitting. `dev:login`
+> remains the right tool for development regardless, since it consumes no quota at all.
 
 > **The built-in SMTP only delivers to your own organization's team.** Supabase's default
 > sender refuses any address that is not a member of the project's organization —

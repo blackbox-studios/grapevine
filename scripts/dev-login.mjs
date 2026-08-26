@@ -88,7 +88,7 @@ if (error) {
 console.log(`\n  Signing in as: ${email}`)
 console.log(`  Redirects to:  ${redirectTo}`)
 console.log(`\n  Open this once (it is single-use):\n\n${data.properties.action_link}\n`)
-/* Length comes from the project's Email OTP Length setting — 8 here, not the 6 most
- * documentation assumes. Printed rather than hardcoded so this never goes stale. */
+/* Length comes from the project's Email OTP Length setting — 6 here, though a fresh Supabase
+ * project defaults to 8. Printed rather than hardcoded so this never goes stale. */
 const otp = data.properties.email_otp
 console.log(`  Or type this ${otp.length}-digit code into the login form: ${otp}\n`)

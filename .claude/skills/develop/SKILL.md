@@ -5,7 +5,7 @@ description: Core project rules, technology stack, coding guidelines, and archit
 
 # Project Rules
 
-This is **Grapevine** (grapevine.chat): a **Next.js 15 (App Router) + React 19** app for Orthodox parishes and dioceses. Posts, comments, likes, and the viewer come over HTTP from a real `/api` backed by **Postgres on Supabase** through **Prisma**. The dashboard surface in the `app` store is the last thing without an endpoint.
+This is **Grapevine** (throughgrapevine.com): a **Next.js 15 (App Router) + React 19** app for Orthodox parishes and dioceses. Posts, comments, likes, and the viewer come over HTTP from a real `/api` backed by **Postgres on Supabase** through **Prisma**. The dashboard surface in the `app` store is the last thing without an endpoint.
 
 **It is invite-only and organization-scoped.** People belong to groups (a parish, a diocese) through a `Membership`, and what a viewer may read is the union of the groups they hold an **APPROVED** membership in — there is no unscoped read anywhere. Sign-in is an emailed one-time code with `shouldCreateUser: false`, so an address with no account can never be sent a code; provisioning is the only way in.
 

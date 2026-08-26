@@ -14,7 +14,7 @@ import { toErrorList } from '@/lib/utils'
  *
  * ── The flow ────────────────────────────────────────────────────────────────
  *
- *   requestCode(email)  → Supabase emails a one-time code (8 digits here; see OTP_LENGTH)
+ *   requestCode(email)  → Supabase emails a one-time code (6 digits here; see OTP_LENGTH)
  *   verifyCode(code)    → a session exists; fetch /api/me; redirect
  *
  * **Why a code and not a magic link.** A link has to redirect somewhere, and a Capacitor

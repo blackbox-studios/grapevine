@@ -10,6 +10,7 @@ import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
 import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
+import usePushStore from '@/lib/store/push/store'
 import useUploadsStore from '@/lib/store/uploads/store'
 
 /* `uploads` holds no remote state — it is a write path with a loading flag — so it has
@@ -32,11 +33,19 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * it is the only one that is not scoped to the selected group, so it has a request it can
  * make the moment there is a viewer. What it fetches on boot is the unread tally alone,
  * which is chrome the bell needs whether or not anybody opens the panel; the list itself is
- * loaded by the panel's own hook. */
+ * loaded by the panel's own hook.
+ *
+ * `push` is booted here too, for the same reason and with one caveat worth stating: its
+ * `init` **never prompts**. It registers this device's FCM token only where permission has
+ * already been granted, so a boot path can hold it safely. The ask itself is `enable()`,
+ * which belongs to a deliberate tap — iOS spends its system prompt once per install, and
+ * firing it from a splash screen is how an app becomes permanently unreachable. Off-device
+ * the whole thing resolves to nothing. */
 const useStore = create(() => ({
     initAuthorizedStores: () => Promise.all([
         useAppStore.getState().init(),
         useNotificationsStore.getState().init(),
+        usePushStore.getState().init(),
     ]),
     reset: () => {
         useAppStore.getState().reset()
@@ -47,6 +56,7 @@ const useStore = create(() => ({
         useCommentsStore.getState().reset()
         useMembersStore.getState().reset()
         useNotificationsStore.getState().reset()
+        usePushStore.getState().reset()
         useUploadsStore.getState().reset()
     },
     clearErrors: () => {
@@ -58,6 +68,7 @@ const useStore = create(() => ({
         useCommentsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
         useNotificationsStore.getState().clearErrors()
+        usePushStore.getState().clearErrors()
         useUploadsStore.getState().clearErrors()
     },
 }))

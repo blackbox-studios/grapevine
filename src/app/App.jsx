@@ -18,8 +18,8 @@ import useGlobalStore from "@/lib/store/global.store"
  *      redirected first and asked afterwards.
  *   2. Warm the authorized stores in the background once logged in.
  *   3. Surface store errors as toasts via useErrorListener.
- *   4. Drive the native shell (splash, status bar, hardware back) via useNative — every
- *      part of which is a no-op in a browser. */
+ *   4. Drive the native shell (splash, status bar, hardware back, push) via useNative —
+ *      every part of which is a no-op in a browser. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -33,7 +33,10 @@ export default function App() {
     }, [loggedIn, initAuthorizedStores])
 
     useErrorListener()
-    useNative()
+    /* `loggedIn` is handed down because the native shell now owns the push listeners, and a
+     * notification tapped from a cold launch must not be routed until there is a session to
+     * route it into. See usePushListeners. */
+    useNative(loggedIn)
 
     return null
 }

@@ -25,6 +25,9 @@
             "resize": "none",
             "style": "DARK",
             "resizeOnFullScreen": true
+        },
+        "FirebaseMessaging": {
+            "presentationOptions": []
         }
     }
 }

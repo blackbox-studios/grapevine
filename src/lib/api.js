@@ -154,8 +154,13 @@ class API {
         return this.grab("patch", endpoint, body, options)
     }
 
-    static delete(endpoint, options = {}) {
-        return this.grab("delete", endpoint, null, options)
+    /* `body` is optional and almost always omitted — a DELETE names its target in the path.
+     * It exists for the one case that cannot: `/api/devices`, where the thing being deleted
+     * is an FCM registration token. That is a credential for pushing to somebody's phone, and
+     * a path segment lands in access logs and proxy caches by default where a body does not.
+     * A body on DELETE is legal HTTP; it is only unusual. */
+    static delete(endpoint, body = null, options = {}) {
+        return this.grab("delete", endpoint, body, options)
     }
 }
 

@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE } from '@/lib/constants'
+import { clearPushNotifications } from '@/lib/push'
 import { toErrorList } from '@/lib/utils'
 
 /* What the bell knows: how many are unread, and — once somebody opens the panel — the list.
@@ -24,17 +25,19 @@ import { toErrorList } from '@/lib/utils'
  * and needs no reset-on-switch — which is also why, unlike `feed` and `members`, it can boot
  * from `initAuthorizedStores` rather than from its own hook.
  *
- * ── Push notifications (Firebase, not yet) ───────────────────────────────────
+ * ── Push notifications (Firebase) ────────────────────────────────────────────
  *
- * There is no polling here, and none should be added. The panel is correct as of the last
- * `refresh()`, which is boot and each time it opens; a notification that lands while the app
- * is in the foreground is not seen until one of those happens. That gap is what push closes,
- * and closing it with a timer first would be paying for it twice.
+ * There is still no polling here, and none should be added. The panel is correct as of the
+ * last `refresh()` — boot, and each time it opens — and push is what closes the gap in
+ * between: a notification arriving with the app open fires `refreshUnread` from the plugin
+ * callback in `usePushListeners`, reaching this store from outside React through
+ * `useNotificationsStore.getState()`.
  *
- * What the Capacitor listener will need is already here: `refresh()` is reachable from
- * outside React as `useNotificationsStore.getState().refresh()`, so a push handler — which
- * runs in a plugin callback, not in a component — can pull the authoritative state rather
- * than trying to splice a payload into the list. */
+ * **The push is never spliced into the list.** It carries a title and a `postId`, not a
+ * notification row, and treating a payload as state would let the panel hold something the
+ * server never confirmed — while a device that was asleep or denied permission would hold
+ * nothing at all. The row is the notification; a push is one delivery of it, and the only
+ * correct response to one is to re-read. See `lib/server/notifications.service.js`. */
 
 const ERROR_INIT = {
     list: false,
@@ -173,6 +176,12 @@ const useStore = create(immer((set, get) => ({
         const wasUnread = get().unread
 
         set(state => { state.unread = 0 })
+
+        /* The banners the OS is still holding go with the badge. Having read the list in-app
+         * and then finding a stack of notifications outside it is the app saying two
+         * different things about the same events. Fire-and-forget and native-only; a no-op
+         * everywhere else. */
+        clearPushNotifications()
 
         try {
             const { unread } = await api.post(API_ENDPOINTS.NOTIFICATIONS_READ)

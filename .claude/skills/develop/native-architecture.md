@@ -303,6 +303,95 @@ naturally, which is exactly why `closeSlide` uses `history.back()`.
 
 ---
 
+## Push notifications (Firebase)
+
+**The row is the notification; a push is one delivery of it.** Nothing in the app
+depends on a delivery having succeeded — a device that was asleep, denied permission,
+or never granted it finds the same rows in the panel behind the bell. That framing is
+what makes every piece of this optional, and it is written up at the top of
+`src/lib/server/notifications.service.js`.
+
+| Piece | Where |
+|---|---|
+| Device side (permission, token, listeners) | `src/lib/push.js` |
+| State + registration | `src/lib/store/push/store.js`, `.../hook.js` |
+| Token table | `DeviceToken` in `prisma/schema.prisma`, `src/lib/server/devices.service.js` |
+| FCM transport | `src/lib/server/push.js` |
+| The sends | the delivery section of `src/lib/server/notifications.service.js` |
+
+### Why `@capacitor-firebase/messaging` and not `@capacitor/push-notifications`
+
+The official plugin **does not use Firebase on iOS**: its `registration` event returns
+an APNs device token there, and an FCM token only on Android. Two token formats means
+two senders, two credentials to rotate, two error taxonomies, and a `provider` column
+every send site branches on. This plugin returns an FCM token on both platforms, so
+the server has one transport and the table has one kind of row.
+
+The `firebase` npm package is installed **only to satisfy the bundler** — the plugin's
+web implementation statically imports `firebase/messaging`, and webpack resolves that
+whether or not it runs. It sits behind `registerPlugin`'s lazy `import('./web')`, so
+the chunk is emitted into `out/` and never fetched on native.
+
+### One-time setup, per Firebase project
+
+1. **Firebase console** → create a project (or reuse one), then add an **Android** app
+   with applicationId `com.throughgrapevine.app` and an **iOS** app with the same
+   bundle id.
+2. **`android/app/google-services.json`** — download from the Android app's settings
+   and drop it in. Committed, not a secret.
+3. **`ios/App/App/GoogleService-Info.plist`** — download from the iOS app's settings,
+   then **add it to the Xcode target**. Dragging it into the folder in Finder is not
+   enough; it has to appear in *Build Phases → Copy Bundle Resources* or the SDK
+   cannot find it at launch and `FirebaseApp.configure()` fails.
+
+   This project is `objectVersion = 60` and does **not** use Xcode 16's
+   filesystem-synchronized groups, so there is no automatic membership. Check it:
+
+   ```bash
+   grep -c "GoogleService-Info.plist" ios/App/App.xcodeproj/project.pbxproj  # > 0
+   ```
+4. **APNs auth key** — Apple Developer portal → Keys → a new key with *Apple Push
+   Notifications service* enabled. Download the `.p8` (it can only be downloaded
+   once), then upload it under Firebase → Project settings → **Cloud Messaging** with
+   its Key ID and your Team ID. Without this, iOS registers and never receives
+   anything.
+5. **Xcode** → the App target → Signing & Capabilities → add **Push Notifications**.
+6. **The service account** → Firebase → Project settings → Service accounts →
+   *Generate new private key*. Its three fields become `FCM_PROJECT_ID`,
+   `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` on the **deployed API**, not in the app.
+   See `.env.example` for the newline escaping, which is the usual thing to get wrong.
+7. `npm run sync` — the native projects hold a copy of `out/` and of the plugin
+   registry, so nothing above takes effect until this runs.
+
+Android 13+ needs the `POST_NOTIFICATIONS` runtime permission; the plugin declares it
+and `requestPushPermission()` asks for it. Nothing to add to the manifest.
+
+### Two things that will waste an afternoon
+
+- **APNs does not work on the iOS Simulator.** A physical device is the only way to
+  test the iOS half. Android's emulator is fine.
+- **`presentationOptions: []`** in `capacitor.config.json` is deliberate — JSON has
+  nowhere to say so. It suppresses the iOS banner while the app is *foregrounded*,
+  because the reader is already looking at the app; what a foreground push means here
+  is only that the bell is stale, which is why `onPushReceived` refreshes the tally
+  and draws nothing. Set it back to `["alert","badge","sound"]` only if you decide
+  banners-over-the-feed are wanted.
+
+### Where a tap goes
+
+`notificationActionPerformed` → the payload's `data.postId` → `openSlide("/p/<id>")`.
+It is the same shallow-history navigation the feed uses, for the same reason: a post
+has no route, because its id was unknown at build time.
+
+**A cold launch replays the tap that started the process**, and it arrives before the
+session has resolved. So the listeners are mounted unconditionally (a listener
+attached after the fact never hears it) and the destination is parked in the store's
+`pending` until `ready` — a resolved, signed-in session — flushes it. Gating the
+listener on `loggedIn` instead is what makes a tapped notification open the feed and
+throw the destination away.
+
+---
+
 ## Safe areas
 
 `viewportFit: "cover"` in the root layout's `viewport` export is what makes the insets

@@ -195,6 +195,8 @@ completed (offline, DNS, CORS, aborted connection).
 | `GET` | `/api/notifications?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's notifications, newest first |
 | `GET` | `/api/notifications/unread` | viewer | `{ unread }` — the number the bell's dot stands for |
 | `POST` | `/api/notifications/read` | viewer | `{ unread }` — marks them all read, so this is always `0` |
+| `POST` | `/api/devices` | viewer | `{ registered }` — attaches this installation's FCM token to the viewer |
+| `DELETE` | `/api/devices` | viewer | `204` — detaches it (sign-out). The token travels in the **body**, not the path |
 
 **Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
 not be one — the app is invite-only and its content is a parish's private life. See
@@ -296,6 +298,7 @@ src/app/api/
   notifications/route.api.js                # GET — the panel's page
   notifications/unread/route.api.js         # GET — the bell's tally
   notifications/read/route.api.js           # POST — mark them all read
+  devices/route.api.js                      # POST/DELETE — this installation's FCM token
 ```
 
 `projections.js` is the boundary between the schema and the contract. A Prisma model handed
@@ -462,7 +465,9 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Rows → wire shapes | `src/lib/server/projections.js` |
 | Posts, comments, likes | `src/lib/server/posts.service.js` |
 | Viewer, groups, roster | `src/lib/server/profile.service.js` |
-| Notifications, and the builders that write them | `src/lib/server/notifications.service.js` |
+| Notifications, the builders that write them, and the pushes that deliver them | `src/lib/server/notifications.service.js` |
+| Device tokens (register / detach / prune) | `src/lib/server/devices.service.js` |
+| FCM HTTP v1 transport | `src/lib/server/push.js` |
 | Prisma client singleton | `src/lib/db.js` |
 | Schema / domain model | `prisma/schema.prisma` |
 | Seed script + frozen fixture | `prisma/seed.js`, `prisma/seed-data.js` |

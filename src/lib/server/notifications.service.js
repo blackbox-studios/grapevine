@@ -1,8 +1,11 @@
 import "server-only"
 
 import { prisma } from "@/lib/db"
+import { displayName } from "@/lib/name"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
+import { prunePushTokens, pushTokensFor } from "@/lib/server/devices.service"
 import { projectNotification } from "@/lib/server/projections"
+import { pushConfigured, sendPush } from "@/lib/server/push"
 
 /* Notifications: the panel behind the bell, and the writes that fill it.
  *
@@ -27,19 +30,26 @@ import { projectNotification } from "@/lib/server/projections"
  * Returning `null` is how "there is nothing to notify" is expressed (a self-like); callers
  * filter it out of the array.
  *
- * ── Push notifications (Firebase, not yet) ───────────────────────────────────
+ * ── Push notifications (Firebase) ────────────────────────────────────────────
  *
- * FCM is coming, and none of the above changes when it does. **The row is the
+ * FCM is wired up, and none of the above changed when it landed. **The row is the
  * notification; a push is one delivery of it.** A device that was asleep when the like
- * landed still finds the row here, and the panel never depends on a delivery having
- * succeeded — which is what would happen if the payload were the only record.
+ * arrived still finds the row here, the panel never depends on a delivery having succeeded,
+ * and a viewer who has never granted the OS permission loses nothing but the buzz.
  *
- * So the seam for it is exactly one place: whatever writes these rows also hands them to
- * the sender. That is what makes `notifyLike` the only thing a like handler calls, rather
- * than each handler assembling its own notification. When FCM lands it needs a device-token
- * table and a send *after* the transaction commits (never inside it — a push for a
- * transaction that then rolled back cannot be recalled), reading the same recipient and the
- * same projection this file already produces.
+ * The senders are at the bottom of this file, and the rule that shapes them is that they run
+ * **after the transaction commits, and are never awaited by it**:
+ *
+ *  - *After*, because a push for a transaction that then rolled back cannot be recalled.
+ *    There is no unsend, so the row committing is the only event worth announcing.
+ *  - *Not awaited*, because FCM is a third party on the far side of the internet and a like
+ *    must not get slower — or fail — because Google is having a bad minute. Every entry
+ *    point below swallows its own errors and returns nothing.
+ *
+ * They also cost exactly one query each (the recipients' device tokens). The actor's name
+ * and the group's name are already in hand at every call site: `requireViewer` loads the
+ * viewer's profile, and `requireMembership` reads the group off the memberships it came
+ * with. Composing a title must not become the reason a like queries twice.
  *
  * ── GROUPING: "10 people liked your post" (a game plan, not built) ───────────
  *
@@ -254,4 +264,117 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
         })),
         skipDuplicates: true,
     })
+}
+
+/* ---------------------------------------------------------------------------
+ * Delivery — the push half. See the header for why these run after the commit.
+ * ------------------------------------------------------------------------- */
+
+/* Assembles one FCM HTTP v1 message.
+ *
+ * **`data.postId` is the load-bearing field, not the title.** Tapping a push has to open the
+ * thing it is about, and the client resolves that by pathname — `openSlide("/p/<id>")` — so
+ * the id has to travel in the payload. Every value in `data` must be a string; FCM rejects
+ * the message outright otherwise, and it is a 400 with a message that does not say so.
+ *
+ * `notification` (rather than a data-only message) is what makes the OS draw the banner while
+ * the app is backgrounded or dead. A data-only message would need the app to be running to
+ * render anything, which is the one case push exists for.
+ *
+ * **No badge count.** iOS would happily take one, but it is per recipient, so setting it on a
+ * fan-out means a `count(*)` per member of the parish before a single push goes out — a round
+ * trip per person to decorate an icon. The bell inside the app is the honest tally and it is
+ * already free. */
+const message = ({ title, body, postId, type }) => ({
+    notification: { title, body },
+    data: { postId, type },
+    android: {
+        /* `high` is what wakes a dozing device; the default is `normal`, which Android is
+         * free to hold until the next maintenance window — minutes to hours later. */
+        priority: "high",
+        notification: { sound: "default", tag: postId },
+    },
+    apns: {
+        payload: { aps: { sound: "default" } },
+    },
+})
+
+/* Tokens → send → forget the dead ones. The one path every push takes.
+ *
+ * Swallows everything. A caller is a fire-and-forget after a committed write and has nothing
+ * to do with a failure: the notification row exists either way, and the panel is the source
+ * of truth the app actually reads. */
+const deliver = async (recipientIds, payload) => {
+    if (!pushConfigured()) return
+
+    try {
+        const tokens = await pushTokensFor(recipientIds)
+        if (tokens.length === 0) return
+
+        const dead = await sendPush(tokens, payload)
+        await prunePushTokens(dead)
+    } catch (error) {
+        console.error("[push] delivery failed", error)
+    }
+}
+
+/* Fires a delivery without making the caller wait for it.
+ *
+ * **Correct because the web target is a long-lived Node server** (`next start`) — the process
+ * outlives the response, so a floating promise runs to completion. If this app ever moves to
+ * serverless functions, where the runtime may freeze the moment the response is returned,
+ * this must become the platform's `waitUntil`. That is the same deployment assumption the
+ * session pooler on port 5432 rests on; see the datasource block in schema.prisma. */
+const detach = (promise) => {
+    promise.catch(() => {})
+}
+
+/* "Dn. Paul liked your post."
+ *
+ * Takes the actor as the viewer object the route already holds, so the name costs nothing —
+ * `displayName` is the same function the feed uses, which is what keeps a push and the panel
+ * row it corresponds to from addressing the same deacon two different ways.
+ *
+ * Silent for a self-like, matching `notifyLike`: there is no row, so there is nothing to
+ * deliver. The check is repeated here rather than inferred from `notifyLike` returning null,
+ * because these are two independent decisions that happen to agree, and coupling them would
+ * mean a future notification type could only push if it also wrote a row this way. */
+export const pushLike = ({ recipientId, actor, type, postId }) => {
+    if (recipientId === actor.id) return
+
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: displayName(actor),
+                body: type === "COMMENT_LIKE" ? "liked your comment" : "liked your post",
+                postId,
+                type,
+            }),
+        ),
+    )
+}
+
+/* "Holy Trinity Cathedral — Dn. Paul posted."
+ *
+ * The group leads the title because that is what tells a reader whether this concerns them:
+ * somebody in a diocese of six parishes needs to know which one is speaking before they need
+ * to know who. The panel row makes the same choice.
+ *
+ * `recipients` is already the parish minus the author — `newPostRecipients` excluded them —
+ * so there is no self-check to repeat here. */
+export const pushNewPost = ({ recipients, actor, orgName, postId }) => {
+    if (recipients.length === 0) return
+
+    detach(
+        deliver(
+            recipients,
+            message({
+                title: orgName || "New post",
+                body: `${displayName(actor)} posted`,
+                postId,
+                type: "NEW_POST",
+            }),
+        ),
+    )
 }

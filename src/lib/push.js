@@ -1,0 +1,183 @@
+import { FirebaseMessaging } from "@capacitor-firebase/messaging"
+
+import { isNative, platform } from "@/lib/native"
+
+/* The device's side of push: asking the OS, holding the FCM token, and turning a tap on a
+ * banner into a route. Plain module, no React — the hook that drives it is
+ * `lib/hooks/usePush.hook.js` and the state lives in `lib/store/push/store.js`.
+ *
+ * Everything here is a no-op off-device, exactly like `native.js`, so callers never branch on
+ * the platform.
+ *
+ * ── Why this plugin and not @capacitor/push-notifications ────────────────────
+ *
+ * The official plugin does not use Firebase on iOS at all: its `registration` event hands
+ * back an **APNs** device token there, and an FCM token only on Android. Two token formats
+ * means two senders on the server, two sets of credentials to rotate, two error taxonomies to
+ * learn, and a `provider` discriminator on `DeviceToken` that every send site has to branch
+ * on. `@capacitor-firebase/messaging` returns an FCM token on both platforms, so the server
+ * has one transport (`lib/server/push.js`) and the table has one kind of row.
+ *
+ * The cost is the Firebase iOS SDK in the CocoaPods build and the `firebase` JS package as an
+ * (optional) peer. That package exists **only to satisfy the bundler**: the plugin's web
+ * implementation statically imports `firebase/messaging`, and webpack resolves that import
+ * whether or not the code ever runs. It is behind `registerPlugin`'s lazy `import('./web')`,
+ * so on native the chunk is emitted and never fetched. When web push lands it is already
+ * there; until then it is dead weight on disk and nothing on the boot path.
+ *
+ * ── Why there is no web push yet ─────────────────────────────────────────────
+ *
+ * Web push needs a service worker at a fixed path plus a VAPID key, and its permission prompt
+ * is a different piece of UX from the native one — a browser will refuse the prompt outright
+ * if it is fired without a gesture. It is a separate delivery path, not a flag on this one.
+ * `DeviceToken.platform` already accepts "web" so that landing it is not a migration. */
+
+/* Whether push can work at all here. Native only today — see the header. */
+export const pushSupported = () => isNative()
+
+/* Asks the OS, and reports whether it said yes.
+ *
+ * **Only ever called from a deliberate moment**, never on boot: iOS shows the system prompt
+ * exactly once per install, and a "Don't Allow" is final until the person finds the app in
+ * Settings. Spending it during the splash — before anyone has seen a notification worth
+ * having — is how an app ends up permanently unable to reach most of its users. See
+ * `usePush` for where it is actually fired.
+ *
+ * `checkPermissions` first, because `requestPermissions` on an already-decided install
+ * resolves from the stored answer rather than re-prompting, and treating that as a fresh ask
+ * would hide a denial behind what looks like a question. */
+export const requestPushPermission = async () => {
+    if (!pushSupported()) return false
+
+    try {
+        const current = await FirebaseMessaging.checkPermissions()
+        if (current.receive === "granted") return true
+        if (current.receive === "denied") return false
+
+        const asked = await FirebaseMessaging.requestPermissions()
+        return asked.receive === "granted"
+    } catch {
+        return false
+    }
+}
+
+/* Whether permission is already granted, without asking for it. Null when it has never been
+ * decided, which is the one state worth distinguishing: it is the only one where prompting
+ * would actually show a prompt. */
+export const pushPermission = async () => {
+    if (!pushSupported()) return "denied"
+
+    try {
+        const { receive } = await FirebaseMessaging.checkPermissions()
+        return receive === "prompt" || receive === "prompt-with-rationale" ? null : receive
+    } catch {
+        return "denied"
+    }
+}
+
+/* This installation's FCM token, or null.
+ *
+ * Throws nothing. A device with no Play Services, a simulator with no APNs, a revoked
+ * permission — all of them are "no token", which is a state the app runs fine in. */
+export const pushToken = async () => {
+    if (!pushSupported()) return null
+
+    try {
+        const { token } = await FirebaseMessaging.getToken()
+        return token || null
+    } catch {
+        return null
+    }
+}
+
+/* Forgets the token on the device side, so FCM stops issuing this one.
+ *
+ * Paired with — not a substitute for — the DELETE that removes the row on the server. The
+ * server-side removal is what actually stops delivery; this is what keeps the next sign-in
+ * from re-registering the same token the previous person's row was keyed on. */
+export const deletePushToken = async () => {
+    if (!pushSupported()) return
+
+    try {
+        await FirebaseMessaging.deleteToken()
+    } catch {
+        /* Nothing to do about it, and nothing depends on it having worked. */
+    }
+}
+
+/* The platform string the API stores. Mirrors `Capacitor.getPlatform()`. */
+export const pushPlatform = () => platform()
+
+/* ------------------------------------------------------------------------- */
+/* Listeners                                                                 */
+/* ------------------------------------------------------------------------- */
+
+/* Subscribes to the SDK rotating this installation's token. Returns an unsubscribe.
+ *
+ * **Not optional.** FCM replaces a token on app reinstall, on a data restore to a new handset,
+ * and periodically on its own schedule. Registering once at sign-in and never again means a
+ * device quietly stops receiving anything the first time that happens, with no error anywhere
+ * — the server keeps sending to a token FCM has already retired, and the only symptom is
+ * silence. */
+export const onPushTokenChange = (handler) => {
+    if (!pushSupported()) return () => {}
+
+    const listener = FirebaseMessaging.addListener("tokenReceived", ({ token }) => {
+        if (token) handler(token)
+    })
+
+    return () => {
+        listener.then((handle) => handle.remove()).catch(() => {})
+    }
+}
+
+/* A push that arrived while the app was open and on screen.
+ *
+ * The OS does not draw a banner in this case, and it should not — the reader is already
+ * looking at the app. What it means for us is only that the panel behind the bell is now out
+ * of date, which is why the handler takes no payload: the row is the notification, and
+ * re-reading the tally is more honest than splicing a payload into a list the server owns.
+ * See the header of `lib/store/notifications/store.js`. */
+export const onPushReceived = (handler) => {
+    if (!pushSupported()) return () => {}
+
+    const listener = FirebaseMessaging.addListener("notificationReceived", () => handler())
+
+    return () => {
+        listener.then((handle) => handle.remove()).catch(() => {})
+    }
+}
+
+/* Somebody tapped a banner. `handler` gets the `postId` the payload carried, or null.
+ *
+ * This fires for a cold launch too — the plugin replays the tap that started the process — so
+ * the handler has to be able to run before the app has finished booting. That is why routing
+ * it is the *store's* job rather than this file's: see `openFromPush` in the push store, which
+ * defers the navigation until the app is actually ready to be navigated. */
+export const onPushTapped = (handler) => {
+    if (!pushSupported()) return () => {}
+
+    const listener = FirebaseMessaging.addListener(
+        "notificationActionPerformed",
+        (event) => handler(event?.notification?.data?.postId ?? null),
+    )
+
+    return () => {
+        listener.then((handle) => handle.remove()).catch(() => {})
+    }
+}
+
+/* Clears the banners this app has left in the shade.
+ *
+ * Called when the notification panel is opened, so the two agree: having read the list
+ * in-app and then still finding a stack of banners outside it is the app telling the reader
+ * two different things about the same events. */
+export const clearPushNotifications = async () => {
+    if (!pushSupported()) return
+
+    try {
+        await FirebaseMessaging.removeAllDeliveredNotifications()
+    } catch {
+        /* Cosmetic. Never worth surfacing. */
+    }
+}

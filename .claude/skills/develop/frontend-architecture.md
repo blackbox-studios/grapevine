@@ -131,7 +131,8 @@ Reference files:
 │   │       ├── feed/                # { store.js, hook.js } — the paginated list
 │   │       ├── post/                # { store.js, hook.js } — the one open post + all post writes
 │   │       ├── comments/            # { store.js, hook.js } — the one open thread
-│   │       └── notifications/       # { store.js, hook.js } — the bell's tally + the panel's list
+│   │       ├── notifications/       # { store.js, hook.js } — the bell's tally + the panel's list
+│   │       └── push/                # { store.js, hook.js } — FCM permission + this device's token
 └── app/api/**/route.api.js          # the API. `.api.js`, NOT `route.js` — see backend-architecture.md
 ```
 

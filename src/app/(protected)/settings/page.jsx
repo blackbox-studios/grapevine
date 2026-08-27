@@ -1,9 +1,11 @@
 "use client"
 
 import { BackHeader } from "@/components/BackHeader"
+import { Button } from "@/components/ui/button"
 import { ROUTES } from "@/lib/constants"
 import { useTheme } from "@/lib/providers/Theme"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
+import { usePushPermission } from "@/lib/store/push/hook"
 import { appPath, cn } from "@/lib/utils"
 
 const THEME_OPTIONS = [
@@ -76,7 +78,58 @@ const SettingsGeneralPage = () => {
                         )
                     })}
                 </div>
+
+                <PushSection />
             </section>
+        </>
+    )
+}
+
+/* The one deliberate tap that asks the OS for permission to push.
+ *
+ * **A button, not a switch**, and that is a truthfulness point rather than a styling one.
+ * A switch promises it can be moved back, and this cannot: once granted, turning push off is
+ * a trip to the OS's own settings, and once denied, iOS will not show its prompt a second
+ * time however many times the control is tapped. So each state says what is actually true and
+ * only the one state that can act offers something to press.
+ *
+ * Absent entirely on the web, where `pushSupported()` is false — an empty "Notifications"
+ * heading over a control that does nothing is worse than no section. Web push is a separate
+ * delivery path, not a flag on this one; see the header of `lib/push.js`. */
+const PushSection = () => {
+    const { supported, permission, enabling, enable } = usePushPermission()
+
+    if (!supported) return null
+
+    return (
+        <>
+            <h3 className="text-lg font-medium text-foreground">Notifications</h3>
+
+            {permission === "granted" && (
+                <p className="text-sm text-muted-foreground">
+                    Notifications are on for this device. Turn them off in your device
+                    settings.
+                </p>
+            )}
+
+            {permission === "denied" && (
+                <p className="text-sm text-muted-foreground">
+                    Notifications are off. Your device won&apos;t ask again — turn them on for
+                    Grapevine in your device settings.
+                </p>
+            )}
+
+            {permission === null && (
+                <div className="flex flex-col items-start gap-3">
+                    <p className="text-sm text-muted-foreground">
+                        Get a notification when your parish posts, or when someone likes
+                        something you wrote.
+                    </p>
+                    <Button onClick={enable} disabled={enabling}>
+                        {enabling ? "Just a moment…" : "Turn on notifications"}
+                    </Button>
+                </div>
+            )}
         </>
     )
 }

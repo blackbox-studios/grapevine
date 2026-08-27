@@ -183,6 +183,7 @@ model Profile {
   commentLikes     CommentLike[]
   notifications    Notification[]            @relation("NotificationRecipient")
   notified         Notification[]            @relation("NotificationActor")
+  devices          DeviceToken[]
   invitesSent      Invite[]                  @relation("InviteInviter")
   membershipsRuled Membership[]              @relation("MembershipDecider")
   following        Follow[]                  @relation("FollowFollower")
@@ -571,6 +572,55 @@ enum NotificationType {
   NEW_POST
 
   @@map("notification_type")
+}
+
+/// One installation of the app that can be pushed to: an FCM registration token, and the
+/// person currently signed in on it.
+///
+/// **The token is the identity, not the device.** `token` is the primary key rather than a
+/// cuid with a unique index on it, because FCM already guarantees the token is unique and
+/// there is no other name for this row — nothing links to it, and the only lookups are "who
+/// is this token for" (on re-registration) and "every token for this person" (on send).
+/// A surrogate id would be a second identifier for a value that is already one.
+///
+/// **`profileId` is mutable, and that is the point.** A phone signed out of and back into
+/// by a different person keeps the same FCM token, so registration is an upsert that
+/// *reassigns* the row. Without that, one row per (person, token) pair means the previous
+/// occupant's tokens accumulate and a shared phone keeps buzzing with a stranger's likes —
+/// which is a privacy failure, not a papercut. Sign-out deletes the row outright; the
+/// reassignment is the belt to that's braces, for the sign-out that never reached the API.
+///
+/// **There is no `enabled` flag.** Whether the OS will actually deliver is the OS's answer,
+/// not ours, and mirroring it here creates a fact that goes stale the moment someone turns
+/// notifications off in Settings without opening the app. A revoked permission surfaces as
+/// FCM rejecting the token with UNREGISTERED, which is what `prunePushTokens` deletes on.
+model DeviceToken {
+  /// The FCM registration token. Long, opaque, and rotated by the SDK — see `onTokenRefresh`
+  /// in `lib/push.js`, which re-registers rather than editing in place.
+  token String @id
+
+  /// Who is signed in on this installation right now. Reassigned on re-registration.
+  profileId String @map("profile_id") @db.Uuid
+
+  /// "ios" | "android". Not an enum: a third value ("web", once web push lands) must not
+  /// cost an `ALTER TYPE` on a live database for a column nothing branches on. It exists to
+  /// answer "which platforms is this parish actually on" and to scope a future recall of a
+  /// bad token batch, not to route a send — FCM takes the same shape for all of them.
+  platform String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  /// Last time the app re-registered this token. A token FCM has not rejected but that no
+  /// device has presented in months is an uninstalled app; `prunePushTokens` has nothing to
+  /// go on without this, since a dead token that is never sent to is never rejected either.
+  seenAt    DateTime @default(now()) @updatedAt @map("seen_at")
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// The one send-side query: every token belonging to a set of recipients. Also the index
+  /// that keeps ON DELETE CASCADE off a sequential scan, which an unindexed foreign key
+  /// would leave it as.
+  @@index([profileId])
+  @@map("device_token")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

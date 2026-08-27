@@ -83,7 +83,7 @@ const schema = z.object({
         .max(MAX_ORG_BIO_LENGTH, `Keep the description under ${MAX_ORG_BIO_LENGTH} characters.`),
 })
 
-const OrgForm = ({ org, save, saving, onDone, onDirtyChange }) => {
+const OrgForm = ({ org, save, saving, onDelete, deleting, onDirtyChange, onDone }) => {
     /* react-hook-form + zod through the `Form` primitives, exactly as the composer does it —
      * `<FormLabel/>` owns the label/`htmlFor` pairing, `<FormControl/>` wires `aria-describedby`
      * and `aria-invalid`, and `<FormMessage/>` renders the resolver's message under the field.
@@ -212,7 +212,7 @@ const OrgForm = ({ org, save, saving, onDone, onDirtyChange }) => {
                                         <Textarea
                                             placeholder="Announcements, feasts, and parish life."
                                             rows={3}
-                                            className="resize-none"
+                                            className="resize-none min-h-19"
                                             {...field}
                                         />
                                     </FormControl>
@@ -229,6 +229,10 @@ const OrgForm = ({ org, save, saving, onDone, onDirtyChange }) => {
                             )}
                         />
                     </div>
+
+                    {onDelete && (
+                        <DangerZone org={org} onDelete={onDelete} deleting={deleting} />
+                    )}
                 </div>
 
                 {/* The composer's footer, class for class: full-width on a phone where it sits
@@ -255,6 +259,111 @@ const OrgForm = ({ org, save, saving, onDone, onDirtyChange }) => {
     )
 }
 
+/* Destroying the group, at the foot of its own settings — the conventional place, and the
+ * conventional shape: collapsed to a single destructive button, expanded to a confirmation
+ * that will not arm until the group has been named.
+ *
+ * ── Who sees it ─────────────────────────────────────────────────────────────
+ *
+ * `canDelete` comes from the server (`canDeleteOrg`) and is narrower than the `canEdit` that
+ * drew the rest of this form: the platform owner **who created this group**, and nobody else.
+ * A parish priest administering the group he was given can rename it and cannot destroy it,
+ * and the launch parish — created by the seed, with no `createdById` — can be destroyed by no
+ * one. Composed server-side rather than re-derived here so the button cannot appear for an
+ * action that would then 403.
+ *
+ * ── Typing the name ─────────────────────────────────────────────────────────
+ *
+ * The API's own guard is the *slug* echoed back, which is the stable key and the right thing
+ * on the wire. It is also a string this app never shows anybody, so asking a human for it
+ * would be asking them to confirm with something they have never seen. The name is what is on
+ * screen, so the name is what is asked for; the store sends the slug once it matches. Same
+ * guard, expressed in the currency each side actually holds.
+ *
+ * Collapsed by default, because an always-open box with a destructive button in it is
+ * something to be misclicked on the way to Save. */
+const DangerZone = ({ org, onDelete, deleting }) => {
+    const [open, setOpen] = useState(false)
+    const [typed, setTyped] = useState("")
+
+    const matches = typed.trim() === org.name.trim()
+
+    if (!open) {
+        return (
+            <div className="flex flex-col gap-2 border-t border-destructive/30 pt-5">
+                <h4 className="text-sm font-semibold text-destructive">Danger zone</h4>
+                <p className="text-sm text-muted-foreground">
+                    Deleting this group removes its posts, comments and members for everyone.
+                    This cannot be undone.
+                </p>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setOpen(true)}
+                    className="w-fit border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                    Delete this group
+                </Button>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-3 border-t border-destructive/30 pt-5">
+            <h4 className="text-sm font-semibold text-destructive">Delete {org.name}</h4>
+            <p className="text-sm text-muted-foreground">
+                Type <span className="font-semibold text-foreground">{org.name}</span> to
+                confirm. Every post, comment and membership in this group is removed for
+                everyone, permanently.
+            </p>
+            {/* Outside the `Form` primitives deliberately: this is not a field of the group
+                being edited, it is a confirmation for a different action, and putting it on
+                the same `react-hook-form` instance would make an unfinished delete count as
+                an unsaved change to the *name*. Its own label is wired by hand for the same
+                reason — there is no FormField to own the pairing. */}
+            <label htmlFor="confirm-delete-group" className="sr-only">
+                Type the group name to confirm deletion
+            </label>
+            <Input
+                id="confirm-delete-group"
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                placeholder={org.name}
+                autoComplete="off"
+                disabled={deleting}
+            />
+            <div className="flex items-center gap-2">
+                <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={!matches || deleting}
+                    onClick={onDelete}
+                >
+                    {deleting ? (
+                        <Ripple
+                            aria-label="Deleting this group"
+                            className="size-8 [&_circle]:stroke-current"
+                        />
+                    ) : (
+                        "Delete forever"
+                    )}
+                </Button>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={deleting}
+                    onClick={() => {
+                        setOpen(false)
+                        setTyped("")
+                    }}
+                >
+                    Cancel
+                </Button>
+            </div>
+        </div>
+    )
+}
+
 /* Shown when the group stops resolving while the surface is open — a membership revoked
  * mid-edit. One screen for both that and an unknown id: telling someone with no membership
  * that a particular group *exists* is the leak the API's 404-over-403 rule avoids. */
@@ -275,7 +384,8 @@ const Unavailable = () => (
  * survive it would be state with one purpose and a lifetime nobody could name — the same
  * call the composer makes. */
 const OrgEditor = () => {
-    const { open, close, org, save, saving, canEdit } = useOrgEditor()
+    const { open, close, org, save, saving, remove, deleting, canEdit, canDelete } =
+        useOrgEditor()
     const [dirty, setDirty] = useState(false)
     const isDesktop = useIsDesktop()
 
@@ -292,6 +402,14 @@ const OrgEditor = () => {
         },
         [close],
     )
+
+    /* The dialog closes on success, so the confirmation has to be a toast — there is no
+     * surface left to show it on. The name is captured before the call, because the row is
+     * gone from `user.orgs` by the time it resolves. */
+    const onDelete = useCallback(async () => {
+        const name = org?.name
+        if (await remove()) toast.success(`${name} deleted.`)
+    }, [remove, org])
 
     /* Declines a dismissal that would discard an unsaved name. Passed to the dialog's
      * outside-press and Escape handlers; the drawer needs no equivalent, because a swipe down
@@ -310,6 +428,10 @@ const OrgEditor = () => {
                 org={org}
                 save={save}
                 saving={saving}
+                /* Absent rather than false when the viewer may not delete, so the form has
+                   nothing to render instead of a section that hides itself. */
+                onDelete={canDelete ? onDelete : null}
+                deleting={deleting}
                 onDone={() => onOpenChange(false)}
                 onDirtyChange={setDirty}
             />

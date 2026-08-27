@@ -697,6 +697,51 @@ const useStore = create(
                     }
                 },
 
+                /* DELETE /api/orgs/:id → destroy a group, for the owner who created it.
+                 *
+                 * The mirror of `createOrg`: that one pushes a row onto `user.orgs`, this one
+                 * takes it off, and the switcher follows because `orgs` is a new array. The
+                 * selection needs no help — `useCurrentOrg` re-runs `resolve` whenever the list
+                 * changes, so a deleted group that happened to be the current one is replaced
+                 * by the next, or by nothing.
+                 *
+                 * `confirm` is the group's own slug, which the API requires echoed back. The
+                 * client always has it from the projection, so the surface asks the human for
+                 * something they can actually see — the group's *name* — and sends the slug
+                 * once that matches. Two different strings for one confirmation, deliberately:
+                 * the wire wants the stable key, the person wants the thing on screen.
+                 *
+                 * Its own loading flag rather than `loading.org`, so the danger zone's spinner
+                 * and the Save button's cannot both light up for one action. */
+                deleteOrg: async (orgId, confirm) => {
+                    if (!orgId) return false
+
+                    set(state => {
+                        state.loading.orgDelete = true
+                        state.error.org = false
+                    })
+                    try {
+                        await api.delete(API_ENDPOINTS.ORG(orgId), { confirm })
+                        set(state => {
+                            const orgs = state.user?.orgs
+                            if (!orgs) return
+                            const index = orgs.findIndex(entry => entry.id === orgId)
+                            if (index !== -1) orgs.splice(index, 1)
+                        })
+                        return true
+                    } catch (error) {
+                        set(state => {
+                            state.error.org = toErrorList(
+                                error,
+                                'Could not delete this group.',
+                            )
+                        })
+                        return false
+                    } finally {
+                        set(state => { state.loading.orgDelete = false })
+                    }
+                },
+
                 /* GET /api/me → the viewer. The single place `loggedIn` is set true. */
                 _loadProfile: async () => {
                     const user = await api.get(API_ENDPOINTS.ME)

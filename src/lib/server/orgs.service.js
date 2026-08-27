@@ -13,6 +13,7 @@ import {
 import { prisma } from "@/lib/db"
 import {
     approvedMemberships,
+    canDeleteOrg,
     membershipIn,
     requireMembership,
     requirePlatformOwner,
@@ -72,7 +73,11 @@ const readOrgName = (value) => {
 export const listOrgs = async (viewer) => {
     const memberships = approvedMemberships(viewer)
     return {
-        items: memberships.map((membership) => projectOrg(membership.org, membership)),
+        items: memberships.map((membership) =>
+            projectOrg(membership.org, membership, {
+                canDelete: canDeleteOrg(viewer, membership.org),
+            }),
+        ),
         nextCursor: null,
     }
 }
@@ -152,7 +157,9 @@ export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
      * and `status` shape every other org the client holds does — the store swaps this row
      * into the viewer's list, and a row missing those two fields would read as a group the
      * viewer has no standing in. */
-    return projectOrg(org, membershipIn(viewer, orgId))
+    return projectOrg(org, membershipIn(viewer, orgId), {
+        canDelete: canDeleteOrg(viewer, org),
+    })
 }
 
 /* ---------------------------------------------------------------------------
@@ -323,7 +330,10 @@ export const createOrg = async (viewer, { name, slug, kind, parentId, bio } = {}
      * snapshot `requireViewer` loaded predates this group by microseconds and does not
      * contain it, and re-reading the row would be a round trip to learn what was just
      * inserted. */
-    return projectOrg(org, { role: "ADMIN", status: "APPROVED" })
+    return projectOrg(org, { role: "ADMIN", status: "APPROVED" }, {
+        /* The creator, by construction — no need to ask. */
+        canDelete: true,
+    })
 }
 
 /* Deletes a group and everything in it.
@@ -365,10 +375,12 @@ export const deleteOrg = async (viewer, orgId, { confirm } = {}) => {
         select: { id: true, slug: true, createdById: true },
     })
 
-    if (!org || (org.createdById !== viewer.id && !membershipIn(viewer, orgId))) {
+    const mayDelete = canDeleteOrg(viewer, org)
+
+    if (!org || (!mayDelete && !membershipIn(viewer, orgId))) {
         throw notFound("Group not found.")
     }
-    if (org.createdById !== viewer.id) {
+    if (!mayDelete) {
         throw forbidden("Only the owner who created this group can delete it.")
     }
 

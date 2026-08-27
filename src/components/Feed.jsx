@@ -295,6 +295,23 @@ const PostCard = ({ post }) => {
 const FeedEmpty = () => {
     const { current, isAdmin } = useCurrentOrg()
 
+    /* No group at all is a different sentence from a group with nothing in it, and it is a
+     * state only an owner reaches: `accessFor` keeps them ACTIVE with no memberships, so a
+     * freshly provisioned owner meets this on their very first sign-in, and so does one who
+     * has just deleted their last group. Everyone else with no memberships is stopped by the
+     * gate long before the feed. Telling them "nothing has been posted here" would name a
+     * group that does not exist. */
+    if (!current) {
+        return (
+            <div className="flex flex-col items-center gap-2 px-8 py-20 text-center">
+                <h2 className="text-lg font-semibold text-foreground">No groups yet</h2>
+                <div className="text-sm text-muted-foreground">
+                    Create your first group from the group switcher to start posting.
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col items-center gap-2 px-8 py-20 text-center">
             <h2 className="text-lg font-semibold text-foreground">No posts yet</h2>

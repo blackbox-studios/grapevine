@@ -6,6 +6,7 @@ import { useShallow } from "zustand/react/shallow"
 import { ROLES } from "@/lib/constants"
 import {
     useCreateOrg,
+    useDeleteOrg,
     usePlatformOwner,
     usePrivileged,
     useUpdateOrg,
@@ -108,6 +109,7 @@ export const useOrgEditor = () => {
     )
     const { orgs } = useOrgs()
     const { updateOrg, saving } = useUpdateOrg()
+    const { deleteOrg, deleting } = useDeleteOrg()
 
     const org = useMemo(
         () => orgs.find(entry => entry.id === editingId) ?? null,
@@ -119,16 +121,40 @@ export const useOrgEditor = () => {
         [updateOrg, editingId],
     )
 
+    /* Destroying the group the editor is open on.
+     *
+     * Closes on success and only on success — a failed delete leaves the dialog standing on a
+     * group that still exists, which is the honest thing to show. The selection needs no help:
+     * removing the row from `user.orgs` re-runs `resolve` through `useCurrentOrg`, which moves
+     * the reader to another group, or to none.
+     *
+     * The confirmation the API wants is the slug; the surface asks the human for the name. See
+     * the store action for why those are two different strings. */
+    const remove = useCallback(
+        async () => {
+            if (!org) return false
+            const done = await deleteOrg(org.id, org.slug)
+            if (done) closeEditor()
+            return done
+        },
+        [deleteOrg, org, closeEditor],
+    )
+
     return useMemo(() => ({
         open: Boolean(editingId),
         close: closeEditor,
         org,
         save,
         saving,
+        remove,
+        deleting,
         /* The surface is reached only from a menu that offers it on admin rows, but a role can
          * be revoked while the dialog is open — so it checks rather than trusting the entrance. */
         canEdit: org?.role === ROLES.ADMIN,
-    }), [editingId, closeEditor, org, save, saving])
+        /* Composed by the server (`canDeleteOrg`) rather than re-derived here — it is narrower
+         * than `role` and depends on who created the group, which the client is not told. */
+        canDelete: Boolean(org?.canDelete),
+    }), [editingId, closeEditor, org, save, saving, remove, deleting])
 }
 
 /* Opening the create-a-group surface, and whether this viewer may — for the switcher, which

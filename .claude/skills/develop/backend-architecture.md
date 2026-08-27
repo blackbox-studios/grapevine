@@ -770,10 +770,16 @@ No deploy, no seed edit. Step 2 has a surface: `<OrgCreator/>`, opened from a **
 at the foot of the group switcher, which is drawn only for an owner. `projectViewer` ships
 `platformRole` for that gate. See the Groups section of `frontend-architecture.md`.
 
-`DELETE` has no surface and deliberately does not yet: an affordance that destroys a parish
-wants a confirmation flow designed on purpose, not a menu item added because the endpoint
-exists. When one is built it needs `createdById` in `projectOrg` — nothing today tells a client
-which groups it may delete.
+`DELETE` is the danger zone at the foot of `<OrgEditor/>`, collapsed until asked for and armed
+only once the group's name has been typed. It is drawn off `canDelete`, which `projectOrg`
+composes from `canDeleteOrg` — the same predicate `deleteOrg` enforces, so the button cannot be
+offered for an action that would then 403. `createdById` itself is deliberately *not* shipped:
+the client is told the answer, not the inputs.
+
+The human types the group's **name**; the wire carries its **slug**. Two strings for one
+confirmation, on purpose — the slug is the stable key and the right thing for the API to check,
+and it is also a value this app never shows anybody, so asking a person to type it would be
+asking them to confirm with something they have never seen.
 
 ### `OrgKind.GROUP`
 

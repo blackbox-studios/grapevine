@@ -207,6 +207,16 @@ export const useCreateOrg = () => {
     return useMemo(() => ({ createOrg, creating }), [createOrg, creating])
 }
 
+/* Deleting a group — the auth store's half of the danger zone, for the reason the other two
+ * group writes live there: the row comes off `user.orgs`. */
+export const useDeleteOrg = () => {
+    const [deleteOrg, deleting] = useAuthStore(
+        useShallow(state => ([state.deleteOrg, state.loading.orgDelete])),
+    )
+
+    return useMemo(() => ({ deleteOrg, deleting }), [deleteOrg, deleting])
+}
+
 /* Whether the viewer may create groups — the third axis, and **not** a rank above ADMIN.
  *
  * Deliberately its own hook rather than a value threaded through `usePrivileged`: that one

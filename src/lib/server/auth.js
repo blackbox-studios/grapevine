@@ -270,6 +270,24 @@ export const requireMembership = (viewer, orgId, { role } = {}) => {
  * app like this without becoming a backdoor. */
 export const isPlatformOwner = (viewer) => viewer?.platformRole === "OWNER"
 
+/* May this viewer destroy this group?
+ *
+ * **Narrower than either axis on its own**: a platform owner, *and* the one who created this
+ * particular group. Not "an owner" — one subscriber must never reach another's parish — and
+ * not an admin of the group, because a priest administering the parish he was given must not
+ * be able to delete the group out from under whoever pays for it.
+ *
+ * A null `createdById` means the group predates this column (the launch parish, written by
+ * `seed.prod.js`) and is therefore deletable by nobody. That is deliberate: the one group
+ * whose loss would matter most has no delete path at all.
+ *
+ * Shared by `deleteOrg`, which enforces it, and `projectOrg`, which ships it to the client as
+ * `canDelete` so the danger zone is drawn from the same rule the server would apply. Two
+ * copies of this predicate is how an affordance comes to be offered for an action that then
+ * 403s. */
+export const canDeleteOrg = (viewer, org) =>
+    isPlatformOwner(viewer) && Boolean(org?.createdById) && org.createdById === viewer.id
+
 /* Asserts platform ownership, for the two endpoints that create and delete groups.
  *
  * 403 rather than 404: unlike a group id, the *existence* of these endpoints is not a

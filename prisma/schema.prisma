@@ -7,13 +7,17 @@
 //
 // Two ideas carry most of the design and are worth reading before changing anything:
 //
-//  1. **Permission and vocation are different axes.** `Membership.role`
-//     (ADMIN | MEMBER) decides what you may *do*, and it is per-organization, so one
-//     person can administer their parish while being an ordinary member of the
+//  1. **Permission, vocation and platform authority are three different axes.**
+//     `Membership.role` (ADMIN | MEMBER) decides what you may *do inside one group*, so
+//     one person can administer their parish while being an ordinary member of the
 //     diocese. `Profile.vocation` (PRIEST | FAITHFUL) is who someone *is*, and it is
-//     global and purely presentational. A priest is usually the admin of their
-//     parish but not necessarily, and an admin need not be a priest — collapsing
-//     these into one field is the mistake this split exists to prevent.
+//     global and purely presentational. `Profile.platformRole` (NONE | OWNER) is
+//     authority over the *app*, not over any group — the right to bring a group into
+//     existence, which no per-group role can express because the group does not exist
+//     yet. A priest is usually the admin of their parish but not necessarily, an admin
+//     need not be a priest, and an owner is an ordinary member of every group they did
+//     not create. Collapsing any two of these into one field is the mistake this split
+//     exists to prevent.
 //
 //  2. **Access is a membership row, not a flag.** An APPROVED row is what makes an
 //     organization's posts visible in your feed. Revoking access is a status change,
@@ -142,6 +146,10 @@ model Profile {
   /// Who the person is, not what they may do. See the header note.
   vocation  Vocation @default(FAITHFUL)
 
+  /// Authority over the platform, held by a person rather than granted inside a group.
+  /// The subscriber's axis: see the `PlatformRole` note below.
+  platformRole PlatformRole @default(NONE) @map("platform_role")
+
   /// **There is no `verified` column.** The check on a post card means "this person
   /// administers the group you are reading this in", which is already recorded — it is
   /// `Membership.role == ADMIN`. Storing it a second time as a profile flag created a fact
@@ -177,6 +185,7 @@ model Profile {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   memberships      Membership[]
+  orgsCreated      Organization[]            @relation("OrgCreator")
   posts            Post[]
   comments         Comment[]
   postLikes        PostLike[]
@@ -208,6 +217,48 @@ model Profile {
 /// enum by declaration order, not alphabetically, so this is what the roster sorts on.
 /// Inserting a rank in the middle later means a type recreate, not an `ADD VALUE` — get
 /// the order right now.
+/// Authority over the platform itself, attached to a **person** rather than to a group.
+///
+/// ── Why a third axis and not a role ─────────────────────────────────────────
+///
+/// This is the subscriber. Someone buys Grapevine for their parish, and what they buy is
+/// the right to *build* — to bring groups into existence and to tear down the ones they
+/// brought. Neither existing axis can say that. `Membership.role` is scoped to a group, and
+/// the group being created does not exist yet, so there is no row to hang the permission
+/// off; `vocation` grants nothing by construction and must not start. So it is a third
+/// column, kept apart from the other two for exactly the reason those two are kept apart.
+///
+/// ── What OWNER is, and what it is deliberately not ──────────────────────────
+///
+/// OWNER grants exactly two things: create a group, and delete a group **you created**. It
+/// is **not** a master key. An owner has no standing in a parish they did not create — they
+/// cannot read its feed, its roster, or its members, and `requireViewer`'s membership
+/// scoping is untouched by this column. A priest who subscribes so he can run a catechumen
+/// group does not thereby acquire the diocese's roster, and the diocese's owner does not
+/// acquire his. That isolation is the product promise, not a hardening detail.
+///
+/// **An owner's authority inside a group they created is a real `Membership` row**, written
+/// by `createOrg` in the same transaction as the group and protected from removal by
+/// `updateMembership`. It is not derived from this column at read time. That keeps the
+/// schema's second idea intact — access is a membership row, not a flag — so the owner
+/// appears in their own roster, their posts carry the admin check, and every authorization
+/// path in the app keeps asking one question instead of two.
+///
+/// ── Not assignable through the app ──────────────────────────────────────────
+///
+/// Nothing in `/api` writes this column, and that is on purpose: an endpoint that grants
+/// platform authority is a privilege-escalation surface guarding a role that changes hands
+/// perhaps twice a year. It is granted out of band by `scripts/grant-owner.mjs`
+/// (`npm run owner -- <email>`), which runs on a trusted machine with the database URL —
+/// the same trust boundary the seeds already have. When billing exists, that script is what
+/// the webhook calls.
+enum PlatformRole {
+  NONE
+  OWNER
+
+  @@map("platform_role")
+}
+
 enum Vocation {
   CATECHUMEN
   FAITHFUL
@@ -225,10 +276,11 @@ enum Vocation {
 // Organizations ("Groups" in the UI)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A parish, diocese, or monastery. The self-relation models the real hierarchy
-/// (a diocese contains parishes) so that "a diocese feed is its own posts plus its
-/// parishes'" becomes a query change later rather than a migration — walk `children`
-/// and widen the `orgId IN (...)` set in `listFeed`.
+/// A parish, diocese, monastery, or any smaller circle a priest wants to keep separate —
+/// see `OrgKind`. The self-relation models the real hierarchy (a diocese contains parishes)
+/// so that "a diocese feed is its own posts plus its parishes'" becomes a query change later
+/// rather than a migration — walk `children` and widen the `orgId IN (...)` set in
+/// `listFeed`.
 model Organization {
   id        String   @id @default(cuid())
   /// URL-safe identifier, e.g. "holy-trinity-cathedral".
@@ -241,6 +293,21 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  /// The platform OWNER who created this group through `POST /api/orgs`, and the only person
+  /// who may delete it. Read it as the subscription boundary: a group belongs to whoever
+  /// brought it into existence, and one owner's groups are invisible to another's.
+  ///
+  /// **Nullable, and it means "nobody created this through the app"** — the launch parish
+  /// came from `seed.prod.js`, which predates this column, and is therefore deletable by no
+  /// one. That is the safe default for the one group whose loss would matter most, so it is
+  /// deliberately not backfilled.
+  ///
+  /// `SetNull` rather than `Cascade`: deleting a person must never delete a parish's entire
+  /// history as a side effect. The group survives, ownerless, and a new owner is set by the
+  /// same back door that grants the role.
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdBy   Profile? @relation("OrgCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
   parentId String?       @map("parent_id")
   parent   Organization? @relation("OrgHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
 
@@ -250,13 +317,25 @@ model Organization {
   invites     Invite[]
 
   @@index([parentId])
+  /// Serves "which groups does this owner own", which is the delete authorization check and
+  /// the future owner console. Also keeps the ON DELETE SetNull above off a sequential scan.
+  @@index([createdById])
   @@map("organization")
 }
 
+/// A classification carried for the record. It grants nothing, nothing branches on it, and no
+/// screen renders it — **every group behaves identically**, which is why the create form does
+/// not ask and `updateOrg` refuses to change it.
+///
+/// It is kept rather than dropped because the rows that predate it genuinely are what they say
+/// (a cathedral parish under a diocese), and this column is the only place that distinction is
+/// written down. GROUP is the residual and the default `createOrg` applies, so nothing new has
+/// to claim to be a canonical body.
 enum OrgKind {
   PARISH
   DIOCESE
   MONASTERY
+  GROUP
 
   @@map("org_kind")
 }

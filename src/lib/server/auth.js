@@ -250,6 +250,37 @@ export const requireMembership = (viewer, orgId, { role } = {}) => {
     return membership
 }
 
+/* ---------------------------------------------------------------------------
+ * Platform authority
+ * ------------------------------------------------------------------------- */
+
+/* Is this viewer a platform owner — the person who pays for Grapevine?
+ *
+ * **This answers one question and must never be asked as a second one.** It is the right to
+ * bring a group into existence and to delete a group you brought, and that is the whole of
+ * it. It is not "is this person important", it is not a read grant, and it is deliberately
+ * not consulted by `requireMembership`, `readableOrgIds`, or anything that decides what a
+ * viewer may see. An owner has exactly the standing in a parish they did not create that any
+ * other stranger has: none.
+ *
+ * The authority an owner *does* hold inside a group they created is a real APPROVED ADMIN
+ * `Membership`, written by `createOrg` and protected from removal by `updateMembership`. So
+ * every read path keeps asking the same one question it always asked, and adding this axis
+ * widened no existing check — which is the only reason a platform role can be added to an
+ * app like this without becoming a backdoor. */
+export const isPlatformOwner = (viewer) => viewer?.platformRole === "OWNER"
+
+/* Asserts platform ownership, for the two endpoints that create and delete groups.
+ *
+ * 403 rather than 404: unlike a group id, the *existence* of these endpoints is not a
+ * secret, and there is nothing to leak by saying plainly that this is not yours to do. */
+export const requirePlatformOwner = (viewer) => {
+    if (!isPlatformOwner(viewer)) {
+        throw forbidden("Only a Grapevine owner can do that.")
+    }
+    return viewer
+}
+
 /* The organizations whose posts a viewer may read: every APPROVED membership.
  *
  * Returned as an array of ids rather than a single id because the feed is already a union

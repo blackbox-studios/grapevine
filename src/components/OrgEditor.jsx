@@ -38,7 +38,6 @@ import { MAX_ORG_BIO_LENGTH, MAX_ORG_NAME_LENGTH } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useOrgEditor } from "@/lib/store/org/hook"
-import { orgKindLabel } from "@/lib/utils"
 
 /* Group settings — a dialog on a desktop, a bottom sheet on a phone.
  *
@@ -176,14 +175,9 @@ const OrgForm = ({ org, save, saving, onDone, onDirtyChange }) => {
                             saving={saving}
                             className="size-24"
                         />
-                        <div className="flex flex-col items-center gap-0.5">
-                            <h3 className="text-2xl font-semibold text-foreground">
-                                {org.name}
-                            </h3>
-                            <p className="text-sm text-muted-foreground">
-                                {orgKindLabel(org.kind)}
-                            </p>
-                        </div>
+                        <h3 className="text-2xl font-semibold text-foreground">
+                            {org.name}
+                        </h3>
                     </header>
 
                     <div className="flex flex-col gap-5 border-t pt-5">

@@ -5,6 +5,7 @@ import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
+import Hyperlink from "@/components/Hyperlink"
 import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
@@ -16,11 +17,13 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import More from "@/assets/svg/icons/more.svg"
 import Ripple from "@/assets/svg/ripple.svg"
+import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useCurrentOrg } from "@/lib/store/org/hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { CARD_SPRING, appPath, captionPreview, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
 
@@ -272,6 +275,46 @@ const PostCard = ({ post }) => {
     )
 }
 
+/* A group with nothing in it yet.
+ *
+ * **What it says depends on who is reading**, and that is the whole reason it is not one
+ * sentence. An admin of a fresh group is looking at two jobs nobody has told them about —
+ * publish something, and put people here to read it — so this is where they are told. A member
+ * can do neither, and pointing them at a roster they cannot open would be an instruction that
+ * dead-ends in a 403; they get the plain fact instead.
+ *
+ * Only the roster is a link, because only the roster is a place. The composer is a dialog
+ * owned by the nav with no route and no store flag to open it from here, so it is named rather
+ * than linked — lifting its open state into a store to make one word clickable would be a
+ * store with one purpose and a lifetime nobody could name.
+ *
+ * **The link is the loud variant, not `soft`.** This is the one call to action on an otherwise
+ * empty screen, and `soft` holds the inherited colour until the pointer is already on it — on a
+ * phone, where there is no hover at all, that is a link nobody can see. `soft` is for a link
+ * sitting beside a louder primary action, which is the opposite of this. */
+const FeedEmpty = () => {
+    const { current, isAdmin } = useCurrentOrg()
+
+    return (
+        <div className="flex flex-col items-center gap-2 px-8 py-20 text-center">
+            <h2 className="text-lg font-semibold text-foreground">No posts yet</h2>
+            <div className="text-sm text-muted-foreground">
+                {isAdmin ? (
+                    <>
+                        Create a post with the compose button, and{" "}
+                        <Hyperlink href={ROUTES.SETTINGS_USERS} className="font-medium">
+                            add members
+                        </Hyperlink>{" "}
+                        so there is somebody to read it.
+                    </>
+                ) : (
+                    <>Nothing has been posted in {current?.name ?? "this group"} yet.</>
+                )}
+            </div>
+        </div>
+    )
+}
+
 /* The home feed: a centered, single-column stack of post cards, one page at a time.
  *
  * The feed is paginated over the wire (`GET /api/feed?cursor=`), so this only ever holds
@@ -283,6 +326,12 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
      * fallback (and its spinner is the visible "loading" state) for the rare case the content
      * is too short to scroll into the trigger zone. */
     useInfiniteScroll(onLoadMore, { enabled: hasMore })
+
+    /* Before the container below, not inside it: <Reflow/> measures and animates a list, and
+       an empty state is not a list item that arrived. The caller only renders this component
+       once loading has settled, so an empty `posts` is a real answer rather than a pending
+       one. */
+    if (posts.length === 0) return <FeedEmpty />
 
     return (
         /* `relative` is <Reflow/>'s requirement, not decoration — read that component.

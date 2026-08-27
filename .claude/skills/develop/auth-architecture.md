@@ -24,9 +24,10 @@
 - **Sessions end only when the viewer or an admin ends them.** Nothing transient — offline,
   a 503, a suspended app, a drifting device clock — may sign anyone out, and the session
   itself lives in native storage the OS won't reclaim. See "Staying signed in".
-- **Two authorization axes.** `Membership.role` (ADMIN | MEMBER) is per-group permission.
+- **Three authorization axes.** `Membership.role` (ADMIN | MEMBER) is per-group permission.
   `Profile.vocation` (CATECHUMEN | FAITHFUL | READER | MATUSHKA | DEACON | PRIEST | BISHOP)
-  is presentational and grants nothing.
+  is presentational and grants nothing. `Profile.platformRole` (NONE | OWNER) is the
+  subscriber's authority to create groups — and is not a read grant anywhere.
 - **Admission is the security model.** An admin adds an email, which provisions the account
   outright — there is no acceptance step and no self-serve path. Removing someone is a
   status change, not a delete.
@@ -444,20 +445,35 @@ lifetime, it does not end sessions, and it is the revocation window
 
 ---
 
-## The two axes
+## The three axes
 
-Conflating these is the mistake the schema is shaped to prevent.
+Conflating any two of these is the mistake the schema is shaped to prevent.
 
 | | Values | Scope | Grants |
 |---|---|---|---|
 | `Membership.role` | `ADMIN`, `MEMBER` | **per group** | ADMIN may publish; MEMBER may read, like, comment |
 | `Profile.vocation` | `CATECHUMEN`, `FAITHFUL`, `READER`, `MATUSHKA`, `DEACON`, `PRIEST`, `BISHOP` | global | nothing — it is a label |
+| `Profile.platformRole` | `NONE`, `OWNER` | **the platform** | OWNER may create groups, and delete the ones they created |
 
 A priest is *usually* their parish's admin but need not be, and an admin need not be a
 priest — a parish can have a Reader who administers the feed and a Priest who does not.
 Because roles are per-group, `useRole(orgId)` / `usePrivileged(role, orgId)` always resolve
 against one group; a global "am I admin" would paper over that the moment a second group
 exists.
+
+**`platformRole` is the subscriber's axis, and it is not a bigger `role`.** It exists because
+creating a group cannot be scoped to a group — the group does not exist yet. It grants
+exactly two endpoints (`POST /api/orgs`, `DELETE /api/orgs/:orgId`) and **no read access
+anywhere**: an owner has the same standing in a parish they did not create as any other
+stranger, which is none. Their authority inside a group they *did* create is an ordinary
+APPROVED ADMIN `Membership`, written by `createOrg` and protected from removal by
+`updateMembership` — so no read path in the app consults this column, and adding the axis
+widened no existing check. The one exception is `accessFor`, which treats an owner as
+`ACTIVE` so a newly provisioned one is not locked out before they have created anything.
+
+It is not assignable through the app. `npm run owner -- <email>` (`scripts/grant-owner.mjs`)
+is the only thing that writes it, and it provisions the account if the address is new. See
+§11 of `backend-architecture.md`.
 
 Vocation is **one value, never a set** — these standings are mutually exclusive, so nobody
 is both a matushka and an ordained reader. That is why it is an enum column rather than a
@@ -497,11 +513,13 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 | Foreground/background signal (`onAppState`) | `src/lib/native.js` |
 | RLS + Data API lockdown | `prisma/policies.sql` (`npm run db:secure`) |
 | Server clients (anon + service role) | `src/lib/server/supabase.js` |
-| `requireViewer`, `requireMembership`, `readableOrgIds` | `src/lib/server/auth.js` |
+| `requireViewer`, `requireMembership`, `readableOrgIds`, `requirePlatformOwner` | `src/lib/server/auth.js` |
 | Admissions, roster, onboarding, revoke | `src/lib/server/profile.service.js` |
+| Group create / edit / delete, and the owner checks | `src/lib/server/orgs.service.js` |
+| Granting platform ownership (`npm run owner`) | `scripts/grant-owner.mjs` |
 | `access` derivation | `accessFor` in `src/lib/server/projections.js` |
 | Store: `requestCode` / `verifyCode` / `completeOnboarding` / `logout` / `expire` / `resume` / `suspend` | `src/lib/store/auth/store.js` |
-| Hooks: `useLogin`, `useUser`, `useAuthed`, `useRole`, `usePrivileged`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
+| Hooks: `useLogin`, `useUser`, `useAuthGate`, `useRole`, `usePrivileged`, `useGatewayDestination`, `useOnboarding`, `useAuthInit` | `src/lib/store/auth/hook.js` |
 | Roster store + hook (invite, approve, revoke, re-rank) | `src/lib/store/members/` |
 | Route guards (signed in vs not) | `src/components/AuthGate.jsx` |
 | Gateway guards (do you belong / orientation) | `src/components/MemberGate.jsx` |

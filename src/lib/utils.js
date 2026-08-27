@@ -356,23 +356,6 @@ export function roleLabel(role) {
         .join(" ")
 }
 
-/* What kind of group this is, for a human — "Parish", "Diocese", "Monastery".
- *
- * Mirrors the `OrgKind` enum. Written out rather than title-cased through `roleLabel`
- * because the two answer different questions and sharing one function would mean a new
- * `OrgKind` silently rendering as whatever its enum name happens to look like; here an
- * unmapped value falls back to the neutral "Group", which is the word the interface uses
- * for an organization anyway. */
-const ORG_KIND_LABELS = {
-    PARISH: "Parish",
-    DIOCESE: "Diocese",
-    MONASTERY: "Monastery",
-}
-
-export function orgKindLabel(kind) {
-    return ORG_KIND_LABELS[kind] ?? "Group"
-}
-
 /* Deterministic per-value avatar gradient. Same input always maps to the same
  * gradient so each user gets a stable, distinct color. */
 export function gradientFor(value) {

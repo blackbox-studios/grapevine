@@ -22,7 +22,7 @@
  *
  * Two accounts are provisioned as real, sign-innable Supabase users:
  *
- *   SEED_ADMIN_EMAIL    Priest Alexander   PRIEST    ADMIN    can publish
+ *   SEED_ADMIN_EMAIL    Priest Alexander   PRIEST    ADMIN    can publish; also OWNER
  *   SEED_MEMBER_EMAIL   Jordan Rivera      FAITHFUL  MEMBER   can like and comment
  *
  * **Set those two env vars to addresses you can actually receive mail at.** Signing in
@@ -158,6 +158,11 @@ const PEOPLE = [
         email: ADMIN_EMAIL,
         vocation: "PRIEST",
         role: "ADMIN",
+        /* The one seeded platform owner, so `POST /api/orgs` and the delete path are
+         * exercisable locally. It is a third axis, not a bigger `role`: he is the Cathedral's
+         * ADMIN, the diocese's MEMBER, and an owner of neither — ownership is a property of
+         * the person, and the groups he owns are only the ones he creates from the app. */
+        platformRole: "OWNER",
         avatarUrl: "/img/mock/priest-alexander.png",
         signIn: true,
     },
@@ -294,6 +299,7 @@ const main = async () => {
             lastName: person.lastName,
             avatarUrl: person.avatarUrl ?? null,
             vocation: person.vocation,
+            platformRole: person.platformRole ?? "NONE",
         }
 
         const profile = await prisma.profile.upsert({

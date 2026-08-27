@@ -25,6 +25,7 @@
     "db:seed:prod": "SEED_TARGET=prod node prisma/seed.js",
     "db:reset": "node scripts/assert-local-db.mjs \"db:reset\" && prisma migrate reset --force --skip-seed && npm run db:secure && npm run db:seed",
     "postinstall": "prisma generate",
+    "owner": "node scripts/grant-owner.mjs",
     "dev:login": "node scripts/dev-login.mjs",
     "dev:reset-member": "node scripts/dev-reset-member.mjs",
     "icons": "node scripts/generate-icons.mjs"

@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { ROLES } from "@/lib/constants"
-import { usePrivileged, useUpdateOrg, useUser } from "@/lib/store/auth/hook"
+import {
+    useCreateOrg,
+    usePlatformOwner,
+    usePrivileged,
+    useUpdateOrg,
+    useUser,
+} from "@/lib/store/auth/hook"
 import useOrgStore from "./store"
 
 /* The group the app is currently scoped to, and the switcher that changes it.
@@ -123,6 +129,66 @@ export const useOrgEditor = () => {
          * be revoked while the dialog is open — so it checks rather than trusting the entrance. */
         canEdit: org?.role === ROLES.ADMIN,
     }), [editingId, closeEditor, org, save, saving])
+}
+
+/* Opening the create-a-group surface, and whether this viewer may — for the switcher, which
+ * is the only entrance, exactly as it is for the editor.
+ *
+ * Split from `useOrgCreator` below on the same grounds `useEditOrg` is split from
+ * `useOrgEditor`: the two entrances only need "open it" and "should I be drawn at all", and
+ * subscribing a menu to the form's saving state would re-render it on every keystroke. */
+export const useCreateOrgEntrance = () => {
+    const openCreator = useOrgStore(state => state.openCreator)
+    const canCreate = usePlatformOwner()
+    return useMemo(() => ({ openCreator, canCreate }), [openCreator, canCreate])
+}
+
+/* The create-a-group surface: the form's submit, and what happens after it succeeds.
+ *
+ * **This hook is where the two stores meet, and that is deliberate.** The write belongs to
+ * the auth store (the new group lands in `user.orgs`); the selection belongs to the org store.
+ * Composing them *here* rather than having one store reach into the other is what keeps the
+ * imports one-directional — `org` already reads `auth`, and `auth` calling back into `org`
+ * would be exactly the cycle this store's header warns about. Hooks are the layer allowed to
+ * touch a store, so a hook is the right place for a mutation that spans two.
+ *
+ * Creating a group **selects it**, and that is not a nicety: the viewer just made this place
+ * and the next thing they will do is put people in it or post to it, both of which are scoped
+ * to the selection. Landing them back in the parish they happened to be reading would make
+ * the new group something they then have to go and find. */
+export const useOrgCreator = () => {
+    const [creating, closeCreator, select] = useOrgStore(
+        useShallow(state => ([state.creating, state.closeCreator, state.select])),
+    )
+    const { createOrg, creating: saving } = useCreateOrg()
+    const canCreate = usePlatformOwner()
+
+    /* **The picture is not set here, and that is a constraint rather than a gap.** An
+     * ORG_AVATAR upload is authorized by an ADMIN membership in the group and lands in a folder
+     * named after the group's id — neither of which exists until this POST returns. Setting one
+     * at creation means holding the file, creating, uploading, then PATCHing: three calls and a
+     * half-created state to describe when the middle one fails. Group settings opens on the new
+     * group a tap later and does it in one, so that is where it stays. */
+    const create = useCallback(
+        async (input) => {
+            const org = await createOrg(input)
+            if (!org) return null
+            select(org.id)
+            closeCreator()
+            return org
+        },
+        [createOrg, select, closeCreator],
+    )
+
+    return useMemo(() => ({
+        open: creating,
+        close: closeCreator,
+        create,
+        saving,
+        /* Checked here rather than trusted from the entrance, for the reason `canEdit` is:
+         * ownership can be revoked by the back door while the surface is open. */
+        canCreate,
+    }), [creating, closeCreator, create, saving, canCreate])
 }
 
 /* The mobile switcher's open state, and the shift it applies to the shell.

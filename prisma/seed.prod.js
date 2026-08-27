@@ -7,6 +7,10 @@
  * no invented parishioners, no fixture ids — the first post in production is one somebody
  * actually writes.
  *
+ * Those two are also the platform's bootstrap OWNERs, which is what lets every group after
+ * this one be created from the app instead of from here. Onboarding a further parish is
+ * `npm run owner -- <their email>`, not an edit to this file.
+ *
  * ── It guarantees access, not content ────────────────────────────────────────
  *
  * This is the rule that makes it safe to re-run against a live database, and it is the one
@@ -60,16 +64,20 @@ const ORG = {
 
 /* ── The two accounts ─────────────────────────────────────────────────────────
  *
- * Both ADMIN, and deliberately so: the app has no platform-owner concept yet (see the
- * "Adding groups without editing this file" note in backend-architecture.md), so the only
- * way to grant someone the ability to publish and manage the roster is a per-group ADMIN
- * membership. Two of them means neither person is a single point of failure for a parish
- * that cannot otherwise be administered.
+ * Both ADMIN of the Cathedral, and both platform OWNER. Those are different things and the
+ * seed asserts them separately because they mean different things: ADMIN is per-group and
+ * lets them publish into the Cathedral and manage its roster; OWNER is the subscriber's axis
+ * and lets them create further groups and delete the ones they create. Two of each means
+ * neither person is a single point of failure.
  *
- * `vocation` is who someone is, `role` is what they may do, and the two are independent —
- * Fr. Alexander is a PRIEST who administers the Cathedral; Robert is FAITHFUL and administers
- * it too. Collapsing those into one field is the mistake the schema's header exists to
- * prevent. */
+ * **These two are the bootstrap owners, and this file is not how anyone else becomes one.**
+ * A new parish priest who subscribes is granted OWNER with `npm run owner -- <email>`, which
+ * provisions his account if he has none — no deploy, no edit here. This list stays at two.
+ *
+ * `vocation` is who someone is, `role` is what they may do inside a group, `platformRole` is
+ * what they may do to the platform, and all three are independent — Fr. Alexander is a PRIEST
+ * who administers the Cathedral; Robert is FAITHFUL and administers it too. Collapsing any
+ * two of them into one field is the mistake the schema's header exists to prevent. */
 const PEOPLE = [
     {
         email: "ajkoranda@gmail.com",
@@ -77,6 +85,7 @@ const PEOPLE = [
         lastName: "Koranda",
         vocation: "PRIEST",
         role: "ADMIN",
+        platformRole: "OWNER",
     },
     {
         email: "rob@blackboxstudios.com",
@@ -84,6 +93,7 @@ const PEOPLE = [
         lastName: "Paul",
         vocation: "FAITHFUL",
         role: "ADMIN",
+        platformRole: "OWNER",
     },
 ]
 
@@ -96,9 +106,13 @@ const PEOPLE = [
  * does repair is a *missing* value, which can only be there because orientation has not
  * happened yet.
  *
- * `email` is the exception and is always asserted, because it is not a display field: it is
- * the address the sign-in code goes to, and it must keep matching the Supabase user this
- * profile mirrors.
+ * **Two fields are exceptions and are asserted every run, because neither is display.**
+ * `email` is the address the sign-in code goes to and must keep matching the Supabase user
+ * this profile mirrors. `platformRole` is access of the same kind the memberships below are:
+ * it is what lets these two create the next group, and repairing it without a working sign-in
+ * is exactly what this file is for. Re-running therefore restores ownership if it was ever
+ * cleared — which is the intended behaviour for the two bootstrap accounts and the reason
+ * every other owner is granted by `npm run owner` instead of by being added here.
  */
 const ensureProfile = async (supabase, person) => {
     const id = await provisionAuthUser(supabase, person)
@@ -113,17 +127,20 @@ const ensureProfile = async (supabase, person) => {
                 firstName: person.firstName,
                 lastName: person.lastName,
                 vocation: person.vocation,
+                platformRole: person.platformRole,
             },
         })
         return { profile, created: true }
     }
 
-    /* Only the gaps. An empty string counts as a gap; `null` is what the column actually
-     * holds before orientation, but a blank saved through a form is the same absence. */
+    /* Only the gaps, plus the two asserted fields above. An empty string counts as a gap;
+     * `null` is what the column actually holds before orientation, but a blank saved through
+     * a form is the same absence. */
     const fill = {}
     if (!existing.firstName) fill.firstName = person.firstName
     if (!existing.lastName) fill.lastName = person.lastName
     if (existing.email !== person.email) fill.email = person.email
+    if (existing.platformRole !== person.platformRole) fill.platformRole = person.platformRole
 
     const profile = Object.keys(fill).length
         ? await prisma.profile.update({ where: { id }, data: fill })
@@ -134,7 +151,7 @@ const ensureProfile = async (supabase, person) => {
 
 const main = async () => {
     console.log(`\n→ database: ${describeDatabase()}`)
-    console.log("→ seed:     PRODUCTION (one group, two admins, no posts)\n")
+    console.log("→ seed:     PRODUCTION (one group, two admins/owners, no posts)\n")
 
     const supabase = supabaseAdmin()
 

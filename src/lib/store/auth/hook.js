@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow'
 import {
     ACCESS,
     OTP_RESEND_SECONDS,
+    PLATFORM_ROLES,
     ROLE_LEVEL,
     ROLES,
     ROUTES,
@@ -194,6 +195,29 @@ export const useUpdateOrg = () => {
     )
 
     return useMemo(() => ({ updateOrg, saving }), [updateOrg, saving])
+}
+
+/* Creating a group — the auth store's half of the create surface, for the same reason
+ * `useUpdateOrg` is its half of the editor: the write lands in `user.orgs`. */
+export const useCreateOrg = () => {
+    const [createOrg, creating] = useAuthStore(
+        useShallow(state => ([state.createOrg, state.loading.org])),
+    )
+
+    return useMemo(() => ({ createOrg, creating }), [createOrg, creating])
+}
+
+/* Whether the viewer may create groups — the third axis, and **not** a rank above ADMIN.
+ *
+ * Deliberately its own hook rather than a value threaded through `usePrivileged`: that one
+ * walks `ROLE_LEVEL` and answers "may I act in this group", which is a question about a
+ * membership. This one is about the person and has no group in it at all, so putting OWNER on
+ * that ladder would make every `<Privileged/>` in the app start answering it.
+ *
+ * Presentation only. It decides whether an entrance is drawn; `requirePlatformOwner` on the
+ * server decides whether the call succeeds. */
+export const usePlatformOwner = () => {
+    return useAuthStore(state => state.user?.platformRole === PLATFORM_ROLES.OWNER)
 }
 
 export const useLogout = () => {

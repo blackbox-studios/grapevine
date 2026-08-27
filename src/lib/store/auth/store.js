@@ -655,6 +655,48 @@ const useStore = create(
                     }
                 },
 
+                /* POST /api/orgs → a new group, for a platform owner.
+                 *
+                 * Here rather than in the `org` store for the same reason `updateOrg` is: the
+                 * viewer owns `user.orgs`, and creating a group *adds a membership* — the
+                 * server writes the creator an APPROVED ADMIN row in the same transaction, so
+                 * the response is a group the viewer is now in. Appending it is what puts the
+                 * new parish in the switcher, and everything downstream re-renders because
+                 * `orgs` is a new array.
+                 *
+                 * **Returns the group, not a boolean**, unlike every other write here. The
+                 * caller has to select it afterwards and cannot do that without its id — and
+                 * that selection is a second store's business, which is why it happens in the
+                 * hook rather than here. `null` is the failure, so the caller branches on
+                 * truthiness exactly as it would on the boolean.
+                 *
+                 * No refetch of `/me`: the response is already the projection `/me` ships,
+                 * carrying the role and status the creator's new membership gives them. */
+                createOrg: async (input) => {
+                    set(state => {
+                        state.loading.org = true
+                        state.error.org = false
+                    })
+                    try {
+                        const org = await api.post(API_ENDPOINTS.ORGS, input)
+                        set(state => {
+                            if (!state.user?.orgs) return
+                            state.user.orgs.push(org)
+                        })
+                        return org
+                    } catch (error) {
+                        set(state => {
+                            state.error.org = toErrorList(
+                                error,
+                                'Could not create this group.',
+                            )
+                        })
+                        return null
+                    } finally {
+                        set(state => { state.loading.org = false })
+                    }
+                },
+
                 /* GET /api/me → the viewer. The single place `loggedIn` is set true. */
                 _loadProfile: async () => {
                     const user = await api.get(API_ENDPOINTS.ME)

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { motion } from "motion/react"
 
+import PlusIcon from "@/assets/svg/icons/plus.svg"
 import SettingsIcon from "@/assets/svg/icons/settings.svg"
 import StackIcon from "@/assets/svg/icons/stack.svg"
 import HoldMenu from "@/components/HoldMenu"
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ROLES } from "@/lib/constants"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
-import { useCurrentOrg, useEditOrg, useOrgNav } from "@/lib/store/org/hook"
+import { useCreateOrgEntrance, useCurrentOrg, useEditOrg, useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
 
 /* The group switcher, in its two completely different presentations.
@@ -56,6 +57,40 @@ import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
  * form, and component state is what keeps Android's back gesture closing the surface rather
  * than unwinding a history entry out from under it. */
 const canEdit = (org) => org?.role === ROLES.ADMIN
+
+/* Creating a group is offered from the same menu, as a row at the foot of the list, and only
+ * to a platform owner.
+ *
+ * **Here because this is where the set of groups is**, which is the thing being added to — the
+ * switcher is already the answer to "which groups do I have", so "and make another" belongs at
+ * the bottom of that answer rather than on a settings screen a level away. It is the same
+ * argument that put group settings on the row instead of in a list of its own.
+ *
+ * It is deliberately *not* an `OrgRow` and deliberately not styled like one. The rows above it
+ * are memberships — places you can go — and this is an action; giving it the same avatar and
+ * role line would make an eighth group appear in a list of seven. The dashed ring and the
+ * missing second line are what tell them apart, with no rule between them — a divider before a
+ * single trailing item reads as the start of a section that never arrives. */
+const NewGroupRow = () => (
+    <>
+        {/* The dot gutter every OrgRow reserves, held empty. Without it the plus would sit a
+            few pixels left of the avatars above and break the one column edge that runs down
+            the whole list — the same reason the rows draw a transparent dot rather than
+            omitting it. */}
+        <span aria-hidden="true" className="size-1.5 shrink-0" />
+        <span
+            aria-hidden="true"
+            className="grid size-10 shrink-0 place-items-center rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground"
+        >
+            {/* The drawn glyph, like the gear on a row above — a Material ligature here would
+                be the only icon in this menu from a different set. */}
+            <PlusIcon className="size-4 shrink-0" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left font-medium text-foreground!">
+            New group
+        </span>
+    </>
+)
 
 /* One group's row, shared by both presentations so the two cannot describe the same
  * membership differently. The role is spelled out because it is the thing that changes when
@@ -118,6 +153,7 @@ const OrgRow = ({ org, active }) => (
 export const OrgSwitcher = () => {
     const { current, orgs, select, skeleton } = useCurrentOrg()
     const { editOrg } = useEditOrg()
+    const { openCreator, canCreate } = useCreateOrgEntrance()
 
     /* Controlled, and only because of the gear. Selecting a row closes the menu through
      * Radix's own machinery, but the gear has to stop that select from firing (see the note
@@ -186,6 +222,18 @@ export const OrgSwitcher = () => {
                             )}
                         </DropdownMenuItem>
                     ))}
+
+                    {/* Radix closes the menu on select, so this one needs no `setMenuOpen`
+                        of its own — unlike the gear, which has to suppress the select and
+                        therefore loses the close that came with it. */}
+                    {canCreate && (
+                        <DropdownMenuItem
+                            onSelect={openCreator}
+                            className="flex cursor-pointer items-center gap-3 rounded-xl py-2"
+                        >
+                            <NewGroupRow />
+                        </DropdownMenuItem>
+                    )}
                 </DropdownMenuContent>
             </DropdownMenu>
         </div>
@@ -297,6 +345,7 @@ export const OrgNavPanel = () => {
     const { open, close, shift } = useOrgNav()
     const { current, orgs, select } = useCurrentOrg()
     const { editOrg } = useEditOrg()
+    const { openCreator, canCreate } = useCreateOrgEntrance()
 
     useBackHandler(open, close)
 
@@ -348,6 +397,19 @@ export const OrgNavPanel = () => {
                             </button>
                         </HoldMenu>
                     ))}
+
+                    {/* Same row, same padding as the memberships above it, so the plus lands
+                        in the avatar column and the action reads as the last item in one list.
+                        `openCreator` closes the panel itself — see the store action. */}
+                    {canCreate && (
+                        <button
+                            type="button"
+                            onClick={openCreator}
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-left"
+                        >
+                            <NewGroupRow />
+                        </button>
+                    )}
                 </div>
             </div>
 

@@ -71,6 +71,14 @@ const INIT = {
      * Deliberately outside `partialize`, so it never persists: reopening the app into a
      * settings dialog nobody asked for would be a bug, not a restored session. */
     editingId: null,
+
+    /* Whether the create-a-group surface is open. A flag rather than an id, which is the
+     * whole difference between it and `editingId` above: there is no group yet to name it
+     * after. It sits here for the same reason that one does — the entrances (the desktop
+     * dropdown, the mobile panel) and <OrgCreator/>, mounted by the shell, are three separate
+     * subtrees, and a flag they all read beats lifting state to a common ancestor whose only
+     * job is to hold it. Not persisted, for the same reason either. */
+    creating: false,
 }
 
 const useStore = create(
@@ -134,6 +142,21 @@ const useStore = create(
 
                 closeEditor: () => set(state => { state.editingId = null }),
 
+                /* Opens the create-a-group surface, closing the switcher that asked for it —
+                 * the same courtesy `editOrg` pays, and for the same reason: the panel is what
+                 * the reader just acted from, so leaving it standing behind the sheet would be
+                 * two open surfaces for one decision. There is no `select` here because there
+                 * is nothing to select yet; the new group is selected once it exists, by
+                 * `useOrgCreator`. Named for the surface it opens, not for the write —
+                 * that is the auth store's `createOrg`, because the row lands in the viewer's
+                 * groups. */
+                openCreator: () => {
+                    get().setOpen(false)
+                    set(state => { state.creating = true })
+                },
+
+                closeCreator: () => set(state => { state.creating = false }),
+
                 /* Nothing to re-read: the selection is validated by `resolve` off the
                  * viewer, and the viewer is the auth store's to refresh. */
                 refresh: async () => {},
@@ -156,6 +179,7 @@ const useStore = create(
                     /* Sign-out with the editor open would otherwise leave it mounted over the
                      * login screen, holding the previous viewer's group. */
                     state.editingId = null
+                    state.creating = false
                     state.error = ERROR_INIT
                 }),
                 clearErrors: () => set(state => { state.error = ERROR_INIT }),

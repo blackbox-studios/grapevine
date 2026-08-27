@@ -22,6 +22,7 @@ import {
     DrawerHeader,
     DrawerTitle,
 } from "@/components/ui/drawer"
+import { useEndSentinel } from "@/lib/hooks/useScroll.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
@@ -187,54 +188,75 @@ const NoComments = () => (
  *
  * Keyed on `localId ?? id`: an optimistic comment is swapped for the server's row under a
  * new id, and keying on `id` would replay the row's entrance on confirmation. */
-const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore, toggleLike, remove, header }) => (
-    <AnimatePresence mode="wait" initial={false}>
-        {skeleton ? (
-            <Transition fast key="skeleton">
-                <CommentsSkeleton />
-            </Transition>
-        ) : (
-            <Transition fast key="content">
-                {/* `relative` is <Reflow/>'s requirement — read that component. */}
-                <div className="relative flex flex-col py-2">
-                    {header}
-                    <Reflow>
-                        {comments.length === 0 ? (
-                            <NoComments key="empty" />
-                        ) : (
-                            comments.map((comment) => (
-                                <CommentRow
-                                    key={comment.localId ?? comment.id}
-                                    comment={comment}
-                                    now={now}
-                                    onToggleLike={() => toggleLike(comment.id)}
-                                    onDelete={() => remove(comment.id)}
-                                />
-                            ))
-                        )}
-                    </Reflow>
-                    {hasMore && (
-                        <motion.button
-                            layout="position"
-                            transition={ROW_SPRING}
-                            type="button"
-                            onClick={loadMore}
-                            disabled={loadingMore}
-                            aria-label="Load more comments"
-                            className="flex w-full justify-center py-3 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
-                        >
-                            {loadingMore ? (
-                                <Ripple aria-label="Loading comments" className="size-8 [&_circle]:stroke-current" />
+const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore, toggleLike, remove, header }) => {
+    /* The next page loads when the reader reaches the foot of the thread — one hook for all
+     * three surfaces, since each renders this list inside its own `overflow-y-auto` panel.
+     * `useEndSentinel` rather than `useInfiniteScroll` for exactly that reason: the latter
+     * reads the shell's scroll container, which none of these panels move. */
+    const sentinelRef = useEndSentinel({
+        hasMore,
+        loading: loadingMore,
+        count: comments.length,
+        onLoadMore: loadMore,
+    })
+
+    return (
+        <AnimatePresence mode="wait" initial={false}>
+            {skeleton ? (
+                <Transition fast key="skeleton">
+                    <CommentsSkeleton />
+                </Transition>
+            ) : (
+                <Transition fast key="content">
+                    {/* `relative` is <Reflow/>'s requirement — read that component. */}
+                    <div className="relative flex flex-col py-2">
+                        {header}
+                        <Reflow>
+                            {comments.length === 0 ? (
+                                <NoComments key="empty" />
                             ) : (
-                                <More className="size-6" />
+                                comments.map((comment) => (
+                                    <CommentRow
+                                        key={comment.localId ?? comment.id}
+                                        comment={comment}
+                                        now={now}
+                                        onToggleLike={() => toggleLike(comment.id)}
+                                        onDelete={() => remove(comment.id)}
+                                    />
+                                ))
                             )}
-                        </motion.button>
-                    )}
-                </div>
-            </Transition>
-        )}
-    </AnimatePresence>
-)
+                        </Reflow>
+                        {hasMore && (
+                            /* The sentinel below usually gets there first, so this is the
+                             * fallback: a failed page leaves the list the same length, which
+                             * is the state that stops the sentinel re-firing, and the reader
+                             * needs something to press. */
+                            <motion.button
+                                layout="position"
+                                transition={ROW_SPRING}
+                                type="button"
+                                onClick={loadMore}
+                                disabled={loadingMore}
+                                aria-label="Load more comments"
+                                className="flex w-full justify-center py-3 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
+                            >
+                                {loadingMore ? (
+                                    <Ripple aria-label="Loading comments" className="size-8 [&_circle]:stroke-current" />
+                                ) : (
+                                    <More className="size-6" />
+                                )}
+                            </motion.button>
+                        )}
+                        {/* Mounted unconditionally: a node that appears only once `hasMore` is
+                          * known would need a second intersection event, which a panel nobody
+                          * has scrolled never produces. */}
+                        <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
+                    </div>
+                </Transition>
+            )}
+        </AnimatePresence>
+    )
+}
 
 /* The composer at the foot of both surfaces. Owns its own draft text. */
 const CommentComposer = ({ viewer, onSubmit, inputRef }) => {

@@ -173,7 +173,7 @@ export const OrgSwitcher = () => {
                                         setMenuOpen(false)
                                         editOrg(org.id)
                                     }}
-                                    className="ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/org:opacity-100"
+                                    className="ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/org:opacity-100 -mr-2"
                                 >
                                     {/* The drawn glyph the rest of the app uses for settings,
                                         not the Material ligature — every icon in a row like

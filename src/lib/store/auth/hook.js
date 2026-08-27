@@ -178,6 +178,24 @@ export const useAvatarUpload = () => {
     )
 }
 
+/* Saving a group's own details — the auth store's half of the group-settings surface.
+ *
+ * Lives here rather than in the org store for the reason the write itself does: `user.orgs`
+ * is the single copy of the viewer's groups, so the store that owns that list is the store
+ * that swaps the updated row back in. The org store holds only the *selection* and which
+ * group is open in the editor.
+ *
+ * Exposed as a hook so `useOrgEditor` has something to consume: hooks are the only layer
+ * that touches a store, and a cross-domain read that reaches for `useAuthStore` directly
+ * would be the one place in the app that skips it. */
+export const useUpdateOrg = () => {
+    const [updateOrg, saving] = useAuthStore(
+        useShallow(state => ([state.updateOrg, state.loading.org])),
+    )
+
+    return useMemo(() => ({ updateOrg, saving }), [updateOrg, saving])
+}
+
 export const useLogout = () => {
     const logoutUser = useAuthStore(state => state.logout)
     const router = useRouter()

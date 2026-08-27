@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { ROLES } from "@/lib/constants"
-import { usePrivileged, useUser } from "@/lib/store/auth/hook"
-import useAuthStore from "@/lib/store/auth/store"
+import { usePrivileged, useUpdateOrg, useUser } from "@/lib/store/auth/hook"
 import useOrgStore from "./store"
 
 /* The group the app is currently scoped to, and the switcher that changes it.
@@ -102,9 +101,7 @@ export const useOrgEditor = () => {
         useShallow(state => ([state.editingId, state.closeEditor])),
     )
     const { orgs } = useOrgs()
-    const [updateOrg, saving] = useAuthStore(
-        useShallow(state => ([state.updateOrg, state.loading.org])),
-    )
+    const { updateOrg, saving } = useUpdateOrg()
 
     const org = useMemo(
         () => orgs.find(entry => entry.id === editingId) ?? null,

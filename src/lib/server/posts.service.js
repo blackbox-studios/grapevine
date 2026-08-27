@@ -11,6 +11,8 @@ import {
     newPostRecipients,
     notifyLike,
     notifyNewPost,
+    pushLike,
+    pushNewPost,
     unnotifyComment,
     unnotifyLike,
 } from "@/lib/server/notifications.service"
@@ -327,7 +329,10 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
  * Media is written in the same call so a post is never briefly visible without its
  * photos. `position` is assigned from array order, which is the carousel's order. */
 export const createPost = async (viewer, { orgId, title, body, media = [] }) => {
-    requireMembership(viewer, orgId, { role: "ADMIN" })
+    /* The membership is kept, not just checked: it arrived from `requireViewer` with its
+     * organization included, so the group's name for the push title is already in hand and
+     * costs no query. See the delivery section of notifications.service.js. */
+    const membership = requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const text = String(body ?? "").trim()
     if (!text) throw invalid("Post body is required.", { body: "Required" })
@@ -406,6 +411,16 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
         await notifyNewPost(tx, { recipients, actorId: viewer.id, postId: created.id })
 
         return created
+    })
+
+    /* The parish's phones, told after the rows are committed and never awaited — a publish
+     * must not get slower, or fail, because FCM is unreachable. See the delivery section of
+     * notifications.service.js. */
+    pushNewPost({
+        recipients,
+        actor: viewer,
+        orgName: membership.org?.name,
+        postId: post.id,
     })
 
     /* Freshly created: the author cannot have liked it, and nobody else has seen it. Whoever
@@ -500,6 +515,17 @@ export const togglePostLike = async (viewer, postId) => {
             ).filter(Boolean),
         )
 
+        /* Only a new like buzzes. An unlike has a row to retract but nothing to announce,
+         * and the retraction cannot reach a banner already on a lock screen anyway. */
+        if (!existing) {
+            pushLike({
+                recipientId: subject.authorId,
+                actor: viewer,
+                type: "POST_LIKE",
+                postId,
+            })
+        }
+
         return { liked: !existing, likes: post.likeCount }
     } catch (error) {
         /* A concurrent duplicate (P2002) or a row already gone (P2025) means the other
@@ -570,6 +596,18 @@ export const toggleCommentLike = async (viewer, commentId) => {
                   ]
             ).filter(Boolean),
         )
+
+        /* As above — a new like only. The push carries the *post* id, not the comment's:
+         * tapping it opens the thread the comment lives in, which is the only surface that
+         * can show a comment at all. */
+        if (!existing) {
+            pushLike({
+                recipientId: comment.authorId,
+                actor: viewer,
+                type: "COMMENT_LIKE",
+                postId: comment.postId,
+            })
+        }
 
         return { liked: !existing, likes: row.likeCount }
     } catch (error) {

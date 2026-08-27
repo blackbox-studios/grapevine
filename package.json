@@ -30,6 +30,7 @@
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "@capacitor-firebase/messaging": "^8.4.0",
     "@capacitor/android": "^8.5.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.0",
@@ -48,6 +49,7 @@
     "clsx": "^2.1.1",
     "copy-to-clipboard": "^4.0.2",
     "date-fns": "^4.4.0",
+    "firebase": "^12.18.0",
     "immer": "^11.1.9",
     "input-otp": "^1.4.2",
     "jose": "^6.2.9",

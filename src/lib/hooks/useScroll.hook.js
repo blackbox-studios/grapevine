@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { animate, useMotionValue, useMotionValueEvent, useScroll as useMotionScroll, useTransform } from "motion/react"
 
 import { useScroll } from "@/lib/providers/Scroll"
@@ -190,6 +190,19 @@ export const usePullToRefresh = (onRefresh) => {
 /* Infinite scroll                                                            */
 /* -------------------------------------------------------------------------- */
 
+/* **Two hooks, because there are two kinds of scroller in this app**, and neither can do
+ * the other's job:
+ *
+ *   useInfiniteScroll  the shell's container — the feed. Reads `scrollYProgress` off the
+ *                      node ScrollProvider owns, which is the only scroller it knows about.
+ *   useEndSentinel     any *nested* panel — the comment thread, which scrolls inside a
+ *                      drawer or a dialog. Those never touch the shell's container, so the
+ *                      hook above reads a scroll position that is not moving and pages
+ *                      nothing. This one observes a node instead, so it works in either.
+ *
+ * Reach for the sentinel when the list has its own `overflow-y-auto`. Reach for the first
+ * when the page itself is what scrolls. */
+
 /* Fetch the next page before the reader hits the end. Rides framer-motion's scroll
  * position on the shell's scroll container (the same container everything else here reads):
  * `scrollYProgress` runs 0→1 over the scrollable range, so crossing `threshold` means the
@@ -210,4 +223,79 @@ export const useInfiniteScroll = (onLoadMore, { enabled = true, threshold = 0.8 
     useMotionValueEvent(scrollYProgress, "change", (progress) => {
         if (enabled && progress >= threshold) onLoadMoreRef.current?.()
     })
+}
+
+/* The same job for a list that scrolls inside its own panel, as a sentinel node to place
+ * after the last row. Returns the ref to attach; the surface keeps its own manual control.
+ *
+ * It needs no reference to the scrolling container. With `root: null` the observer measures
+ * against the viewport *clipped by every ancestor's overflow*, so a sentinel inside an
+ * `overflow-y-auto` panel intersects exactly when it scrolls into that panel's visible area.
+ *
+ * `rootMargin` is not a prefetch dial here. It grows the *root's* rect — the viewport — not
+ * the intermediate clip of the panel the sentinel lives in, so on a nested scroller it buys
+ * nothing; prefetching means moving the sentinel above the last row instead.
+ *
+ * ── One load per length ──────────────────────────────────────────────────────
+ *
+ * A paging store leaves its cursor and its `hasMore` untouched when a page fails, correctly:
+ * the page is still there to be fetched. But the sentinel is then still on screen and still
+ * says "more", so a trigger conditioned only on `hasMore && !loading` fires again the instant
+ * the failure settles, and again — a retry loop against an endpoint that is already failing.
+ *
+ * So **each distinct list length may trigger at most one load.** A page that arrives grows
+ * `count`, which re-arms the sentinel and lets it chain until the panel is full. A page that
+ * fails leaves `count` where it was, so nothing fires again until the reader presses
+ * something.
+ *
+ * The guard is derived from `count` rather than from an in-flight flag because a flag has to
+ * be cleared by something, and the clearing edge is not guaranteed to arrive: the store's
+ * `loadMore` returns early while the first page is still in flight, so a load can be
+ * requested that never sets `loading` at all. A trigger that is a pure function of reactive
+ * values cannot wedge that way.
+ *
+ * The false positive is a page whose rows were all duplicates the store de-duplicated: the
+ * cursor moved, the count did not, and it waits for the reader. That is the safe direction. */
+export const useEndSentinel = ({ hasMore, loading, count, onLoadMore, rootMargin = "0px" }) => {
+    const [visible, setVisible] = useState(false)
+
+    /* The list length the last automatic load was fired at; -1 so the first one can run. */
+    const firedAt = useRef(-1)
+    const observer = useRef(null)
+
+    /* **A callback ref, because attachment is the event that matters.** The surface renders a
+     * skeleton before its first page arrives, so the node this watches does not exist on the
+     * first render and a `useRef` would still be null when an effect went looking for it —
+     * with nothing to re-run that effect once the real node appeared, since a ref changing is
+     * not a render. React calls this the moment the node is attached or detached, which is
+     * exactly the signal. */
+    const ref = useCallback((node) => {
+        observer.current?.disconnect()
+        observer.current = null
+
+        if (!node) {
+            setVisible(false)
+            return
+        }
+
+        observer.current = new IntersectionObserver(
+            ([entry]) => setVisible(entry.isIntersecting),
+            { rootMargin },
+        )
+        observer.current.observe(node)
+    }, [rootMargin])
+
+    /* The decision lives in an effect over reactive values, not in the observer callback, so
+     * it re-evaluates whenever any of them moves. A sentinel already on screen when the first
+     * page lands produces no intersection event — nothing about the viewport changed — so a
+     * dependency change is the only thing that can fetch the next page. */
+    useEffect(() => {
+        if (!visible || !hasMore || loading) return
+        if (firedAt.current === count) return
+
+        firedAt.current = count
+        onLoadMore()
+    }, [visible, hasMore, loading, count, onLoadMore])
+
+    return ref
 }

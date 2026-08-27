@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12 and below (`android:fullBackupContent`).
+
+  Excludes the Capacitor Preferences store, which is where the Supabase session lives — see
+  the "Staying signed in" section of .claude/skills/develop/auth-architecture.md. Without
+  this, Android auto-backup copies a signed-in session to the user's Google Drive and can
+  restore it onto a different handset, which is a signed-in session travelling somewhere
+  nobody authorized.
+
+  `android:allowBackup="false"` in the manifest already turns cloud backup off outright; this
+  file is the belt to that's braces, and the thing that keeps the exclusion expressed if
+  backup is ever turned back on for some other reason.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+</full-backup-content>

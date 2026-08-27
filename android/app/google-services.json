@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "720533152659",
+    "project_id": "throughgrapevine",
+    "storage_bucket": "throughgrapevine.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:720533152659:android:1c5875b81f2319d1bbbe66",
+        "android_client_info": {
+          "package_name": "com.throughgrapevine.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBH_fq6V_Lv4iqVYOwO2_77FivEgEnwjSs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

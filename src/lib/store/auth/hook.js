@@ -224,18 +224,17 @@ export const useViewerAuthor = () => {
     return useAuthStore(useShallow(state => viewerAuthor(state.user)))
 }
 
-/* Whether anyone is signed in. Kept separate from useLogin so a consumer doesn't drag in
- * the login form's loading/error surface. */
-export const useAuthed = () => {
-    return useAuthStore(state => state.loggedIn)
-}
-
-/* What the route gates need: whether the session question has been *answered*, and what
- * the answer is.
+/* Whether anyone is signed in, and whether that answer can be acted on yet. Kept separate
+ * from useLogin so a consumer doesn't drag in the login form's loading/error surface.
  *
- * Both halves matter. `loggedIn` alone is the persisted guess, and acting on it before
- * `ready` makes the gate redirect out of a magic-link callback before the tokens in the
- * URL have been read — see the header of components/AuthGate.jsx. */
+ * **Both halves, always — there is deliberately no hook that hands out `loggedIn` alone.**
+ * One existed (`useAuthed`) and every use of it was a latent bug: `loggedIn` rehydrates off
+ * disk before `init()` has asked Supabase anything, so a consumer reading it bare acts on the
+ * persisted *guess*. That made the gate redirect out of a magic-link callback before the
+ * tokens in the URL had been read — see the header of components/AuthGate.jsx — and, later,
+ * made a push tapped from a cold launch flush its destination before <SlideRouter/> existed to
+ * receive it. Both callers now wait on `ready`, so the shape that invited the mistake is gone
+ * rather than merely documented. */
 export const useAuthGate = () => {
     return useAuthStore(useShallow(state => ({
         ready: state.ready,

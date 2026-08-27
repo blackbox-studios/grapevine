@@ -137,6 +137,10 @@ export const API_ENDPOINTS = {
     NOTIFICATIONS: "/notifications",
     NOTIFICATIONS_UNREAD: "/notifications/unread",
     NOTIFICATIONS_READ: "/notifications/read",
+    /* This installation's FCM token: POST to attach it to the viewer, DELETE on sign-out to
+     * detach it. Write-only — there is no GET, because listing somebody's tokens would hand
+     * out the values needed to push to their phones. */
+    DEVICES: "/devices",
 }
 
 /* How many items a page pulls, per collection. The server clamps to its own maximum. */

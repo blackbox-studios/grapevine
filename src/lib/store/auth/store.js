@@ -8,6 +8,7 @@ import { API_ENDPOINTS, ERROR_CODES, ROLES, ROUTES } from '@/lib/constants'
 import { isNative } from '@/lib/native'
 import { startAutoRefresh, stopAutoRefresh, supabase } from '@/lib/supabase'
 import useGlobalStore from '@/lib/store/global.store'
+import usePushStore from '@/lib/store/push/store'
 import { toErrorList } from '@/lib/utils'
 
 /* Authentication, backed by Supabase.
@@ -426,9 +427,17 @@ const useStore = create(
                     state.error.request = false
                 }),
 
+                /* **Detaching the device comes first, and the order is load-bearing.**
+                 * `DELETE /api/devices` is an authenticated request, so it has to go while
+                 * there is still a session to authenticate it — after `signOut()` it earns a
+                 * 401 and the row survives, which on a shared phone means the next person's
+                 * lock screen keeps showing this one's likes. It is awaited but cannot
+                 * throw: `unregister` swallows its own failure and falls back to invalidating
+                 * the token at FCM, which gets the row pruned on the next send instead. */
                 logout: async (router) => {
                     set(state => { state.loading.logout = true })
                     try {
+                        await usePushStore.getState().unregister()
                         await supabase().auth.signOut()
                     } catch {
                         /* A failed sign-out still has to clear the client, or the viewer is
@@ -447,9 +456,16 @@ const useStore = create(
                  *
                  * No router here: this fires from inside a fetch, which can be anywhere,
                  * and the route gates already redirect the moment `loggedIn` goes false.
-                 * Pushing a navigation from a data layer would race them. */
+                 * Pushing a navigation from a data layer would race them.
+                 *
+                 * The device is detached `remote: false` for the same reason: the session is
+                 * already gone, so a DELETE could only 401 — and `lib/api.js` answers a 401
+                 * by calling this very function. The local half still runs, invalidating the
+                 * token at FCM so the orphaned row earns UNREGISTERED on the next send and is
+                 * pruned then. See `unregister` in the push store. */
                 expire: () => {
                     if (!get().loggedIn) return
+                    usePushStore.getState().unregister({ remote: false }).catch(() => {})
                     supabase().auth.signOut().catch(() => {})
                     useGlobalStore.getState().reset()
                     set(state => {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The tint Android applies behind the status-bar notification icon.
+
+      The brand jungle green — the same #2BBB9C that is the `brand` custom property in
+      globals.css and the 0.72 stop of the "jungle" mark palette. Deliberately the bright
+      brand tone rather than the darkened `accent` (#16806B) that the gateway button uses:
+      that one exists to clear
+      4.5:1 against *white button text*, which is not the job here. This colour sits behind a
+      small monochrome glyph in a system-drawn tray, where legibility comes from the icon's
+      alpha and the brand is what should be recognisable.
+    -->
+    <color name="notification_accent">#2BBB9C</color>
+</resources>

@@ -8,6 +8,7 @@ import { StatusBar, Style } from "@capacitor/status-bar"
 
 import { useTheme } from "@/lib/providers/Theme"
 import { goBack, haptic, isNative, platform, pushBackHandler } from "@/lib/native"
+import { usePushListeners } from "@/lib/store/push/hook"
 
 /* The native shell's side effects, mounted once by App.jsx alongside the other app-wide
  * effects. Every one is a no-op in a browser, so the same tree runs in both places.
@@ -350,12 +351,17 @@ const useVisualViewportInset = () => {
     }, [])
 }
 
-export const useNative = () => {
+/* `ready` is a resolved, signed-in session — the condition for a tapped notification having
+ * somewhere to open. Passed down rather than read here so the push listeners can be mounted
+ * unconditionally: a cold launch delivers its tap before the session resolves, and a listener
+ * attached after that never hears it. See usePushListeners. */
+export const useNative = (ready) => {
     useStatusBarTheme()
     useSplashScreen()
     useHardwareBack()
     useEdgeSwipeBack()
     useKeyboardDismiss()
+    usePushListeners(ready)
     /* Two halves of one job, and exactly one of them acts on any given platform: the native
      * keyboard events where they exist, the visual viewport everywhere else. */
     useKeyboardInset()

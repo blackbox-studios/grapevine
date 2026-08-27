@@ -1,8 +1,11 @@
 "use client"
 
+import { useState } from "react"
 import { motion } from "motion/react"
 
+import SettingsIcon from "@/assets/svg/icons/settings.svg"
 import StackIcon from "@/assets/svg/icons/stack.svg"
+import HoldMenu from "@/components/HoldMenu"
 import Icon from "@/components/Icon"
 import { OrgAvatar } from "@/components/Widgets"
 import {
@@ -13,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ROLES } from "@/lib/constants"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
-import { useCurrentOrg, useOrgNav } from "@/lib/store/org/hook"
+import { useCurrentOrg, useEditOrg, useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
 
 /* The group switcher, in its two completely different presentations.
@@ -33,6 +36,26 @@ import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
  * not be applied by a wrapper around them: a transformed ancestor becomes the containing
  * block for every `position: fixed` descendant, which would drag the slide-route surface
  * along with the shell and break the one overlay that has to stay put. */
+
+/* Whether this viewer may edit this group, and the one way in.
+ *
+ * **The switcher is the only entrance to group settings.** There was briefly a Groups row on
+ * /profile leading to a list of the groups you administer, and it was a screen whose entire
+ * job was to choose between things this menu had already listed. Deleting it left the action
+ * where the object is: the row for a parish is the thing that should offer to edit that
+ * parish.
+ *
+ * That costs the one affordance a list gave for free — a visible label — so it is paid for
+ * twice, once per input device. A pointer gets a gear that appears on hover, which is the
+ * convention for a per-row action. A touch screen has no hover, so it gets the press-and-hold
+ * that <HoldMenu/> exists for; see that component's header, which names precisely this case
+ * (a control a pointer reveals on hover needing a second way in on a phone).
+ *
+ * Both entrances set `editingId` in the org store; <OrgEditor/>, mounted once by the shell,
+ * draws it as a dialog or a sheet. It is **not** a route — nobody needs to link to a settings
+ * form, and component state is what keeps Android's back gesture closing the surface rather
+ * than unwinding a history entry out from under it. */
+const canEdit = (org) => org?.role === ROLES.ADMIN
 
 /* One group's row, shared by both presentations so the two cannot describe the same
  * membership differently. The role is spelled out because it is the thing that changes when
@@ -94,10 +117,18 @@ const OrgRow = ({ org, active }) => (
  * floating over the feed. */
 export const OrgSwitcher = () => {
     const { current, orgs, select, skeleton } = useCurrentOrg()
+    const { editOrg } = useEditOrg()
+
+    /* Controlled, and only because of the gear. Selecting a row closes the menu through
+     * Radix's own machinery, but the gear has to stop that select from firing (see the note
+     * on it), which also takes away the close that came with it — leaving the menu open
+     * underneath the settings surface. Owning the flag is what lets the gear close it
+     * explicitly. */
+    const [menuOpen, setMenuOpen] = useState(false)
 
     return (
         <div className="hidden md:flex fixed right-[calc(var(--safe-right)+0.5rem)] top-[calc(var(--safe-top)+0.5rem)] z-2 items-center p-6">
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger
                     disabled={skeleton}
                     aria-label="Switch group"
@@ -112,9 +143,47 @@ export const OrgSwitcher = () => {
                         <DropdownMenuItem
                             key={org.id}
                             onSelect={() => select(org.id)}
-                            className="flex cursor-pointer items-center gap-3 rounded-xl py-2"
+                            className="group/org flex cursor-pointer items-center gap-3 rounded-xl py-2"
                         >
                             <OrgRow org={org} active={org.id === current?.id} />
+
+                            {/* The gear, revealed by hovering the row it belongs to.
+                                `group-hover` on the item rather than a state flag, so the two
+                                cannot disagree about which row the pointer is over.
+
+                                **It is focusable even while invisible**, deliberately: opacity
+                                hides it from a pointer, not from Tab, so the action stays
+                                reachable by keyboard. `focus-visible:opacity-100` then makes it
+                                visible the moment it is focused, which is what keeps the focus
+                                ring from landing on something nobody can see.
+
+                                `stopPropagation` keeps the click from reaching the item and
+                                firing its `onSelect` twice over — but suppressing that select
+                                also suppresses the close that Radix performs with it, which is
+                                why the menu is controlled and closed here by hand. Without
+                                that the menu would sit open underneath the settings surface
+                                and still be there when it is dismissed. */}
+                            {canEdit(org) && (
+                                <button
+                                    type="button"
+                                    aria-label={`Group settings for ${org.name}`}
+                                    onClick={(event) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        setMenuOpen(false)
+                                        editOrg(org.id)
+                                    }}
+                                    className="ml-auto grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/org:opacity-100 -mr-2"
+                                >
+                                    {/* The drawn glyph the rest of the app uses for settings,
+                                        not the Material ligature — every icon in a row like
+                                        this one is a bespoke SVG at its natural size, and a
+                                        ligature here would be the only one drawn from a
+                                        different set. `size-5` because it sits in a 32px
+                                        button rather than a 24px row. */}
+                                    <SettingsIcon className="size-5 shrink-0" />
+                                </button>
+                            )}
                         </DropdownMenuItem>
                     ))}
                 </DropdownMenuContent>
@@ -227,6 +296,7 @@ export const OrgNavTrigger = () => {
 export const OrgNavPanel = () => {
     const { open, close, shift } = useOrgNav()
     const { current, orgs, select } = useCurrentOrg()
+    const { editOrg } = useEditOrg()
 
     useBackHandler(open, close)
 
@@ -242,14 +312,41 @@ export const OrgNavPanel = () => {
 
                 <div className="flex-1 overflow-y-auto overscroll-contain px-2 pt-2 pb-6">
                     {orgs.map(org => (
-                        <button
+                        /* Hold a group to act on it — the touch counterpart of the gear a
+                           pointer gets on hover in <OrgSwitcher/>. <HoldMenu/> renders nothing
+                           extra when `items` is empty, so a group the viewer merely belongs to
+                           is left as a plain row that only selects.
+
+                           `editOrg` also selects the group and closes this panel — see the
+                           store action; the switcher the reader just acted from should not be
+                           left standing behind the sheet.
+
+                           `p-3` stays on the row itself rather than moving to a wrapper because
+                           HoldMenu draws its lens copy at the row's *measured* box; changing the
+                           padding between the two would make the content jump under the finger
+                           at the moment of the press. See that component's header. */
+                        <HoldMenu
                             key={org.id}
-                            type="button"
-                            onClick={() => select(org.id)}
+                            enabled={canEdit(org)}
+                            items={
+                                canEdit(org)
+                                    ? [{
+                                          icon: SettingsIcon,
+                                          label: "Group settings",
+                                          onSelect: () => editOrg(org.id),
+                                      }]
+                                    : []
+                            }
                             className="flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-left"
                         >
-                            <OrgRow org={org} active={org.id === current?.id} />
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => select(org.id)}
+                                className="flex w-full cursor-pointer items-center gap-3 text-left"
+                            >
+                                <OrgRow org={org} active={org.id === current?.id} />
+                            </button>
+                        </HoldMenu>
                     ))}
                 </div>
             </div>

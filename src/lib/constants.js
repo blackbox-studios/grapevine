@@ -17,24 +17,49 @@ export const ROUTES = {
     },
 }
 
-/* Slide routes — the single source of truth for every route that opens as a sliding
- * overlay instead of a normal page swap (see the "Slide routes" section of
- * `.claude/skills/develop/frontend-architecture.md`).
+/* Runtime routes — the single source of truth for every route whose dynamic segment is
+ * only knowable at **runtime**, and which therefore has no page file of its own.
  *
- * A slide route is reached by a soft nav from inside the app, is intercepted so the
- * surface *behind* it stays mounted (scroll position intact), and pushes that base
- * surface off-screen as it swipes in. Registering one here is what makes the whole
- * shell treat it correctly — the top-level page transition doesn't cross-fade it
- * (`pageTransitionKey`), the nav keeps the base route highlighted (`isRouteActive`),
- * and `<SlideRouter/>` renders + animates it. Routes not listed here are untouched.
+ * ── The constraint this exists for ──────────────────────────────────────────
+ *
+ * `output: "export"` (the native build — see native-architecture.md) requires
+ * `generateStaticParams` for every dynamic segment, so a `/p/[postId]` folder would mean
+ * enumerating every openable id at build time. A post id is a cuid from a live database and
+ * a group id is no different: neither exists when the bundle is built.
+ *
+ * The way out is to stop asking the router. A runtime route is reached by **shallow history
+ * navigation** — `history.pushState`, which the App Router reflects through `usePathname()`
+ * without touching the segment tree — and the shell resolves the *pathname* against this
+ * registry to decide what to draw. No segment, nothing to enumerate, real shareable URLs.
+ * `/p/:postId` has shipped on device this way; everything here rides the same mechanism.
  *
  *   prefix — the route's static prefix; the segment after it is the dynamic param.
- *   base   — the route whose surface stays mounted underneath and gets pushed. */
-export const SLIDE_ROUTES = [
-    { prefix: ROUTES.POST, base: ROUTES.DEFAULT },
-    /* No dynamic segment on this one — `slideRouteFor` simply resolves a null `param`,
-     * which the surface ignores. A slide route is a presentation, not a shape of URL. */
-    { prefix: ROUTES.NOTIFICATIONS, base: ROUTES.DEFAULT },
+ *   slide  — how it presents. See below.
+ *   base   — slide routes only: the route whose surface stays mounted underneath and gets
+ *            pushed, and the fallback a cold deep link dismisses to.
+ *
+ * ── Two presentations, one mechanism ────────────────────────────────────────
+ *
+ * `slide: true` is the overlay: the surface behind stays mounted and is pushed off-screen,
+ * the top-level page transition is suppressed (`pageTransitionKey`), the nav keeps the base
+ * route highlighted (`isRouteActive`), and `<SlideRouter/>` draws and animates the stack.
+ * Right for a post, which is a thing you look at and come back from.
+ *
+ * `slide: false` is an ordinary page: it renders in the shell's page slot and cross-fades
+ * like any other route, because `slideRouteFor` — which is what all three of those
+ * behaviours key off — resolves only the sliding ones. Right for a settings screen, which
+ * is a place you go rather than something you peek at. It gets the URL mechanism and none
+ * of the overlay semantics. */
+export const RUNTIME_ROUTES = [
+    { prefix: ROUTES.POST, slide: true, base: ROUTES.DEFAULT },
+    /* No dynamic segment on this one — the resolver simply reports a null `param`, which the
+     * surface ignores. A runtime route is a way of resolving a URL, not a shape of URL. */
+    { prefix: ROUTES.NOTIFICATIONS, slide: true, base: ROUTES.DEFAULT },
+    /* No `slide: false` route exists yet. The presentation is registered and wired
+     * (<RuntimeRoute/> draws one in the shell's page slot) because the split is what keeps the
+     * overlay from being the only thing this mechanism can express — group settings was one
+     * briefly and turned out to want a dialog, not a place. The first screen that genuinely
+     * needs a linkable URL with a runtime id adds a line here and one in RUNTIME_SURFACES. */
 ]
 
 /* Route trees that must collapse to a single top-level page-transition key, because a
@@ -85,6 +110,10 @@ export const API_ENDPOINTS = {
      * so a collision surfaces on the step that caused it rather than after the last one. */
     ME_HANDLE: "/me/onboarding/handle",
     ORGS: "/orgs",
+    /* PATCH only — the group's own name, bio and picture, for an admin of it. There is no
+     * GET here: a viewer's groups already arrive with the viewer from /me, and a second
+     * endpoint returning the same row would be a second thing to go stale. */
+    ORG: (orgId) => `/orgs/${orgId}`,
     ORG_MEMBERS: (orgId) => `/orgs/${orgId}/members`,
     ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
     MEMBERSHIP: (membershipId) => `/memberships/${membershipId}`,
@@ -137,7 +166,19 @@ export const UPLOAD_PURPOSES = {
     POST_MEDIA: "POST_MEDIA",
     /* The viewer's own profile picture. Requires nothing beyond being signed in. */
     AVATAR: "AVATAR",
+    /* A group's picture. Requires ADMIN of that group, and so takes an `orgId` — the same
+     * permission as publishing into it, because it is equally the group's public face. */
+    ORG_AVATAR: "ORG_AVATAR",
 }
+
+/* Ceilings on what an admin may type into the group form.
+ *
+ * Enforced on the server (`updateOrg`) and mirrored into the form so the counter and the
+ * refusal agree. Generous rather than tight: "Cathedral of the Holy Virgin Protection —
+ * Diocese of the West" is a real parish name and nothing here should have an opinion about
+ * how long a parish's name is allowed to be. */
+export const MAX_ORG_NAME_LENGTH = 80
+export const MAX_ORG_BIO_LENGTH = 280
 
 /* What the file picker accepts and the server admits.
  *

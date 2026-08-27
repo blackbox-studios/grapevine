@@ -104,7 +104,7 @@ function FormDescription({
         <p
             data-slot="form-description"
             id={formDescriptionId}
-            className={cn("text-muted-foreground text-xs mt-2", className)}
+            className={cn("text-muted-foreground text-xs mt-2 pl-3", className)}
             {...props} />
     );
 }

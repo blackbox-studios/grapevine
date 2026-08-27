@@ -181,7 +181,7 @@ resolved. This is the layer described in
 resolve the **pathname**, never a route segment:
 
 - **In-app** is `openSlide()` → `history.pushState`, which resolves no route and issues
-  **zero network requests**. `<SlideRouter/>` draws the overlay off the `SLIDE_ROUTES`
+  **zero network requests**. `<SlideRouter/>` draws the overlay off the `RUNTIME_ROUTES`
   registry.
 - **Cold** (refresh, shared link) is `<SlidePage/>`, mounted from the `[...not-found]`
   catch-all, which matches infinitely many paths off one sentinel param.

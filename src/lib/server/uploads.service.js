@@ -54,6 +54,22 @@ const PURPOSES = {
          * `requireViewer` has already run. */
         authorize: (viewer) => viewer.id,
     },
+    [UPLOAD_PURPOSES.ORG_AVATAR]: {
+        /* Its own folder rather than reusing `avatars/`, because that prefix's owner id is a
+         * *profile* id — `isOwnedUrl` checks the segment after the prefix, so a group id
+         * under `avatars/` would be a path no ownership check could interpret. Separating
+         * them keeps "whose folder is this" answerable from the path alone. */
+        prefix: "orgs",
+        mimeTypes: IMAGE_MIME_TYPES,
+        /* The same permission as publishing into the group. A parish's picture is its public
+         * face in the switcher and on every one of its posts, so changing it is an act of
+         * administration, not a member's preference. */
+        authorize: (viewer, { orgId }) => {
+            if (!orgId) throw invalid("A group is required.", { orgId: "Required" })
+            requireMembership(viewer, orgId, { role: "ADMIN" })
+            return orgId
+        },
+    },
 }
 
 /* Where a purpose's objects land.

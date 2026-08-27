@@ -649,6 +649,91 @@ should need to change for a rename, because the projection absorbs it.
 
 ---
 
+## 11. Adding groups without editing the seed — the design, not yet built
+
+**Status: proposed. Nothing below exists.** Written down now because the shape of it decides
+whether the prod seed stays two people and one parish, and because the obvious
+implementation is the wrong one.
+
+Today a group is created by `prisma/seed.prod.js` and its first admin is a literal in that
+file. That is correct for launch — one parish, two admins, both of them the people building
+it — and it stops being correct the moment a second parish wants in. Onboarding a customer
+should not be a deploy.
+
+### The gap: there is no third scope
+
+The app has exactly two authorization axes, and neither can express this:
+
+- `Membership.role` (ADMIN | MEMBER) is **per-group**. An admin of Holy Trinity has no
+  standing anywhere else, which is the entire point — see the schema header.
+- `Profile.vocation` is who someone is and **grants nothing**.
+
+Creating a group is neither. It is not scoped to a group, because the group does not exist
+yet; whoever does it acts on the *platform*. So the honest change is a third axis, kept
+apart from the other two for the same reason those two are kept apart from each other:
+
+```prisma
+/// Authority over the platform itself, not over any one group. Deliberately a third axis:
+/// `Membership.role` cannot express it (the group does not exist yet) and `vocation` grants
+/// nothing. OWNER is expected to be one or two people, forever.
+enum PlatformRole {
+  NONE
+  OWNER
+
+  @@map("platform_role")
+}
+
+model Profile {
+  // ...
+  platformRole PlatformRole @default(NONE) @map("platform_role")
+}
+```
+
+`ajkoranda@gmail.com` is `OWNER`. The prod seed asserts it the same way it asserts the
+memberships — that is the one line it would gain.
+
+### What it unlocks, and what it must not
+
+Two endpoints, both gated by a new `requirePlatformOwner(viewer)` in `lib/server/auth.js`:
+
+| Endpoint | Does |
+|---|---|
+| `POST /api/orgs` | Creates a group: `name`, `kind`, `slug`, optional `parentId`. |
+| `POST /api/orgs/:orgId/members` | **Already exists.** Admits the head priest as ADMIN. |
+
+Onboarding a parish is therefore *create the group, then admit its priest as its admin* —
+two calls, the second of which is the invite flow that already works today. `admitOne`
+provisions the Supabase user, the Profile and the APPROVED membership in one step, so the
+priest simply signs in. Nothing new is needed for the hard half.
+
+Three constraints that are easy to get wrong:
+
+1. **OWNER must not imply read access to every group.** It is the authority to *create* a
+   group and admit its first admin — not a master key to every parish's feed and roster.
+   `requireViewer`'s membership scoping stays exactly as it is, and `requirePlatformOwner`
+   is a separate check used only by the two endpoints above. An owner who wants to read a
+   parish gets a membership in it, visibly, like everyone else. Collapsing these is how a
+   platform role becomes a backdoor.
+2. **`GET /api/orgs` stays the viewer's own groups.** It is not a directory, and making it
+   one for owners would put a second meaning behind one endpoint. A console needs
+   `GET /api/admin/orgs`, separately gated.
+3. **This is not a join-request flow.** Admission stays one-directional, and
+   `MembershipStatus` stays `APPROVED | REVOKED` — see the schema header before reaching for
+   a third value.
+
+### The surface
+
+A single screen, reachable only by an owner, that takes a parish name, a kind, and the head
+priest's email address, and performs the two calls. It belongs beside Settings → Groups
+rather than inside it: that screen lists groups you administer, and this one creates groups
+you will not.
+
+Until it exists, onboarding a second parish is: add the group and the priest's email to
+`seed.prod.js`, run `npm run db:seed:prod`. That works, it is idempotent, and it is a deploy
+— which is precisely the cost this section exists to eventually remove.
+
+---
+
 ## Appendix: lineage
 
 This contract is a trimmed-down version of the one used by a sibling Node/Express project,

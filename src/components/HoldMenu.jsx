@@ -167,7 +167,15 @@ const HoldMenu = ({
                                 : "hover:bg-accent",
                         )}
                     >
-                        <Icon size="md">{item.icon}</Icon>
+                        {/* A Material ligature name, or a drawn SVG component. Both are in
+                            use: a comment row's actions are ligatures, and the group switcher
+                            passes the same bespoke gear its desktop hover control uses, so the
+                            one action does not appear as two different glyphs by platform. */}
+                        {typeof item.icon === "string" ? (
+                            <Icon size="md">{item.icon}</Icon>
+                        ) : (
+                            <item.icon className="size-5 shrink-0" />
+                        )}
                         {item.label}
                     </button>
                 ))}

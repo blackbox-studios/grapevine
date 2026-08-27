@@ -53,6 +53,7 @@ This is **Grapevine** (throughgrapevine.com): a **Next.js 15 (App Router) + Reac
 - `backend-architecture.md` — the API contract, the server layer, and how to add an endpoint.
 - `auth-architecture.md` — Supabase OTP sign-in, the two identities, and where authorization is actually enforced.
 - `native-architecture.md` — the Capacitor build, the dual build targets, and the static-export constraints.
+- `brand-assets.md` — what changing the app icon or the mark actually touches. `npm run icons` regenerates 54 files from one outline and owns none of the nine other places the mark, its colour, or its silhouette also live. Read it before starting, not after.
 
 ---
 

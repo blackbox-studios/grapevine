@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      allowBackup is off, and the two rules files below say the same thing again for the
+      APIs that read them. The only local state this app has is the Supabase session in
+      Capacitor Preferences; everything else lives on the server and is re-fetched. So there
+      is nothing here worth backing up and exactly one thing worth not backing up. See
+      res/xml/data_extraction_rules.xml.
+    -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -24,6 +33,28 @@
             </intent-filter>
 
         </activity>
+
+        <!--
+          How an FCM `notification` message is drawn when the app is not in the foreground.
+
+          Without the icon, FCM falls back to @mipmap/ic_launcher — and Android >= 5.0 keeps
+          only a status-bar icon's alpha channel, so a full-colour launcher icon renders as a
+          white square. Without the channel id it invents one named "Miscellaneous", which is
+          what people would find in Android's per-app notification settings.
+
+          The channel itself is created at runtime, from `ensurePushChannel` in lib/push.js —
+          declaring an id here does not create it, and a message naming a channel that does
+          not exist is not shown at all on API 26+.
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_accent" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="parish" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

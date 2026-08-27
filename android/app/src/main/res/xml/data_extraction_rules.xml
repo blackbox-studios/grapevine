@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (`android:dataExtractionRules`). Supersedes backup_rules.xml on API 31 and
+  above, and covers two channels that `allowBackup` does not separate:
+
+    cloud-backup      Google Drive backup
+    device-transfer   direct handset-to-handset migration, which allowBackup="false"
+                      does NOT switch off
+
+  Both exclude the Capacitor Preferences store, because that is where the Supabase session
+  lives. `auth-architecture.md` puts it there deliberately — a WebView's localStorage is
+  website data the OS may reclaim, and this app keeps people signed in — but "durable on this
+  device" must not become "copied to another device", which is a signed-in session arriving
+  somewhere nobody authorized. Revocation would still bite on the next request, since
+  `Membership.status` is read from the database every time; that is a backstop, not a reason
+  to hand the session out.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

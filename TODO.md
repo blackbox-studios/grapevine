@@ -43,20 +43,62 @@ Fix: open `ios/App/App.xcworkspace`, drag the plist into the `App/App` group, an
 grep -c "GoogleService-Info.plist" ios/App/App.xcodeproj/project.pbxproj   # must be > 0
 ```
 
-## Push notifications — Android polish
+## Production database — will break push the moment it deploys
 
-Working, but two cosmetic defaults are worth replacing before anyone outside the parish sees
-them. Neither blocks delivery.
+`.env.production` already carries the `FCM_*` credentials, but it points `DATABASE_URL` at
+hosted Supabase, and **`device_token` does not exist there yet.** The deployed API will throw
+the same `P2021` on every like and publish that the local one did before the migration.
 
-- **No status-bar notification icon.** Without
-  `com.google.firebase.messaging.default_notification_icon` metadata in
-  `android/app/src/main/AndroidManifest.xml`, FCM falls back to `@mipmap/ic_launcher`, which
-  Android ≥ 5.0 masks to a **white silhouette** — a full-colour launcher icon typically
-  renders as a white square. Add a single-colour, transparent-background vector drawable
-  (`res/drawable/ic_notification.xml`) and point the metadata at it.
-- **No default channel.** FCM auto-creates one named "Miscellaneous", which is what people
-  will see in Android's per-app notification settings. Declare a channel and name it
-  something meaningful via `com.google.firebase.messaging.default_notification_channel_id`.
+Before (or with) the next deploy, against the production URLs:
+
+```bash
+npx prisma migrate deploy
+npm run db:secure          # a migration that adds a table adds it unprotected
+```
+
+## Google Play — blocked on the same DUNS number, plus three real items
+
+A **D-U-N-S number is required for an organization developer account on Play too**, so the
+store half of both platforms is waiting on the same thing. Note this blocks *distribution*
+only — push already works on Android from a debug build, as proven on device.
+
+Still open, independent of the DUNS number:
+
+- **There is no release signing config.** `android/app/build.gradle` has `buildTypes.release`
+  but no `signingConfigs` at all, so a release build is unsigned and Play will reject it.
+  Generate an upload keystore, keep it somewhere durable (losing it means losing the ability
+  to update the listing), and wire it in — with the credentials in `gradle.properties` or the
+  environment, never committed.
+- **Privacy policy URL and the Data safety form.** Play requires both, and this app collects
+  an email, a name, a birthday, and now a device token — the form has to say so.
+
+Done (2026-08-27):
+
+- ~~`webContentsDebuggingEnabled: true` leaking into release builds~~ — key removed from
+  `capacitor.config.json`. Capacitor defaults it to the build's own debug flag, so
+  `chrome://inspect` still works on debug and release is no longer inspectable.
+- ~~`allowBackup="true"` exporting the session~~ — now `false`, with
+  `res/xml/backup_rules.xml` (API ≤ 30) and `res/xml/data_extraction_rules.xml` (API 31+)
+  excluding `CapacitorStorage.xml` from both cloud backup and device-to-device transfer.
+- ~~No notification icon or channel~~ — `res/drawable/ic_notification.xml` plus a
+  `notification_accent` colour, wired through the manifest's `default_notification_icon` /
+  `_color` / `_channel_id` metadata, and the `parish` channel created at runtime by
+  `ensurePushChannel` in `src/lib/push.js`.
+
+  > **The channel id `parish` is now effectively permanent.** Android gives an existing
+  > channel's name and importance to the *user* — re-creating it with different values does
+  > nothing. Changing the label means shipping a new id and orphaning the old one.
+
+## Untested paths
+
+- **Tap-to-open.** Delivery is proven on Android; tapping a banner to land on the post is
+  not. Two cases, and the second is the one with moving parts: with the app **open**, and
+  from a **cold launch** — where the plugin replays the tap before the session resolves, so
+  the destination is parked in the push store's `pending` and flushed by `usePushListeners`
+  once `ready`. Test both.
+- **The welcome step.** `NotificationsStep` in `src/app/(gateway)/welcome/page.jsx` only
+  appears for a native viewer whose OS has never been asked, which means testing it needs a
+  fresh install *and* a profile with `onboardedAt` still null (`npm run dev:reset-member`).
 
 ## Deferred by design (not blocked, not scheduled)
 

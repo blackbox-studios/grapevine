@@ -109,6 +109,49 @@ export const deletePushToken = async () => {
 export const pushPlatform = () => platform()
 
 /* ------------------------------------------------------------------------- */
+/* Android notification channel                                              */
+/* ------------------------------------------------------------------------- */
+
+/* The channel every push is posted to. Must match
+ * `com.google.firebase.messaging.default_notification_channel_id` in AndroidManifest.xml —
+ * the manifest *names* the channel, and this *creates* it, and on API 26+ a message naming a
+ * channel that does not exist is silently not shown at all. */
+const CHANNEL_ID = "parish"
+
+/* Creates it, idempotently, on every launch.
+ *
+ * **Android only, and only because the alternative is worse.** Left to FCM, notifications
+ * land in an auto-created channel named "Miscellaneous" — which is the label a reader finds
+ * in Android's per-app notification settings when they go looking for a switch, and it tells
+ * them nothing about what they would be turning off. Declaring one is what makes that screen
+ * say "Parish".
+ *
+ * Creating a channel that already exists is a no-op at the platform level, so this needs no
+ * has-it-been-done bookkeeping. **The importance and the name of an existing channel cannot
+ * be changed by re-creating it** — once a channel id has shipped, the user owns its settings
+ * and only they can change them. Changing the *label* therefore means a new id and orphaning
+ * the old one, which is why it is worth getting right the first time rather than iterating. */
+export const ensurePushChannel = async () => {
+    if (!pushSupported() || platform() !== "android") return
+
+    try {
+        await FirebaseMessaging.createChannel({
+            id: CHANNEL_ID,
+            name: "Parish",
+            description: "Posts from your parish, and likes on what you write.",
+            /* 4 = IMPORTANCE_HIGH: shows as a heads-up banner and makes a sound. This is the
+             * whole point of the feature — a parish announcement that arrives silently in the
+             * tray is one nobody reads. */
+            importance: 4,
+            visibility: 1,
+        })
+    } catch {
+        /* A device that would not take the channel still receives pushes through the default
+         * one. Nothing here is worth failing a launch over. */
+    }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Listeners                                                                 */
 /* ------------------------------------------------------------------------- */
 

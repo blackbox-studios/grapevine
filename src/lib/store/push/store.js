@@ -6,6 +6,7 @@ import { API_ENDPOINTS } from '@/lib/constants'
 import {
     clearPushNotifications,
     deletePushToken,
+    ensurePushChannel,
     pushPermission,
     pushPlatform,
     pushSupported,
@@ -79,6 +80,12 @@ const useStore = create(immer((set, get) => ({
     init: async () => {
         if (!pushSupported()) return
 
+        /* Before anything can be delivered, and unconditionally — the channel has to exist
+         * whether or not permission has been granted yet, because the grant may happen later
+         * in the same session (the welcome step, or Settings) and the first push after it
+         * would otherwise name a channel that is not there. Android-only and idempotent. */
+        await ensurePushChannel()
+
         const permission = await pushPermission()
         set(state => { state.permission = permission })
 
@@ -113,6 +120,11 @@ const useStore = create(immer((set, get) => ({
 
         set(state => { state.loading.enable = true })
         try {
+            /* Again here, and not only in `init`. This is reachable from the welcome step,
+             * which can run before `init` has resolved — and a grant whose first push names a
+             * channel that was never created is a push that is silently not shown. */
+            await ensurePushChannel()
+
             const granted = await requestPushPermission()
             set(state => { state.permission = granted ? 'granted' : 'denied' })
 

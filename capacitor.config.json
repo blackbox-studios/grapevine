@@ -8,8 +8,7 @@
         "backgroundColor": "#0a1014"
     },
     "android": {
-        "backgroundColor": "#0a1014",
-        "webContentsDebuggingEnabled": true
+        "backgroundColor": "#0a1014"
     },
     "plugins": {
         "SplashScreen": {

@@ -276,7 +276,7 @@ If the Mac's LAN IP changes, update it in **both** `.env` and
 | Platform | How |
 |---|---|
 | iOS | Safari → Develop → *(simulator or device)* → the WebView console |
-| Android | `chrome://inspect` (`webContentsDebuggingEnabled: true` is already set) |
+| Android | `chrome://inspect` — works on the **debug** variant with no config at all |
 | Android network failures | `adb logcat \| grep -i "Mixed Content"` is the usual smoking gun |
 
 ---
@@ -365,6 +365,13 @@ the chunk is emitted into `out/` and never fetched on native.
 
 Android 13+ needs the `POST_NOTIFICATIONS` runtime permission; the plugin declares it
 and `requestPushPermission()` asks for it. Nothing to add to the manifest.
+
+> **Do not put `webContentsDebuggingEnabled: true` back in `capacitor.config.json`.** It
+> looks like what enables `chrome://inspect`, and it is not needed for that: Capacitor
+> defaults the key to the build's own debug flag (`CapConfig.java` reads
+> `getBoolean(configJSON, "android.webContentsDebuggingEnabled", isDebug)`), so debug builds
+> are already inspectable. Setting it explicitly overrides that default in **both**
+> directions and ships a **release** app whose WebView anyone can attach a debugger to.
 
 ### Two things that will waste an afternoon
 

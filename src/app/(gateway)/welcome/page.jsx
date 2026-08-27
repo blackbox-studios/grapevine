@@ -24,6 +24,7 @@ import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { normalizeHandleInput, suggestHandle } from "@/lib/name"
 import { useOnboarding } from "@/lib/store/auth/hook"
+import { usePushPermission } from "@/lib/store/push/hook"
 import { cn } from "@/lib/utils"
 
 /* First-run orientation, in three steps: name, @handle, birthday.
@@ -48,7 +49,19 @@ import { cn } from "@/lib/utils"
  * It wears the same shell as sign-in on purpose: the viewer has just come through that
  * screen, and this should read as the next beat of it rather than a new place. */
 
-const STEPS = ["name", "handle", "birthday"]
+/* Three questions, then — on a phone that has never been asked — the notification prompt.
+ *
+ * **The push step comes *before* the write, not after it, and that is forced rather than
+ * chosen.** `GatewayRedirect` sends a viewer out of the gateway the moment they have nowhere
+ * left to be there, and completing orientation is exactly what sets `onboardedAt` and makes
+ * that true. A step rendered after the submit would be unmounted in the same tick it
+ * appeared. So the last step asks, and *it* submits — which also keeps the "nothing is
+ * written until the end" rule above intact rather than making the write happen two screens
+ * from the end.
+ *
+ * It is a step and not a dialog for the same reason the other three are steps: this is the
+ * viewer's first minute, and one thing at a time reads as a conversation. */
+const STEPS = ["name", "handle", "birthday", "notifications"]
 
 /* Which step owns which field, for routing a server-side validation failure back to the
  * question that produced it. The submit happens on the last step, so without this a handle
@@ -432,7 +445,85 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
     )
 }
 
-const BirthdayStep = ({ values, onNext, onBack, loading, fill }) => {
+/* The push priming step, and the reason the app does not simply call `enable()` on sign-in.
+ *
+ * **iOS shows its system prompt once per install and a refusal is permanent** — the only way
+ * back is the person finding Grapevine in Settings, which nobody does. So the OS prompt is
+ * far too expensive to spend on somebody who has not yet seen a notification worth having.
+ * This screen is the cheap ask: a "Not now" here costs nothing and can be offered again from
+ * Settings, and the real prompt is only ever reached by someone who has already said yes.
+ *
+ * **Deliberately not built on `<Step/>`.** That wrapper is a `<form>` around fields, and this
+ * step has neither — it collects nothing, and there is no schema for "did you tap yes". What
+ * it does need is the same bottom-pinned action layout, which is why the container classes
+ * below mirror it rather than being invented: on mobile the column fills the keyboard-safe
+ * height and the actions are `mt-auto`, so they land flush on the bottom edge.
+ *
+ * Both buttons complete orientation. Declining is a decision about notifications, not about
+ * joining the parish, and stranding someone on this screen for saying no would be absurd. */
+const NotificationsStep = ({ onDone, onBack, loading, fill }) => {
+    const [asking, setAsking] = useState(false)
+    const busy = loading || asking
+
+    const turnOn = async () => {
+        setAsking(true)
+        /* The result is deliberately ignored. Whether the OS said yes or no, the next thing
+         * that happens is the same — orientation completes and they land in the parish. The
+         * answer is already recorded in the push store, and Settings reads it from there. */
+        try {
+            await onDone({ enable: true })
+        } finally {
+            setAsking(false)
+        }
+    }
+
+    return (
+        <div
+            className={cn(
+                "flex w-full flex-col items-center gap-5",
+                fill ? "min-h-0 flex-1" : "max-w-88",
+            )}
+        >
+            <Icon size="xl" className="text-(--mark-accent)" aria-hidden>
+                notifications
+            </Icon>
+
+            <div className={cn("flex w-full flex-col items-center gap-4", fill && "mt-auto shrink-0 pt-6")}>
+                <GatewayButton
+                    type="button"
+                    onClick={turnOn}
+                    disabled={busy}
+                    loading={busy}
+                    busyLabel="Just a moment"
+                >
+                    Turn on notifications
+                </GatewayButton>
+
+                <button
+                    type="button"
+                    onClick={() => onDone({ enable: false })}
+                    disabled={busy}
+                    className="cursor-pointer text-xs text-muted-foreground underline-offset-4 transition-opacity hover:underline disabled:opacity-50"
+                >
+                    Not now
+                </button>
+
+                {!fill && onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        disabled={busy}
+                        className="cursor-pointer text-xs text-muted-foreground underline-offset-4 transition-opacity hover:underline disabled:opacity-50"
+                    >
+                        Back
+                    </button>
+                )}
+            </div>
+        </div>
+    )
+}
+
+const BirthdayStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
     const form = useForm({
         resolver: zodResolver(birthdaySchema),
         defaultValues: { birthday: values.birthday },
@@ -449,7 +540,7 @@ const BirthdayStep = ({ values, onNext, onBack, loading, fill }) => {
             form={form}
             onSubmit={onNext}
             onBack={onBack}
-            submitLabel="Enter the parish"
+            submitLabel={submitLabel}
             loading={loading}
             busyLabel="Saving your details"
             fill={fill}
@@ -500,6 +591,11 @@ const COPY = {
     birthday: {
         heading: "When's your birthday?",
         subheading: "Your parish uses it for name days. It is never shown publicly.",
+    },
+    notifications: {
+        heading: "One last thing",
+        subheading:
+            "Hear about it when your parish posts, or when someone likes something you wrote.",
     },
 }
 
@@ -576,13 +672,22 @@ const WelcomePage = () => {
         [advance],
     )
 
-    /* The last step submits everything at once. */
-    const onBirthday = useCallback(
-        async (next) => {
-            clearError()
-            const payload = { ...values, ...next }
-            setValues(payload)
+    /* Everything is written in one go, by whichever step turns out to be last.
+     *
+     * On a phone that has never been asked about notifications that is the push step; on the
+     * web, or on a device that has already answered, there is nothing left to ask and the
+     * birthday step submits directly. `permission === null` is precisely "the OS has never
+     * been asked", which is the only state in which prompting shows a prompt — see
+     * `pushPermission` in lib/push.js. */
+    const {
+        supported: pushSupported,
+        permission: pushPermission,
+        enable: enablePush,
+    } = usePushPermission()
+    const askPush = pushSupported && pushPermission === null
 
+    const finish = useCallback(
+        async (payload) => {
             const result = await submit(payload)
             if (result?.ok) return
 
@@ -594,7 +699,41 @@ const WelcomePage = () => {
             )
             if (failed) setStep(STEP_FOR_FIELD[failed])
         },
-        [clearError, submit, values],
+        [submit],
+    )
+
+    const onBirthday = useCallback(
+        async (next) => {
+            clearError()
+            const payload = { ...values, ...next }
+            setValues(payload)
+
+            if (askPush) {
+                setStep("notifications")
+                return
+            }
+            await finish(payload)
+        },
+        [askPush, clearError, finish, values],
+    )
+
+    /* The push step, whichever way it is answered.
+     *
+     * **The permission is asked for before the profile is written**, and the order matters
+     * in exactly one direction: `enable()` registers this device against the viewer, which
+     * needs a session — and there is one, since orientation happens signed in. It does not
+     * need a *finished* profile. Doing it the other way round is what is impossible: the
+     * write sets `onboardedAt`, and `GatewayRedirect` would tear this screen down before the
+     * prompt could be answered.
+     *
+     * A refusal is not an error and is not treated as one. Both answers finish orientation. */
+    const onNotifications = useCallback(
+        async ({ enable }) => {
+            clearError()
+            if (enable) await enablePush()
+            await finish(values)
+        },
+        [clearError, enablePush, finish, values],
     )
 
     const copy = COPY[step]
@@ -616,7 +755,12 @@ const WelcomePage = () => {
      * above the heading, out of the action's way — while desktop keeps it as a text link
      * under the button. Both read this one map, so they cannot disagree about where back
      * leads. */
-    const back = { name: null, handle: () => setStep("name"), birthday: () => setStep("handle") }[step]
+    const back = {
+        name: null,
+        handle: () => setStep("name"),
+        birthday: () => setStep("handle"),
+        notifications: () => setStep("birthday"),
+    }[step]
 
     /* Keyed per step, so each form starts with its own clean react-hook-form state instead
      * of inheriting the previous step's — and so AnimatePresence has a change to animate.
@@ -637,10 +781,21 @@ const WelcomePage = () => {
                 loading={loading}
                 fill={!isDesktop}
             />
-        ) : (
+        ) : step === "birthday" ? (
             <BirthdayStep
                 values={values}
                 onNext={onBirthday}
+                onBack={back}
+                loading={loading}
+                fill={!isDesktop}
+                /* The birthday step only "enters the parish" when it is the last one. With
+                 * the push step still to come it is an ordinary Continue, so the button does
+                 * not promise an arrival that is one screen away. */
+                submitLabel={askPush ? "Continue" : "Enter the parish"}
+            />
+        ) : (
+            <NotificationsStep
+                onDone={onNotifications}
                 onBack={back}
                 loading={loading}
                 fill={!isDesktop}

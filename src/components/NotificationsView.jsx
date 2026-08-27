@@ -1,10 +1,9 @@
 "use client"
 
-import Icon from "@/components/Icon"
+import { BackHeader } from "@/components/BackHeader"
 import { NotificationList } from "@/components/Notifications"
 import { SlideSurface } from "@/components/SlideSurface"
 import { Close } from "@/components/Widgets"
-import { Button } from "@/components/ui/button"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useSlideDismiss } from "@/lib/hooks/useSlideRoute.hook"
 
@@ -54,19 +53,8 @@ const NotificationsView = ({ variant = "modal" }) => {
         <SlideSurface variant={variant} className="bg-background">
             {/* A back arrow rather than the floating <Close/> pill: this surface fills the
                 screen and reads as a place, so the affordance that fits is the one that says
-                "go back" — the same call <PostSlide/>'s header makes. */}
-            <header className="flex shrink-0 items-center gap-6.5 px-2 py-4">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={dismiss}
-                    aria-label="Go back"
-                >
-                    <Icon size="xl">arrow_back</Icon>
-                </Button>
-                {heading}
-            </header>
+                "go back". */}
+            <BackHeader title="Notifications" back={dismiss} />
 
             {/* Pads its foot by the home-indicator inset, less whatever the surface has
                 already been lifted by — the surface covers the mobile rail, which is what used

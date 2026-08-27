@@ -4,6 +4,7 @@ import { useState } from "react"
 import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
+import { BackHeader } from "@/components/BackHeader"
 import Carousel from "@/components/Carousel"
 import PinchZoom from "@/components/PinchZoom"
 import { PostCommentsThread } from "@/components/Comments"
@@ -12,7 +13,6 @@ import { PostMenuTrigger } from "@/components/PostMenu"
 import { PostMediaSkeleton } from "@/components/Skeleton"
 import { SlideSurface } from "@/components/SlideSurface"
 import { Avatar } from "@/components/Widgets"
-import { Button } from "@/components/ui/button"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
@@ -142,28 +142,27 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
 
     return (
         <SlideSurface ref={surfaceRef} variant={variant} className="bg-black">
-            <header className="absolute inset-x-0 top-(--safe-top) z-20 flex items-center px-3 py-4">
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={dismiss}
-                    aria-label="Go back"
-                    className="text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] hover:bg-white/10 hover:text-white"
-                >
-                    <Icon size="xl">arrow_back</Icon>
-                </Button>
-                {/* The ellipsis, on a touch screen, because this surface has nothing to hold:
-                  * the media fills it, and the media has its own gestures. The feed card's
-                  * hold works because a card has a header block sitting in flow; here the
-                  * only chrome is this bar, so the affordance belongs in it. Renders nothing
-                  * for a reader who may not act on the post. */}
-                <PostMenuTrigger
-                    post={post}
-                    dismiss={dismiss}
-                    className="ml-auto mr-2 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] hover:text-white/80"
-                />
-            </header>
+            {/* Positioned by this surface rather than sitting in flow, because the media fills
+              * the screen behind it, and untitled — the post names itself in the caption at the
+              * foot, and a heading here would compete with the image.
+              *
+              * The ellipsis rides in the action slot, on a touch screen, because this surface
+              * has nothing else to hold: the media fills it, and the media has its own
+              * gestures. The feed card's hold works because a card has a header block sitting
+              * in flow; here the only chrome is this bar, so the affordance belongs in it.
+              * Renders nothing for a reader who may not act on the post. */}
+            <BackHeader
+                back={dismiss}
+                tone="overlay"
+                className="absolute inset-x-0 top-(--safe-top) z-20"
+                action={
+                    <PostMenuTrigger
+                        post={post}
+                        dismiss={dismiss}
+                        className="mr-2 text-white hover:text-white/80"
+                    />
+                }
+            />
 
             {/* Media region — fills whatever the sheet leaves it. Tapping it while the sheet
              * is open dismisses the sheet (as it does in Reels), so the photo is a way back. */}

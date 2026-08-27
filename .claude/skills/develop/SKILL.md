@@ -62,11 +62,19 @@ This is **Grapevine** (throughgrapevine.com): a **Next.js 15 (App Router) + Reac
 
 ### Comments
 
-Comments carry the *why*; the code already states the what. Six rules, and the first three are the ones that get broken:
+Comments carry the *why*; the code already states the what. Seven rules, and the first three are the ones that get broken:
 
 - **Document the decision, not the journey.** When a change reverses an earlier one, **replace** the comment that explained the old approach — never append the new reasoning underneath it. A block that records every direction the code was taken in is unreadable, and a reader cannot tell which paragraph is still true. Only the final decision belongs in the file; the history belongs in git.
 - **Never comment on where code *isn't*.** "This lives in X, not here", "moved to Y", "deliberately not in this file" — that is the journey wearing a signpost, and it is a pointer that goes stale the moment the other file moves again. State what the code in front of you does and why. The corollary: **if an edit leaves a file's code unchanged, its comments come out unchanged too.** Touching only the prose of a file you didn't otherwise modify is the tell that you are narrating a decision rather than documenting one.
 - **Scale the comment to the change, not to the effort of finding it.** A one-token fix — a class swapped, an `!` added, a prop renamed — gets one line at most, and usually none. A change that took an hour to diagnose is still a small change; the diagnosis is not what the reader needs, the constraint is. If the note explains its own mechanics (which selector wins, how specificity resolved, what you tried first), cut it back to the constraint the next person would otherwise break. Never explain the same fix in two places.
 - **Length is earned.** One or two lines is the default. Spend a paragraph only where the next person would otherwise undo the decision — a platform quirk, an ordering that looks arbitrary and isn't, a constraint enforced somewhere else. Never on restating a signature.
 - **Say it once.** If the header of a function or file already establishes a constraint, a line inside it refers to that constraint rather than re-arguing it.
+- **A shared piece argues for itself, once, where it lives.** Extract a component or a helper and the *why* belongs in its header; the call sites say only what is local to them — which screen this is, what it is titled, what it is passed. A call site that restates the abstraction's own rules drifts from them the first time they change, and doubles what has to be edited when they do.
 - **Delete what the code outgrew, in the same edit.** A stale comment is worse than no comment, because it is trusted.
+
+Knowing the rules is not what enforces them — the reasoning is fresh while you write, so the prose that records it reads as necessary. **Before you finish, re-read the comments in your diff as someone who never saw this conversation.** Four tells, each a rewrite rather than a judgement call:
+
+- **Past tense about the code itself** — "used to", "now", "no longer", "replaced", "was the first of its kind". You are narrating the diff.
+- **A paragraph over a hunk that changed one class or one prop.** Cut to the constraint, or cut it entirely.
+- **The same reason given in two files.** Keep it where the behaviour lives; delete the other.
+- **A file whose only change is prose.** Revert it.

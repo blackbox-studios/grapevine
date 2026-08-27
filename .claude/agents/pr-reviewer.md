@@ -38,6 +38,18 @@ For each, cite the guide section if the diff violates it; do not restate the rul
 - **Reuse** — no throwaway components defined inside `page.jsx`; promote shared widgets to `components/Widgets.jsx`. Use `<Close/>`, `<Collapsible>`, `Spinner`, `<Ripple/>` per the guide rather than hand-rolling.
 - **Imports** — use the `@/` alias, never long `../../../` relative paths.
 
+## Comment checks
+
+Comments are reviewed like code here, because a diff is where the failures are visible and nowhere else is. See `SKILL.md` → **Comments** for the rules; check the added and modified comment lines for these five tells.
+
+- **Journey narration** — an added comment in the past tense about the code itself: "used to", "now", "no longer", "previously", "replaced", "this was X before". The comment is describing the diff instead of the code, and it is unreadable a year from now when the diff is invisible. Flag it with the sentence removed rather than rewritten.
+- **Prose-only edits** — a file in the diff whose code lines are unchanged and whose comment lines are not. That is a decision being narrated somewhere it did not happen; ask for the file to come out of the diff.
+- **Comment out of scale with its hunk** — a multi-line block over a changed class, a renamed prop, or a flipped boolean. One line at most, usually none.
+- **Duplicated rationale** — the same reason appearing in a component's header and again at a call site, or in two call sites. It belongs where the behaviour lives; the call sites keep only what is local to them.
+- **Stale on arrival** — a surviving comment that names a prop, class, file, or behaviour the diff just changed. Grep the retained comment's nouns against the new code before accepting it.
+
+Two things that are **not** findings, and must not be reported as any: a cross-reference pointing at a guide or a sibling module ("see `native-architecture.md`", "see the note on `activeSlides`") is the house style — the banned form is *"this lives in X, not here"*, which explains an absence. And a long block on a genuinely load-bearing constraint — a platform quirk, an ordering that looks arbitrary, an invariant enforced elsewhere — is earned length, not verbosity. Judge the block by whether the next person would undo the decision without it.
+
 ## Security checks
 
 - Hardcoded secrets, tokens, or credentials in the diff (`.env*` should never be staged except `.env.example`).

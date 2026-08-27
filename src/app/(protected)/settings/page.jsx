@@ -1,5 +1,7 @@
 "use client"
 
+import { BackHeader } from "@/components/BackHeader"
+import { ROUTES } from "@/lib/constants"
 import { useTheme } from "@/lib/providers/Theme"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { appPath, cn } from "@/lib/utils"
@@ -27,48 +29,55 @@ const SettingsGeneralPage = () => {
      * `max-w-[470px]` and the `md:pt-0` are lifted verbatim from `/profile`, so arriving here
      * from that list does not change the shape of the page under the reader. */
     return (
-        <section className="mx-auto flex w-full max-w-[470px] flex-col gap-6 pt-6 pb-10 md:pt-0">
-            <h2 className="text-xl font-semibold text-foreground">Appearance</h2>
+        <>
+            {/* Titled "General" after the row on `/profile` that leads here, which is also where
+                the arrow goes back to. The theme switcher below is the first of what will be
+                several sections under it, which is why it keeps a heading of its own. */}
+            <BackHeader title="General" back={ROUTES.PROFILE} bleed />
 
-            <div className="flex flex-wrap gap-6">
-                {THEME_OPTIONS.map(({ value, label, image }) => {
-                    const selected = mounted && theme === value
+            <section className="mx-auto flex w-full max-w-[470px] flex-col gap-6 pb-10 md:pt-0">
+                <h3 className="text-lg font-medium text-foreground">Appearance</h3>
 
-                    return (
-                        <button
-                            key={value}
-                            type="button"
-                            onClick={() => setTheme(value)}
-                            aria-pressed={selected}
-                            className="flex flex-col items-center gap-2 outline-hidden cursor-pointer"
-                        >
-                            <span
-                                className={cn(
-                                    "block overflow-hidden rounded-2xl border-2 transition-colors",
-                                    selected
-                                        ? "border-ring"
-                                        : "border-transparent hover:border-border"
-                                )}
+                <div className="flex flex-wrap gap-6">
+                    {THEME_OPTIONS.map(({ value, label, image }) => {
+                        const selected = mounted && theme === value
+
+                        return (
+                            <button
+                                key={value}
+                                type="button"
+                                onClick={() => setTheme(value)}
+                                aria-pressed={selected}
+                                className="flex flex-col items-center gap-2 outline-hidden cursor-pointer"
                             >
-                                <img
-                                    src={image}
-                                    alt={`${label} theme preview`}
-                                    className="h-24 w-32 object-cover"
-                                />
-                            </span>
-                            <span
-                                className={cn(
-                                    "text-sm",
-                                    selected ? "text-foreground" : "text-muted-foreground"
-                                )}
-                            >
-                                {label}
-                            </span>
-                        </button>
-                    )
-                })}
-            </div>
-        </section>
+                                <span
+                                    className={cn(
+                                        "block overflow-hidden rounded-2xl border-2 transition-colors",
+                                        selected
+                                            ? "border-ring"
+                                            : "border-transparent hover:border-border"
+                                    )}
+                                >
+                                    <img
+                                        src={image}
+                                        alt={`${label} theme preview`}
+                                        className="h-24 w-32 object-cover"
+                                    />
+                                </span>
+                                <span
+                                    className={cn(
+                                        "text-sm",
+                                        selected ? "text-foreground" : "text-muted-foreground"
+                                    )}
+                                >
+                                    {label}
+                                </span>
+                            </button>
+                        )
+                    })}
+                </div>
+            </section>
+        </>
     )
 }
 

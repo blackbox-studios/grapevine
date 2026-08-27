@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import { PrivilegedRoute } from "@/components/Auth"
+import { BackHeader } from "@/components/BackHeader"
 import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import Pagination from "@/components/Pagination"
@@ -47,6 +48,7 @@ import {
 import {
     MEMBERSHIP_STATUS,
     ROLES,
+    ROUTES,
     VOCATION_OPTIONS,
     VOCATIONS,
 } from "@/lib/constants"
@@ -377,22 +379,35 @@ const SettingsUsersPage = () => {
     const pageRows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize)
     const filtered = total !== members.length
 
+    /* The count follows the search, so it always describes the table underneath it; the roster
+     * total is appended only when the two differ, so "how many of how many" never has to be
+     * worked out. Held in one place because it is rendered twice, in the bar and on the page. */
+    const heading = (
+        <>
+            <span className="text-muted-foreground">
+                ({total}
+                {filtered && ` of ${members.length}`})
+            </span>{" "}
+            {org?.name ?? "Members"}
+        </>
+    )
+
     /* Gated on the *selected* group, so switching to one the viewer only belongs to sends
      * them out of the roster rather than showing them an empty table they have no way to
      * fill. */
     return (
         <PrivilegedRoute role={ROLES.ADMIN} orgId={org?.id}>
+            {/* The group and its count are the title because that is what this roster is — a
+                phone shows one screen at a time, and "which parish am I looking at" is the
+                question the table's own columns cannot answer. */}
+            <BackHeader title={heading} back={ROUTES.PROFILE} bleed />
+
             <section className="flex flex-col gap-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                    <h2 className="text-xl font-semibold text-foreground">
-                        {/* The count follows the search, so it always describes the table
-                          * underneath it; the roster total is appended only when the two
-                          * differ, so "how many of how many" never has to be worked out. */}
-                        <span className="text-muted-foreground">
-                            ({total}
-                            {filtered && ` of ${members.length}`})
-                        </span>{" "}
-                        {org?.name ?? "Members"}
+                {/* The bar carries the heading on a phone, leaving Admissions alone on this row
+                    to line up with the search field below it. */}
+                <div className="flex flex-wrap items-center gap-4 md:justify-between">
+                    <h2 className="hidden text-xl font-semibold text-foreground md:block">
+                        {heading}
                     </h2>
                     <Admissions org={org} invite={invite} inviting={inviting} />
                 </div>

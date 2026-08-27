@@ -73,43 +73,27 @@ in the same email works in a browser as a bonus.
 > which is sent. The stock template has only `{{ .ConfirmationURL }}`, so no code is ever
 > delivered and the second step of the login screen cannot be completed. This project is on
 > Pro, so that is a dashboard edit — Authentication → Email Templates → Magic Link.
->
-> (Worth knowing if this is ever forked onto a free project: Supabase locked template
-> editing for new free-tier projects on its built-in SMTP as of 3 June 2026, which makes
-> custom SMTP a hard prerequisite there rather than a production nicety.)
 
-> **The built-in SMTP allows 2 messages per hour, project-wide.** Two sign-in attempts an
-> hour is not enough to develop against, and demoing both sides of the permission model
-> means signing in as two people in quick succession. Exceeding it returns
-> `429 over_email_send_rate_limit`. The cap can only be raised by configuring custom SMTP.
+> **Mail goes out over Resend, from `no-reply@throughgrapevine.com`.** Every provider worth
+> using (Resend, Postmark, SES) requires a **verified sending domain**; there is no shared
+> test sender. That domain is `throughgrapevine.com`. The host, ports, DNS records and the
+> reason the *root* domain is verified rather than a `send.*` subdomain are in `.env.example`
+> under "SMTP"; the credentials themselves live in the Supabase dashboard, not in this repo.
 >
-> `npm run dev:login [admin|member|<email>]` sidesteps it entirely: it mints the same
-> verification token through the Admin API and prints it instead of mailing it, so no
-> message is sent and no quota is consumed. Local script only — it needs the secret key, and
-> a *route* that issues a session for an arbitrary address would be a backdoor by
-> construction.
+> **Sending is capped at 30 messages/hour, under Authentication → Rate Limits.** Raise it
+> before a parish roster's first sign-ins land in one sitting — a roster added in one go is
+> a burst of first sign-ins, and the 31st gets `429 over_email_send_rate_limit`.
 >
 > A rate-limited send still advances the form to the code screen, because a code lasts an
 > hour and the viewer is likely holding a valid one. Every other failure keeps the form on
 > the email step, since there would be nothing to type.
 >
-> Raising the cap means custom SMTP, and every provider worth using (Resend, Postmark, SES)
-> requires a **verified sending domain** — there is no shared test sender. That domain is
-> `throughgrapevine.com` and the provider is Resend, sending from
-> `no-reply@throughgrapevine.com`; the host, ports, DNS records and the reason the root
-> domain is verified rather than a `send.*` subdomain are in `.env.example` under "Custom
-> SMTP". Custom SMTP still starts at 30 messages/hour — raise it under Authentication →
-> Rate Limits before a parish roster's first sign-ins land in one sitting. `dev:login`
-> remains the right tool for development regardless, since it consumes no quota at all.
-
-> **The built-in SMTP only delivers to your own organization's team.** Supabase's default
-> sender refuses any address that is not a member of the project's organization —
-> everything else fails with *"Email address not authorized"* — and it carries a low cap
-> and no delivery SLA. That is a property of the default sender, **not** of the plan, so
-> Pro does not lift it. Either add test addresses under the organization's Team tab, or
-> configure custom SMTP (Resend, Postmark, SES), which is required before real
-> parishioners use this regardless. `SEED_ADMIN_EMAIL` / `SEED_MEMBER_EMAIL` exist so the
-> seeded accounts can point at addresses you actually receive mail at.
+> `npm run dev:login [admin|member|<email>]` sidesteps email altogether: it mints the same
+> verification token through the Admin API and prints it instead of mailing it, so no message
+> is sent and no quota is consumed. It remains the right tool for development regardless of
+> the cap, because it needs no inbox at all — which is also what makes it the way to sign in
+> on a device. Local script only — it needs the secret key, and a *route* that issues a
+> session for an arbitrary address would be a backdoor by construction.
 
 ### Why invite-only is one option object
 

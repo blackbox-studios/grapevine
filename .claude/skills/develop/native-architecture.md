@@ -243,7 +243,7 @@ so device sign-in needs no working email at all:
 3. Type that code into the app.
 
 Step 1 still calls `signInWithOtp`, which is what puts the form on the code screen. If it
-is rate-limited (the built-in SMTP allows 2 messages an hour), the form **still advances**
+is rate-limited (Authentication → Rate Limits, 30 messages an hour), the form **still advances**
 — a code lasts an hour, so a rate-limited viewer is likely holding a valid one, and
 stranding them on the email screen would throw it away. Every other failure keeps the form
 put, because there is no code to enter.

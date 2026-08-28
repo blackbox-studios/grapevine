@@ -23,25 +23,10 @@ device half is the only gap, and it cannot be closed until the developer account
 3. **Upload it to Firebase** → Project settings → Cloud Messaging → APNs Authentication Key,
    with its Key ID and your Team ID. Without this step iOS registers happily and receives
    nothing, which is the least obvious failure in the whole feature.
-4. **Xcode** → App target → Signing & Capabilities → add **Push Notifications**.
-5. **Add `GoogleService-Info.plist` to the Xcode target** — see the next item, which is
-   independent of the DUNS number and can be done now.
-6. Test on a **physical iPhone**. APNs does not work on the Simulator, ever.
-
-### Independent of Apple: the plist is not in the Xcode project yet
-
-`ios/App/App/GoogleService-Info.plist` is on disk, but it has no `PBXFileReference` in
-`ios/App/App.xcodeproj/project.pbxproj` and is not in the App target's *Copy Bundle
-Resources*. The project is `objectVersion = 60` and does not use Xcode 16's
-filesystem-synchronized groups, so being in the folder is **not** enough — the file will not
-be copied into the built app and `FirebaseApp.configure()` will not find it at launch.
-
-Fix: open `ios/App/App.xcworkspace`, drag the plist into the `App/App` group, and tick
-**Add to targets: App**. Verify with:
-
-```bash
-grep -c "GoogleService-Info.plist" ios/App/App.xcodeproj/project.pbxproj   # must be > 0
-```
+4. **Xcode** → App target → Signing & Capabilities → add **Push Notifications**. The
+   capability *is* the `aps-environment` entitlement, and a free personal team cannot sign
+   one, so this waits on the paid account rather than on anyone finding the time.
+5. Test on a **physical iPhone**. APNs does not work on the Simulator, ever.
 
 ## Production database — will break push the moment it deploys
 

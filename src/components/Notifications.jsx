@@ -39,6 +39,7 @@ import { cn, postPath, timeAgoCompact } from "@/lib/utils"
 const LINES = {
     POST_LIKE: () => "liked your post",
     COMMENT_LIKE: () => "liked your comment",
+    POST_COMMENT: () => "commented on your post",
     NEW_POST: (item) =>
         item.orgName ? `posted in ${item.orgName}` : "shared a new post",
 }
@@ -94,7 +95,7 @@ const NotificationRow = ({ item, now, onOpen }) => {
 
 const EmptyState = () => (
     <div className="py-12 text-center text-sm text-muted-foreground">
-        Nothing yet. Likes on your posts and new announcements will show up here.
+        Nothing yet. Likes, comments, and new announcements will show up here.
     </div>
 )
 

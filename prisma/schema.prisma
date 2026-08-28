@@ -575,9 +575,9 @@ model CommentLike {
 // Notifications
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Something somebody did to something you wrote. Today that is exactly one thing —
-/// a like, on a post or on a comment — and `type` is an enum rather than a boolean so
-/// the second kind is a value, not a table.
+/// Something somebody did to something you wrote — a like on a post or a comment, a
+/// comment on your post, or an admin publishing into a group you belong to. `type` is an
+/// enum rather than a boolean precisely so each new kind is a value, not a table.
 ///
 /// **A notification is a row; a push is one delivery of it.** Firebase is coming and
 /// will not own any of this: a device that was asleep when the like landed still finds
@@ -587,15 +587,17 @@ model CommentLike {
 ///
 /// ── One subject column, not two nullable ones ────────────────────────────────
 ///
-/// `subjectId` is the post or comment that was liked, and `type` says which. The
-/// obvious alternative — a nullable `postId` beside a nullable `commentId` — cannot
-/// carry the unique key below: Postgres treats NULLs in a unique index as distinct, so
-/// a key containing a column that is always null on one of the two paths admits the
-/// same like twice. One non-null column keeps the constraint real.
+/// `subjectId` is whatever the event is *about* — the post or comment that was liked,
+/// the comment that was written — and `type` says which. The obvious alternative — a
+/// nullable `postId` beside a nullable `commentId` — cannot carry the unique key below:
+/// Postgres treats NULLs in a unique index as distinct, so a key containing a column
+/// that is always null on one of the paths admits the same like twice. One non-null
+/// column keeps the constraint real.
 ///
 /// `postId` is not the subject and is not redundant with it. It is the post the event
 /// happened *inside* — the subject itself for a POST_LIKE, the comment's parent for a
-/// COMMENT_LIKE — and it does two jobs nothing else can: it carries the foreign key, so
+/// COMMENT_LIKE or a POST_COMMENT — and it does two jobs nothing else can: it carries
+/// the foreign key, so
 /// deleting a post takes its notifications with it (including the ones about its
 /// comments, which cascade the same way), and it is what the read joins to skip
 /// notifications about a post that has since been soft-deleted.
@@ -616,7 +618,8 @@ model Notification {
   actorId     String @map("actor_id") @db.Uuid
 
   type      NotificationType
-  /// The post or comment that was liked; `type` says which.
+  /// What the event is about — the post or comment that was liked, or the comment that
+  /// was written; `type` says which.
   subjectId String           @map("subject_id")
   /// The post the event happened inside. See the header note.
   postId    String           @map("post_id")
@@ -651,6 +654,10 @@ enum NotificationType {
   /// An admin published into a group you belong to. Unlike the two above this is a
   /// **fan-out**: one row per approved member of the group. See `notifyNewPost`.
   NEW_POST
+  /// Somebody commented on your post. The subject is the **comment**, not the post, which
+  /// is what makes each comment its own row and what lets `unnotifyComment` retract the
+  /// one belonging to a comment that was deleted. See `notifyComment`.
+  POST_COMMENT
 
   @@map("notification_type")
 }

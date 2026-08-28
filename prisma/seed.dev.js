@@ -415,6 +415,24 @@ const main = async () => {
                     updatedAt: commentedAt,
                 },
             })
+
+            /* The notification `addComment` would have written, for the same reason the
+             * like rows below get theirs: the seed inserts the comment directly rather than
+             * through the one path that pairs the two. Skipped when the commenter is the
+             * post's author, matching `notifyComment`. The subject is the comment, so each
+             * one is its own row. */
+            if (commentAuthorId !== authorId) {
+                await prisma.notification.create({
+                    data: {
+                        recipientId: authorId,
+                        actorId: commentAuthorId,
+                        type: "POST_COMMENT",
+                        subjectId: comment.id,
+                        postId: fixture.id,
+                        createdAt: commentedAt,
+                    },
+                })
+            }
         }
 
         /* The like rows behind the counter written above. One second apart so the ordering

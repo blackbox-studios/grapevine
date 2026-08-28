@@ -9,10 +9,11 @@ import { pushConfigured, sendPush } from "@/lib/server/push"
 
 /* Notifications: the panel behind the bell, and the writes that fill it.
  *
- * One event type today — somebody liked something you wrote — split by `type` into a like
- * on a post and a like on a comment. The read side is a plain keyset page of the viewer's
- * own rows; the write side is two builders the like toggles splice into the transaction
- * they were already running.
+ * Three kinds of event: somebody liked something you wrote (split by `type` into a like on a
+ * post and a like on a comment), somebody commented on your post, and an admin published into
+ * a group you belong to. The read side is a plain keyset page of the viewer's own rows,
+ * identical for all of them; the write side is a builder per event, spliced into the
+ * transaction the write it accompanies was already running.
  *
  * ── Why the writes are builders and not functions that write ─────────────────
  *
@@ -199,7 +200,33 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
     })
 }
 
-/* Retracts every "liked your comment" for a comment that has just been deleted.
+/* The write for "somebody commented on your post". Null when the commenter is the author,
+ * matching `notifyLike` — a priest working through the replies under his own announcement
+ * should not be filling his own bell.
+ *
+ * **The subject is the comment, not the post**, and that is the decision worth stating.
+ * Keying on the post would collapse a whole conversation into one row per person, which is
+ * cheaper but wrong in two ways: it cannot name *which* comment to open to, and it leaves
+ * `unnotifyComment` with nothing to identify when one of them is deleted. One row per comment
+ * also means the unique key can never collide here — the id is minted in the transaction this
+ * write is spliced into — so this is a `create` rather than the like's upsert. Ten comments
+ * from one person are ten rows, which is the same shape ten likes take; collapsing them is the
+ * same read-side question, and the GROUPING note above is the plan for both.
+ *
+ * Takes the transaction client rather than returning an operation, for the reason
+ * `notifyNewPost` does: it needs the id of the row created alongside it, which is exactly the
+ * dependency the array form cannot express. */
+export const notifyComment = (tx, { recipientId, actorId, commentId, postId }) => {
+    if (recipientId === actorId) return null
+
+    return tx.notification.create({
+        data: { recipientId, actorId, type: "POST_COMMENT", subjectId: commentId, postId },
+    })
+}
+
+/* Retracts every notification whose subject is a comment that has just been deleted — both
+ * the "liked your comment" rows and the "commented on your post" row the comment itself
+ * wrote.
  *
  * **The one gap the cascade cannot cover.** `postId` carries the foreign key, so deleting a
  * post takes its notifications with it — including the ones about its comments. A *comment*
@@ -208,11 +235,16 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
  * comment" for a comment no longer in the thread, the unread tally counts it, and tapping
  * the row opens a post the comment does not appear in.
  *
+ * The filter is on `type` as well as `subjectId` because ids are cuids from different tables
+ * and a bare `subjectId` match would be relying on them never colliding. The two comment-
+ * subject types are listed rather than matching everything, so a future type keyed on
+ * something else cannot be swept up by a deletion it has nothing to do with.
+ *
  * Takes the transaction client, like `notifyNewPost` and for the same reason as everything
  * else here: the retraction commits with the deletion that justifies it or not at all. */
 export const unnotifyComment = (tx, commentId) =>
     tx.notification.deleteMany({
-        where: { type: "COMMENT_LIKE", subjectId: commentId },
+        where: { type: { in: ["COMMENT_LIKE", "POST_COMMENT"] }, subjectId: commentId },
     })
 
 /* Who hears about a new post: every APPROVED member of the group except whoever wrote it.
@@ -350,6 +382,31 @@ export const pushLike = ({ recipientId, actor, type, postId }) => {
                 body: type === "COMMENT_LIKE" ? "liked your comment" : "liked your post",
                 postId,
                 type,
+            }),
+        ),
+    )
+}
+
+/* "Dn. Paul commented on your post."
+ *
+ * **No excerpt of what was said**, though the body is right there at the call site. The panel
+ * row deliberately does not load a comment's text — see `notificationInclude` — so quoting it
+ * here would make the banner and the row it corresponds to say different things, and the
+ * banner is the one a lock screen shows to whoever is holding the phone.
+ *
+ * Silent for a self-comment, matching `notifyComment`, and repeated here for the same reason
+ * `pushLike` repeats it: two decisions that agree rather than one that both depend on. */
+export const pushComment = ({ recipientId, actor, postId }) => {
+    if (recipientId === actor.id) return
+
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: displayName(actor),
+                body: "commented on your post",
+                postId,
+                type: "POST_COMMENT",
             }),
         ),
     )

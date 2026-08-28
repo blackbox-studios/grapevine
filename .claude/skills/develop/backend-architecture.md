@@ -261,12 +261,19 @@ would load and project a page of rows on every sign-in to decide whether to draw
 **Writing a notification is a builder, not a write.** `notifyLike` / `unnotifyLike` in
 `notifications.service.js` *return* a Prisma operation, which the like toggles splice into
 the `$transaction([...])` they were already running — so the notification commits with the
-like that justifies it and costs no additional round trip. `notifyNewPost` is the exception
-and takes a transaction client instead, because its rows need the id of the post created
-alongside them; that is the same dependency that earns `deleteComment` its interactive
-transaction. A post's notification is also a **fan-out**: one row per approved member of the
-group. See that file's header, which also carries the game plan for grouping ("Mat. Carly and
-9 others") as a read-side change.
+like that justifies it and costs no additional round trip. `notifyNewPost` and
+`notifyComment` are the exceptions and take a transaction client instead, because their rows
+need the id of the post or comment created alongside them; that is the same dependency that
+earns `deleteComment` its interactive transaction, and it is why `addComment` is interactive
+too. A post's notification is also a **fan-out**: one row per approved member of the group,
+where a like or a comment notifies one person. See that file's header, which also carries the
+game plan for grouping ("Mat. Carly and 9 others") as a read-side change.
+
+**A `POST_COMMENT`'s subject is the comment, not the post.** That is what keeps each comment
+its own row and what lets `unnotifyComment` retract it when the comment is soft-deleted —
+which it must, since `postId` carries the only foreign key and a comment's deletion has no
+DDL-level event to cascade from. It retracts the `COMMENT_LIKE` rows on that comment in the
+same statement.
 
 **`POST /api/uploads` grants permission; it does not receive a file.** It answers a signed
 upload URL and the client sends the bytes straight to Supabase Storage, so a parish photo

@@ -228,6 +228,29 @@ const uniqueSlug = async (slug, { explicit }) => {
     return `${slug}-${Math.random().toString(36).slice(2, 7)}`
 }
 
+/* The slug race `uniqueSlug` cannot close, translated.
+ *
+ * That check and the insert are two statements, so between them another request can take the
+ * slug. Only the unique index settles it, and it does — but the loser arrives back as a raw
+ * `P2002`, which the route would answer with a 500. That is the wrong answer to "somebody
+ * else got that address first", and it is the *same* condition `uniqueSlug` already reports
+ * as a 400, reached a few milliseconds later.
+ *
+ * Deliberately not retried. Re-deriving a free suffix would work for a generated slug, but
+ * two owners naming a group "Holy Trinity" in the same millisecond is rarer than the loop is
+ * worth, and an explicit slug must not be silently changed anyway — which is the rule
+ * `uniqueSlug` is built around. Everything else rethrows untouched. */
+const rethrowSlugRace = (error) => {
+    /* `meta.target` is an array of column names on Postgres, but Prisma reports it as a bare
+     * index-name string on some drivers and omits it on others. `String()` over whichever
+     * shape arrived is enough: the only unique constraint this transaction can violate that
+     * mentions "slug" is the one on it. */
+    if (error?.code === "P2002" && String(error.meta?.target ?? "").includes("slug")) {
+        throw invalid("That slug is already taken.", { slug: "Taken" })
+    }
+    throw error
+}
+
 /* The parent group a new group hangs under, validated — or null.
  *
  * **Requires ADMIN standing in the parent, which is not the same as being an owner.** The
@@ -291,6 +314,15 @@ export const createOrg = async (viewer, { name, slug, kind, parentId, bio } = {}
         })
     }
 
+    /* `uniqueSlug` asked whether the slug was free in an earlier statement, so between that
+     * answer and this insert another request can take it. Only the database can settle it,
+     * and it does — `slug` is unique — but the loser surfaces a raw `P2002` as a 500, which
+     * is the wrong answer to "somebody else got that address first". Catching it here turns
+     * the race into the same 400 the single-request path already returns.
+     *
+     * Not retried for a derived slug, even though a suffix would be free for the taking: two
+     * owners creating "Holy Trinity" in the same millisecond is rarer than the retry loop is
+     * worth, and the caller sees a validation error they can act on either way. */
     const [org] = await prisma.$transaction([
         prisma.organization.create({
             data: {
@@ -324,7 +356,7 @@ export const createOrg = async (viewer, { name, slug, kind, parentId, bio } = {}
                 decidedBy: { connect: { id: viewer.id } },
             },
         }),
-    ])
+    ]).catch(rethrowSlugRace)
 
     /* Projected with the membership just written rather than one read back. The viewer
      * snapshot `requireViewer` loaded predates this group by microseconds and does not

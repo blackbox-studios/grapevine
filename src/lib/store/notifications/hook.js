@@ -5,8 +5,7 @@ import { usePathname } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
 import { APP_NAME, NOTIFICATIONS_POLL_MS } from "@/lib/constants"
-import { pushSupported } from "@/lib/push"
-import usePushStore from "@/lib/store/push/store"
+import { usePushDelivering } from "@/lib/store/push/hook"
 import useNotificationsStore from "./store"
 
 /* The panel behind the bell. Mounting this hook is what opens it — the read is on mount
@@ -101,11 +100,10 @@ export const useUnreadTitle = () => {
 
 /* Keeps the bell current wherever push cannot. Mounted once from App.jsx for the session.
  *
- * **Reachable is not the same as native**, and the gate has to test the former: an iPhone
- * without the APNs half of push, a reader who declined the permission prompt, and a device
- * whose token registration failed are all native and all unreachable, and for them a poll is
- * the only thing standing between a notification and a cold launch. So the condition is a
- * permission granted *and* a token registered — a working install still polls nothing.
+ * **Reachable is not the same as native**, and the gate has to test the former — see
+ * `usePushDelivering`, which is push's own answer to that and the reason this hook reads no
+ * foreign store. For an unreachable client the poll is the only thing standing between a
+ * notification and a cold launch; a working install polls nothing.
  *
  * Polling rather than the two realtime options, both of which cost more than they save here.
  * Supabase Realtime needs the `anon`/`authenticated` grants and RLS policies `db:secure`
@@ -116,9 +114,7 @@ export const useUnreadTitle = () => {
  * is not on screen and checks once on the way back, which is the moment the tally is most
  * likely to be stale. */
 export const useNotificationsWatch = (active) => {
-    const delivering = usePushStore(
-        state => pushSupported() && state.permission === "granted" && Boolean(state.token),
-    )
+    const delivering = usePushDelivering()
 
     useEffect(() => {
         if (!active || delivering) return

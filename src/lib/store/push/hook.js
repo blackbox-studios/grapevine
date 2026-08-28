@@ -114,3 +114,20 @@ export const usePushPermission = () => {
         ),
     }
 }
+
+/* Whether this install can actually be reached by a push, which is a narrower question than
+ * "is this native". An iPhone missing the APNs half, a reader who declined the prompt, and a
+ * device whose token registration failed are all native and all unreachable — so the answer is
+ * a granted permission *and* a registered token, not the platform.
+ *
+ * It lives here rather than in the one hook that asks it, because the question is entirely
+ * about push's own state and the layering says a domain owns the reads over its store. The
+ * caller — `useNotificationsWatch` — decides what to do with the answer.
+ *
+ * **Reactive on purpose.** A token can arrive mid-session: the reader accepts the prompt, or a
+ * failed registration retries. Anything that polls because this was false has to stop when it
+ * turns true, and a `getState()` snapshot would leave it polling for the rest of the session. */
+export const usePushDelivering = () =>
+    usePushStore(
+        state => pushSupported() && state.permission === "granted" && Boolean(state.token),
+    )

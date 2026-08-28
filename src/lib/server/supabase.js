@@ -54,31 +54,8 @@ export const supabaseAdmin = () => {
     return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, STATELESS)
 }
 
-/* The auth user for an address, or null.
- *
- * **Auth and the database can hold different sets of people, and the database is the one
- * that gets rebuilt.** A Supabase project is shared across every environment pointed at it —
- * `docker-compose.yml` isolates Postgres alone — so `db:reset` drops a Profile while the
- * `auth.users` row it mirrored survives. Admission has to be able to find that survivor and
- * reuse its id, or the address is permanently unaddable: too new for the Profile lookup, too
- * old for `createUser`. `provisionAuthUser` in `prisma/seed-lib.js` has always treated this
- * as the normal path; this is the same rule for the path admins actually use.
- *
- * The Admin API has no get-by-email, so this pages. That is why it belongs on the failure
- * path of `createUser` and not in front of it — one wasted create is cheaper than paging
- * every admission. Capped at 2000 users, past which an address that is genuinely present
- * reads as absent; if a project ever grows past that, store the id at admission instead. */
-export const findAuthUserByEmail = async (supabase, email) => {
-    const wanted = email.toLowerCase()
-
-    for (let page = 1; page <= 10; page++) {
-        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 })
-        if (error) throw error
-
-        const match = data.users.find((user) => user.email?.toLowerCase() === wanted)
-        if (match) return match
-        if (data.users.length < 200) return null
-    }
-
-    return null
-}
+/* Re-exported rather than defined here: the seeds need the same lookup and cannot import this
+ * file, which `server-only` closes to them. See `server/auth-users.js` for why it is its own
+ * module and what the paging cap means. Admission calls it on the failure path of
+ * `createUser`, which is the shape that note describes. */
+export { findAuthUserByEmail } from "./auth-users"

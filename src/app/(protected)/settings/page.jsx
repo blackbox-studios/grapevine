@@ -19,12 +19,11 @@ import { cn, roleLabel } from "@/lib/utils"
  * also `/settings` itself — the index of the settings tree rather than a sibling of it, so
  * the list of destinations *is* the landing page and General is one row on it.
  *
- * **This replaced a popover, and the replacement is the point.** Settings and the roster used
- * to be reached from a menu on a desktop and from a two-column tab rail once you were inside
- * Settings — the same handful of destinations expressed twice, in two shapes, neither of which
- * fitted a phone (the rail's fixed 10rem column pushed the roster table off the right edge).
- * One page with one list is the same answer at every width, and adding a destination is a row
- * rather than a decision about which surface it belongs on.
+ * **One list, not a menu and a tab rail.** Reaching Settings from a desktop popover and then
+ * moving between its pages on a two-column rail expresses the same handful of destinations
+ * twice, in two shapes, neither of which fits a phone — a fixed 10rem column pushes the roster
+ * table off the right edge. One page with one list is the same answer at every width, and
+ * adding a destination is a row rather than a decision about which surface it belongs on.
  *
  * **Both the check and the role describe the *selected* group, not the viewer globally.** That
  * is the switcher's whole purpose: someone who administers their parish and merely belongs to

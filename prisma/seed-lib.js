@@ -10,6 +10,8 @@
 import { PrismaClient } from "@prisma/client"
 import { createClient } from "@supabase/supabase-js"
 
+import { findAuthUserByEmail } from "../src/lib/server/auth-users.js"
+
 export const prisma = new PrismaClient()
 
 /* The admin client, or a refusal that says which variable is missing.
@@ -53,20 +55,14 @@ export const syntheticId = (handle) => {
     ].join("-")
 }
 
-/* The Admin API has no get-by-email, so page through until the address turns up. Fine at
- * seed scale; if the project ever holds thousands of users, store the id instead. */
-export const findAuthUserByEmail = async (supabase, email) => {
-    for (let page = 1; page <= 10; page++) {
-        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 })
-        if (error) throw error
-        const match = data.users.find(
-            (user) => user.email?.toLowerCase() === email.toLowerCase(),
-        )
-        if (match) return match
-        if (data.users.length < 200) return null
-    }
-    return null
-}
+/* Shared with the app's admission path — see `src/lib/server/auth-users.js`, which is where
+ * the paging cap and the "auth outlives the database" rule are written down.
+ *
+ * Imported and re-exported rather than passed straight through with `export … from`, because
+ * `provisionAuthUser` below calls it: that form re-exports the name without binding it in
+ * this module's scope, so the call site would be a ReferenceError at seed time. The
+ * re-export is kept so the seeds still import everything they provision with from here. */
+export { findAuthUserByEmail }
 
 /**
  * Creates (or finds) the Supabase auth user for a sign-innable person, and returns its id.

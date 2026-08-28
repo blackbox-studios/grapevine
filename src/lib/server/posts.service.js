@@ -4,7 +4,15 @@ import { Prisma } from "@prisma/client"
 
 import { MAX_POST_DOCUMENTS, MAX_POST_IMAGES, UPLOAD_PURPOSES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
+import { commentScore } from "@/lib/rank"
+import {
+    keysetOrder,
+    keysetPage,
+    keysetWhere,
+    scoreOrder,
+    scorePage,
+    scoreWhere,
+} from "@/lib/server/cursor"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
 import { membershipIn, requireMembership, readableOrgIds } from "@/lib/server/auth"
 import {
@@ -260,12 +268,12 @@ export const getPost = async (viewer, postId) => {
     })
 }
 
-/* Capped because the pinned block is fetched whole, with no cursor of its own. Anything
- * past the cap stays where it was written, in the chronological body below. */
+/* Capped because the pinned block is fetched whole, with no cursor of its own. Anything past
+ * the cap is not lost — it takes its rank in the body below like anyone else's comment. */
 const PINNED_OWN_COMMENTS = 20
 
-/* One page of a post's comments: the viewer's own first (newest first), then the thread
- * oldest-first.
+/* One page of a post's comments: the viewer's own first (newest first), then the thread in
+ * rank order.
  *
  * Pinning is what keeps a reply where the viewer left it across a reload, agreeing with the
  * optimistic row the client already showed at the top. The pinned set is resolved on
@@ -273,8 +281,16 @@ const PINNED_OWN_COMMENTS = 20
  * same comment is served twice. Only the first page carries the block itself, and
  * `nextCursor` still comes off the body's last row.
  *
- * The body's direction is "asc" against the feed's "desc"; the cursor helpers take it
- * explicitly because a mismatch silently repeats the first page rather than failing. */
+ * **The body is ordered by `Comment.score`, not by time** — recency, likes, and the post
+ * author's own replies, resolved to one stored number by `commentScore()` in lib/rank.js.
+ * Read that module for why the number is a column. The two blocks are ordered by different
+ * things on purpose: the pinned block answers "where did my comment go", which is a
+ * question about time, and the body answers "what should I read", which is not.
+ *
+ * So this pages with the score keyset (`scoreWhere`/`scoreOrder`/`scorePage`) while the
+ * pinned block above keeps its own chronological order — and the two cursor families must
+ * not be crossed, because a `(createdAt, id)` cursor decoded as a `(score, id)` one is a
+ * malformed-cursor 400 at best and a silently repeated page at worst. */
 export const listComments = async (viewer, postId, { limit, cursor }) => {
     /* The post was loaded to authorize the read; its `orgId` is then what decides which
      * commenters wear the admin check, and the membership that authorized it decides which
@@ -296,9 +312,9 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
             postId,
             deletedAt: null,
             ...(pinnedIds.length > 0 ? { id: { notIn: pinnedIds } } : {}),
-            ...keysetWhere(cursor, "asc"),
+            ...scoreWhere(cursor),
         },
-        orderBy: keysetOrder("asc"),
+        orderBy: scoreOrder(),
         take: limit + 1,
         include: commentInclude(viewer.id),
         ...JOIN,
@@ -311,7 +327,7 @@ export const listComments = async (viewer, postId, { limit, cursor }) => {
             canDelete: canDeleteComment(viewer.id, membership, comment),
         })
 
-    const page = keysetPage(rows, limit, project)
+    const page = scorePage(rows, limit, project)
     if (cursor) return page
 
     return { ...page, items: [...own.map(project), ...page.items] }
@@ -554,14 +570,31 @@ export const togglePostLike = async (viewer, postId) => {
 export const toggleCommentLike = async (viewer, commentId) => {
     const comment = await prisma.comment.findFirst({
         where: { id: commentId, deletedAt: null },
-        select: { id: true, postId: true, authorId: true },
+        /* `createdAt` and `likeCount` are here for the re-score below, not for the response.
+         * Two more columns on a row already being fetched, against a second statement if the
+         * score were computed after the update. */
+        select: { id: true, postId: true, authorId: true, createdAt: true, likeCount: true },
     })
     if (!comment) throw notFound("Comment not found.")
 
-    await loadReadablePost(viewer, comment.postId)
+    const { post } = await loadReadablePost(viewer, comment.postId)
 
     const key = { profileId_commentId: { profileId: viewer.id, commentId } }
     const existing = await prisma.commentLike.findUnique({ where: key })
+
+    /* The comment's new position in the thread. Computed from the count read above rather
+     * than from the one the increment is about to produce, which keeps this to the same
+     * statement as the tally and costs an exactness the score does not need: two people
+     * liking the *same comment* within the same few milliseconds both compute from the same
+     * old count, so the score lands one like light. `likeCount` itself stays exact — it is
+     * still `increment` — and the next like or unlike recomputes the score from a fresh read.
+     * The whole error is under half an hour of virtual freshness on one comment, which is
+     * below the resolution anyone can see in an ordering. */
+    const score = commentScore({
+        createdAt: comment.createdAt,
+        likeCount: comment.likeCount + (existing ? -1 : 1),
+        byPostAuthor: comment.authorId === post.authorId,
+    })
 
     /* The subject is the comment; the post is where it is read. Same shape and same
      * reasoning as `togglePostLike`. */
@@ -580,7 +613,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
                       prisma.commentLike.delete({ where: key }),
                       prisma.comment.update({
                           where: { id: commentId },
-                          data: { likeCount: { decrement: 1 } },
+                          data: { likeCount: { decrement: 1 }, score },
                           select: { likeCount: true },
                       }),
                       unnotifyLike(notification),
@@ -591,7 +624,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
                       }),
                       prisma.comment.update({
                           where: { id: commentId },
-                          data: { likeCount: { increment: 1 } },
+                          data: { likeCount: { increment: 1 }, score },
                           select: { likeCount: true },
                       }),
                       notifyLike(notification),
@@ -647,12 +680,25 @@ export const addComment = async (viewer, postId, text) => {
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
 
+    /* The thread position of a comment nobody has liked yet: its timestamp, plus the post
+     * author's boost if this is the author replying under his own announcement.
+     *
+     * Scored from this clock rather than from the `created_at` Postgres is about to default —
+     * the two differ by one round trip, which is tens of milliseconds against a pooler and
+     * therefore ~1e-5 of the hours this score is denominated in. Setting `createdAt` here to
+     * make them identical would take the timestamp away from the database to buy nothing. */
+    const score = commentScore({
+        createdAt: new Date(),
+        likeCount: 0,
+        byPostAuthor: viewer.id === post.authorId,
+    })
+
     /* Interactive because the notification's subject is the comment: it needs an id that does
      * not exist until the insert above it has run, which is the one dependency the array form
      * cannot express. The same trade `createPost` makes for its fan-out. */
     const comment = await prisma.$transaction(async (tx) => {
         const created = await tx.comment.create({
-            data: { postId, authorId: viewer.id, body },
+            data: { postId, authorId: viewer.id, body, score },
             include: commentInclude(viewer.id),
         })
 

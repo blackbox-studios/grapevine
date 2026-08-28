@@ -90,3 +90,52 @@ export const keysetPage = (rows, limit, map = (row) => row) => {
                 : null,
     }
 }
+
+/* ---------------------------------------------------------------------------
+ * Keyset pagination over a rank
+ *
+ * The same three helpers keyed on `(score, id)` instead of `(createdAt, id)`, for the one
+ * collection that is ordered by a rank rather than by time: a comment thread. See
+ * `commentScore()` in src/lib/rank.js for what the number means.
+ *
+ * Separate rather than a `field` parameter on the trio above, because the guarantee is
+ * genuinely weaker and that is worth having to opt into. A timestamp is immutable, so a
+ * keyset over it is exact — every row is passed exactly once however long the reader takes.
+ * A score moves when somebody likes the comment, so a row can cross the cursor between two
+ * requests and be served twice or not at all. That is inherent to paging any ranked list
+ * (Instagram and Reddit both do it), it is bounded by the number of likes landing mid-scroll
+ * on one post's thread, and the client dedupes by id on append. It is not a reason to page
+ * a ranked thread by time instead — that would put page two in a different order from page
+ * one, which is the visible bug.
+ * ------------------------------------------------------------------------- */
+
+/* Always descending: a rank has one useful direction, and "worst comments first" is not a
+ * feature anybody is asking for. */
+export const scoreWhere = (cursor) => {
+    const key = decodeCursor(cursor)
+    if (!key) return {}
+
+    const { score, id } = key
+    if (typeof score !== "number" || !Number.isFinite(score) || !id) {
+        throw invalid("Invalid pagination cursor.", { cursor: "Malformed" })
+    }
+
+    /* The equality arm compares a float for exact equality, which is safe here and only
+     * here: the value came out of this table, went through `JSON.stringify` (which emits the
+     * shortest string that round-trips a double), and is being compared against the same
+     * stored double. It is never arithmetic on a score, only the identity of one. */
+    return { OR: [{ score: { lt: score } }, { score, id: { lt: id } }] }
+}
+
+export const scoreOrder = () => [{ score: "desc" }, { id: "desc" }]
+
+export const scorePage = (rows, limit, map = (row) => row) => {
+    const hasMore = rows.length > limit
+    const page = hasMore ? rows.slice(0, limit) : rows
+    const last = page[page.length - 1]
+
+    return {
+        items: page.map(map),
+        nextCursor: hasMore && last ? encodeCursor({ score: last.score, id: last.id }) : null,
+    }
+}

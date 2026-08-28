@@ -201,21 +201,16 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
 }
 
 /* The write for "somebody commented on your post". Null when the commenter is the author,
- * matching `notifyLike` — a priest working through the replies under his own announcement
- * should not be filling his own bell.
+ * matching `notifyLike`.
  *
- * **The subject is the comment, not the post**, and that is the decision worth stating.
- * Keying on the post would collapse a whole conversation into one row per person, which is
- * cheaper but wrong in two ways: it cannot name *which* comment to open to, and it leaves
- * `unnotifyComment` with nothing to identify when one of them is deleted. One row per comment
- * also means the unique key can never collide here — the id is minted in the transaction this
- * write is spliced into — so this is a `create` rather than the like's upsert. Ten comments
- * from one person are ten rows, which is the same shape ten likes take; collapsing them is the
- * same read-side question, and the GROUPING note above is the plan for both.
+ * **The subject is the comment, not the post.** Keying on the post would collapse a whole
+ * conversation into one row per person, which cannot name *which* comment to open to and
+ * leaves `unnotifyComment` nothing to identify when one of them is deleted. One row per
+ * comment also means the unique key cannot collide, so this is a `create` rather than the
+ * like's upsert.
  *
- * Takes the transaction client rather than returning an operation, for the reason
- * `notifyNewPost` does: it needs the id of the row created alongside it, which is exactly the
- * dependency the array form cannot express. */
+ * Takes the transaction client for the reason `notifyNewPost` does: it needs the id of the
+ * row created alongside it. */
 export const notifyComment = (tx, { recipientId, actorId, commentId, postId }) => {
     if (recipientId === actorId) return null
 
@@ -235,10 +230,9 @@ export const notifyComment = (tx, { recipientId, actorId, commentId, postId }) =
  * comment" for a comment no longer in the thread, the unread tally counts it, and tapping
  * the row opens a post the comment does not appear in.
  *
- * The filter is on `type` as well as `subjectId` because ids are cuids from different tables
- * and a bare `subjectId` match would be relying on them never colliding. The two comment-
- * subject types are listed rather than matching everything, so a future type keyed on
- * something else cannot be swept up by a deletion it has nothing to do with.
+ * Filtered on `type` as well as `subjectId`: the two comment-subject types are named, so a
+ * future type keyed on something else cannot be swept up by a deletion it has nothing to do
+ * with.
  *
  * Takes the transaction client, like `notifyNewPost` and for the same reason as everything
  * else here: the retraction commits with the deletion that justifies it or not at all. */
@@ -389,13 +383,9 @@ export const pushLike = ({ recipientId, actor, type, postId }) => {
 
 /* "Dn. Paul commented on your post."
  *
- * **No excerpt of what was said**, though the body is right there at the call site. The panel
- * row deliberately does not load a comment's text — see `notificationInclude` — so quoting it
- * here would make the banner and the row it corresponds to say different things, and the
- * banner is the one a lock screen shows to whoever is holding the phone.
- *
- * Silent for a self-comment, matching `notifyComment`, and repeated here for the same reason
- * `pushLike` repeats it: two decisions that agree rather than one that both depend on. */
+ * **No excerpt of what was said**, though the body is right there at the call site: the panel
+ * row does not load a comment's text (see `notificationInclude`), and a banner that quoted it
+ * would say more on a lock screen than the row it corresponds to says in the app. */
 export const pushComment = ({ recipientId, actor, postId }) => {
     if (recipientId === actor.id) return
 

@@ -46,23 +46,16 @@ const LINES = {
 
 /* The corner radius one row takes, given the rows around it.
  *
- * **Only an unread row is ever positional.** A read row draws no background of its own and
- * lights up only under the cursor, and a hover is always a pill — it is one row being pointed
- * at, not part of anything, so it has no neighbours to line up with. That is also why the two
- * cases can share a single radius: a row shows the tint or the hover, never both.
+ * A run of unread rows reads as one block — rounded at its two ends, square where rows meet —
+ * so the neighbours that decide this are the unread ones, and a highlight ending halfway down
+ * the list still closes itself off. A run of one is a pill.
  *
- * The tint, though, marks a **run** of new notifications, and a run should read as one block:
- * rounded at its two ends, square where rows meet. The neighbours that decide this are the
- * unread ones — first and last *of the list* would end the highlight on a square edge halfway
- * down a panel holding two new notifications above eight already read.
+ * A read row is always a pill: it draws no background until the cursor is on it, and a hover
+ * is one row being pointed at rather than part of anything. One radius serves both states,
+ * because a row shows the tint or the hover and never both.
  *
- * A run of one opens and closes at the same row, so it keeps `rounded-full` — the pill every
- * row used to be, and still the right shape for a single notification standing alone.
- *
- * `rounded-3xl` (24px) rather than `rounded-t-full` for the ends: on a 56px row a pill's
- * corners are clamped to 28px, but rounding only two of them removes the opposite corner from
- * that clamp and the top swells into a 56px dome. 24px is the token that matches what the
- * pill actually drew. */
+ * `rounded-3xl` rather than `rounded-t-full` at the ends: `rounded-full` on a 56px row clamps
+ * to 28px corners, and rounding only two of them lifts that clamp into a 56px dome. */
 const runRadius = (items, index) => {
     if (items[index].read) return "rounded-full"
 
@@ -84,11 +77,8 @@ const runRadius = (items, index) => {
  * the same deterministic gradient and initials a byline uses — so the person who liked your
  * post looks identical to the person who wrote one.
  *
- * `read` tints the row rather than hiding it, and the tint outlives the badge by exactly one
- * panel. The dot clears the moment the list is on screen, but the highlight stays for as long
- * as the panel is open — it is the reader's answer to "which of these are new", and it would
- * be useless if it went in the frame they opened it. Closing the panel takes it: the next open
- * is a plain list. See `markRead` and `settleRead`. */
+ * `read` tints the row rather than hiding it. How long that tint lives is `markRead`'s
+ * decision, not this component's. */
 const NotificationRow = ({ item, now, onOpen, className }) => {
     const line = LINES[item.type]
 
@@ -101,10 +91,8 @@ const NotificationRow = ({ item, now, onOpen, className }) => {
                here is only what does not affect layout. The radius arrives as `className`
                because it depends on the rows either side; see `runRadius`.
 
-               **Hover is for read rows only.** An unread row is already at `bg-accent`, so
-               there is nothing for a hover to add — and lightening or darkening it under the
-               cursor would read as the row changing state rather than as it being pointed
-               at. It stays a button either way; only the colour holds still. */
+               Hover is for read rows only: an unread row already sits at `bg-accent`, and
+               shifting it under the cursor would read as the row changing state. */
             className={cn(
                 NOTIFICATION_ROW,
                 "w-full cursor-pointer text-left transition-colors",

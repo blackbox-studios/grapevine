@@ -579,9 +579,9 @@ model CommentLike {
 /// comment on your post, or an admin publishing into a group you belong to. `type` is an
 /// enum rather than a boolean precisely so each new kind is a value, not a table.
 ///
-/// **A notification is a row; a push is one delivery of it.** Firebase is coming and
-/// will not own any of this: a device that was asleep when the like landed still finds
-/// the row waiting, and the panel reads the same rows whether a push was ever sent.
+/// **A notification is a row; a push is one delivery of it.** Firebase owns none of this:
+/// a device that was asleep when the like landed still finds the row waiting, and the
+/// panel reads the same rows whether a push was ever sent.
 /// Building the panel out of push payloads instead would make a notification exist only
 /// if it happened to be delivered.
 ///
@@ -654,9 +654,8 @@ enum NotificationType {
   /// An admin published into a group you belong to. Unlike the two above this is a
   /// **fan-out**: one row per approved member of the group. See `notifyNewPost`.
   NEW_POST
-  /// Somebody commented on your post. The subject is the **comment**, not the post, which
-  /// is what makes each comment its own row and what lets `unnotifyComment` retract the
-  /// one belonging to a comment that was deleted. See `notifyComment`.
+  /// Somebody commented on your post. The subject is the **comment**, not the post — see
+  /// `notifyComment` for why.
   POST_COMMENT
 
   @@map("notification_type")

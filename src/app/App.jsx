@@ -23,8 +23,7 @@ import useGlobalStore from "@/lib/store/global.store"
  *      every part of which is a no-op in a browser.
  *   5. Keep the notification bell current on clients push cannot reach, via
  *      useNotificationsWatch.
- *   6. Carry the unread tally into the browser tab — "(3) Grapevine" — via useUnreadTitle,
- *      which is the only place that number reaches somebody looking at another tab. */
+ *   6. Carry the unread tally into the browser tab — "(3) Grapevine" — via useUnreadTitle. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -51,9 +50,8 @@ export default function App() {
      * question has been answered" the route gates wait for; see useAuthGate. */
     useNative(ready && loggedIn)
     useNotificationsWatch(ready && loggedIn)
-    /* Ungated, unlike the two above. `unread` is zero until a session loads one, so a signed-
-       out tab is already showing the plain name — and a gate here would mean the title kept a
-       count across a sign-out instead of following it back down to zero. */
+    /* Ungated: `unread` is zero without a session, and a gate would freeze a stale count in
+       the tab at sign-out instead of letting it fall to zero. */
     useUnreadTitle()
 
     return null

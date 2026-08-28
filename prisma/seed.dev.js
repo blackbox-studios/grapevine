@@ -416,11 +416,9 @@ const main = async () => {
                 },
             })
 
-            /* The notification `addComment` would have written, for the same reason the
-             * like rows below get theirs: the seed inserts the comment directly rather than
-             * through the one path that pairs the two. Skipped when the commenter is the
-             * post's author, matching `notifyComment`. The subject is the comment, so each
-             * one is its own row. */
+            /* The notification `addComment` would have written, for the same reason the like
+             * rows below get theirs: the seed inserts the comment directly rather than
+             * through the one path that pairs the two. */
             if (commentAuthorId !== authorId) {
                 await prisma.notification.create({
                     data: {

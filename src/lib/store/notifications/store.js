@@ -75,8 +75,8 @@ const INIT = {
      * this page holds — the panel can be showing fifteen rows while forty are unread. */
     unread: 0,
 
-    /* Rows the server has marked read, whose tint is still on screen because the panel that
-     * did the reading has not closed yet. `settleRead` drains it. See `markRead`. */
+    /* Rows the server has marked read whose tint is still on screen, because the panel that
+     * did the reading has not closed. See `markRead`. */
     settling: [],
 }
 
@@ -257,21 +257,19 @@ const useStore = create(immer((set, get) => ({
         }
     },
 
-    /* Clears the badge. Optimistic, because opening the panel *is* the reading and a dot that
-     * lingers for a round trip after the reader has plainly seen the list reads as broken.
+    /* Clears the badge. Optimistic, because opening the panel *is* the reading and a dot
+     * that lingers for a round trip after the reader has plainly seen the list reads as
+     * broken. The snapshot is the count, restored on failure rather than assumed to be zero.
      *
-     * **The tint outlives the badge by exactly one panel.** The rows keep `read: false` while
-     * the panel is open — that highlight is the reader's answer to "which of these are new",
-     * and taking it away in the frame they opened it would remove the information at the
-     * moment it is wanted. So the ids go into `settling` instead, and `settleRead` clears them
-     * when the panel closes. Opening it again shows a plain list.
+     * **The tint outlives the badge.** The rows keep `read: false` while the panel is open —
+     * that highlight is the reader's answer to "which of these are new", and taking it away in
+     * the frame they opened it would remove the information at the moment it is wanted. The
+     * ids go to `settling` instead, and `settleRead` clears them when the panel closes.
      *
-     * That deferral is the whole reason this is a list of ids rather than a flag. Only rows
-     * this call actually marked may be settled: a notification that arrives *while* the panel
-     * is open is genuinely unread, is counted by the bell, and must still be tinted on the
-     * next open. And a failed POST fills `settling` with nothing at all, so closing the panel
-     * cannot clear a highlight the server never agreed to — which would otherwise leave a lit
-     * bell above a list with nothing marked in it.
+     * Ids rather than a flag, because only the rows this call marked may be settled: one that
+     * arrives while the panel is open is genuinely unread and must still be tinted next time,
+     * and a failed POST settles nothing rather than clearing a highlight the server never
+     * agreed to.
      *
      * **Posts unconditionally, and must.** The obvious guard — skip when `unread` is already
      * 0 — trusts a cached count. It is read on boot and on every push, but a like can land in
@@ -296,9 +294,8 @@ const useStore = create(immer((set, get) => ({
             const { unread } = await api.post(API_ENDPOINTS.NOTIFICATIONS_READ)
             set(state => {
                 state.unread = unread
-                /* Appended, not assigned: the panel can be opened, closed and opened again
-                 * before a slow POST answers, and the ids from an earlier open that has not
-                 * settled yet are still owed a clearing. */
+                /* Appended, not assigned: an open, close and re-open can outrun a slow POST,
+                 * and the earlier open's ids are still owed their clearing. */
                 state.settling.push(...tinted)
             })
         } catch (error) {
@@ -309,16 +306,13 @@ const useStore = create(immer((set, get) => ({
         }
     },
 
-    /* The other half of `markRead`, run when the panel closes: the rows it marked on the
-     * server stop being tinted here.
+    /* The other half of `markRead`: the rows it marked stop being tinted here, when the panel
+     * that read them unmounts.
      *
-     * Called from the hook's effect cleanup, so "closes" means the list unmounted — the
-     * desktop popover dismissed, or the mobile slide route popped. A post opened *from* a
-     * notification stacks over the panel and leaves it mounted, so coming back from one still
-     * shows the highlight; it goes when the panel itself does.
+     * A post opened *from* a notification stacks over the panel and leaves it mounted, so
+     * coming back from one still shows the highlight — it goes when the panel itself does.
      *
-     * Purely local. The server was told on open and has nothing more to hear; this only
-     * catches the rows up to what it already knows. */
+     * Purely local: the server was told on open and has nothing more to hear. */
     settleRead: () => set(state => {
         if (state.settling.length === 0) return
 

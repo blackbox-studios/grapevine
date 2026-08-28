@@ -23,9 +23,8 @@ import useNotificationsStore from "./store"
  * called on every open, including the ones with nothing to mark — see the note on it in the
  * store for why it may not be skipped on a cached count of zero.
  *
- * **Unmounting is the other half.** The rows keep their tint for as long as the panel is up,
- * so closing it is what settles them — the one moment all three surfaces share, and the reason
- * `settleRead` hangs off this effect's cleanup rather than off a close handler.
+ * The tint is the other side of that same event: the rows keep it while the panel is up, and
+ * unmounting — the one exit all three surfaces share — is what settles them. See `settleRead`.
  *
  * The list itself is **not** cleared on unmount, unlike the open post's. There is one panel,
  * its contents are the same whichever surface showed them, and it is meant to outlive every
@@ -57,10 +56,6 @@ export const useNotifications = () => {
         }
         open()
 
-        /* Closing the panel is what takes the highlight away — see `settleRead`. It belongs
-         * here rather than on the surfaces because there are three of them (the popover, the
-         * slide route, its cold-load form) and unmounting is the one thing they all do on the
-         * way out. */
         return () => settleRead()
     }, [load, markRead, settleRead])
 
@@ -88,26 +83,13 @@ export const useUnreadCount = () => {
     return unread
 }
 
-/* The same tally, in the browser tab: "(3) Grapevine", and plain "Grapevine" once read.
- * Mounted once from App.jsx for the session.
+/* The tally in the browser tab — "(3) Grapevine", the plain name at zero. Mounted once from
+ * App.jsx, and the only place the count reaches somebody reading another tab.
  *
- * **The bell is only visible while the app is**, and the tab title is the one place this
- * number reaches somebody who is reading something else — which is most of the time a parish
- * feed is open. It clears itself: `markRead` writes `unread` to zero when the panel mounts,
- * this re-runs, and the title goes back to the name.
- *
- * `pathname` is a dependency, and not for anything this hook does with it. Next renders the
- * root layout's `metadata.title` per route, so a client navigation reconciles the `<title>`
- * element and resets `document.title` to the static name — over the count we just wrote. The
- * effect re-runs after the navigation and puts it back. Slide routes push through
- * `usePathname` too and re-run this harmlessly, writing the string it already holds.
- *
- * No cleanup, and none is right: this is mounted for the life of the document, and the only
- * ways out — a sign-out, which zeroes `unread`, and closing the tab — both settle the title
- * without one.
- *
- * Inert rather than gated on native: a WebView has no tab, so setting `document.title` there
- * is a string assignment nothing renders. Not worth an `isNative()` branch to skip. */
+ * `pathname` is a dependency for what Next does with it, not for anything read here: the root
+ * layout's `metadata.title` renders per route, so a client navigation reconciles the `<title>`
+ * element back to the static name over whatever count is in it. Re-running afterwards is what
+ * puts the count back. */
 export const useUnreadTitle = () => {
     const unread = useUnreadCount()
     const pathname = usePathname()

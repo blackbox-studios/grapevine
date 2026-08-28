@@ -269,11 +269,9 @@ too. A post's notification is also a **fan-out**: one row per approved member of
 where a like or a comment notifies one person. See that file's header, which also carries the
 game plan for grouping ("Mat. Carly and 9 others") as a read-side change.
 
-**A `POST_COMMENT`'s subject is the comment, not the post.** That is what keeps each comment
-its own row and what lets `unnotifyComment` retract it when the comment is soft-deleted —
-which it must, since `postId` carries the only foreign key and a comment's deletion has no
-DDL-level event to cascade from. It retracts the `COMMENT_LIKE` rows on that comment in the
-same statement.
+**A `POST_COMMENT`'s subject is the comment, not the post**, which is what lets
+`unnotifyComment` retract it — along with that comment's `COMMENT_LIKE` rows — when the
+comment is soft-deleted and no cascade can reach them.
 
 **`POST /api/uploads` grants permission; it does not receive a file.** It answers a signed
 upload URL and the client sends the bytes straight to Supabase Storage, so a parish photo

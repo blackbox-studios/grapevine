@@ -1,9 +1,5 @@
-/* The app's name, and specifically the browser tab's.
- *
- * Here rather than inline in the root layout's `metadata` because it is written in two places
- * that must agree: the static title Next renders, and the one `useUnreadTitle` rewrites to
- * "(3) Grapevine" and restores. A drifted copy would silently rename the tab the first time a
- * notification arrived. */
+/* The browser tab's title. Two things write it — the root layout's `metadata`, and
+ * `useUnreadTitle` prefixing the unread count — and a second copy would rename the tab. */
 export const APP_NAME = "Grapevine"
 
 export const ROUTES = {

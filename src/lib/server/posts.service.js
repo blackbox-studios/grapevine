@@ -647,12 +647,9 @@ export const addComment = async (viewer, postId, text) => {
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
 
-    /* **Interactive, where this used to be sequential**, and the notification is what
-     * changed it: its subject is the comment, so it needs an id that does not exist until
-     * the insert above it has run — the one dependency the array form cannot express. Same
-     * trade `createPost` makes for its fan-out. The alternative, writing the notification
-     * after the transaction, would let a comment land with nothing announcing it, which is
-     * the drift the whole builder shape exists to prevent. */
+    /* Interactive because the notification's subject is the comment: it needs an id that does
+     * not exist until the insert above it has run, which is the one dependency the array form
+     * cannot express. The same trade `createPost` makes for its fan-out. */
     const comment = await prisma.$transaction(async (tx) => {
         const created = await tx.comment.create({
             data: { postId, authorId: viewer.id, body },
@@ -675,8 +672,7 @@ export const addComment = async (viewer, postId, text) => {
         return created
     })
 
-    /* The author's phone, after the commit and never awaited — a comment must not get
-     * slower, or fail, because FCM is unreachable. See notifications.service.js. */
+    /* The author's phone, after the commit and never awaited — see notifications.service.js. */
     pushComment({ recipientId: post.authorId, actor: viewer, postId })
 
     /* Freshly written by the viewer, so it is theirs to remove. */

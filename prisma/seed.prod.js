@@ -75,9 +75,11 @@ const ORG = {
  * provisions his account if he has none — no deploy, no edit here. This list stays at two.
  *
  * `vocation` is who someone is, `role` is what they may do inside a group, `platformRole` is
- * what they may do to the platform, and all three are independent — Fr. Alexander is a PRIEST
- * who administers the Cathedral; Robert is FAITHFUL and administers it too. Collapsing any
- * two of them into one field is the mistake the schema's header exists to prevent. */
+ * what they may do to the platform, and `owns` is which group is theirs. All four are
+ * independent — Fr. Alexander is a PRIEST who administers the Cathedral and owns it; Robert is
+ * FAITHFUL, administers it too, and can create groups of his own without being able to delete
+ * this one. Collapsing any two of them into one field is the mistake the schema's header
+ * exists to prevent. */
 const PEOPLE = [
     {
         email: "ajkoranda@gmail.com",
@@ -86,6 +88,11 @@ const PEOPLE = [
         vocation: "PRIEST",
         role: "ADMIN",
         platformRole: "OWNER",
+        /* Owns the Cathedral itself — `Organization.createdById`. Both people here are
+         * platform OWNERs, which is the right to create groups; this is the narrower fact of
+         * which group is *theirs*, and it is what decides who may delete it. It is a parish,
+         * and it is his. */
+        owns: true,
     },
     {
         email: "rob@blackboxstudios.com",
@@ -155,18 +162,47 @@ const main = async () => {
 
     const supabase = supabaseAdmin()
 
-    /* The group. `update: {}` is not an oversight — it is the "content is written once"
-     * rule in one line. The upsert exists to create the row when it is absent and to be a
-     * no-op when it is present, so a rename done in the app outlives every re-run. */
+    /* People first, because the group needs an owner and an owner is a profile id. This pass
+     * only resolves the profiles — the memberships cannot be written until the group exists,
+     * so those happen below. */
+    const people = []
+    for (const person of PEOPLE) {
+        people.push({ person, ...(await ensureProfile(supabase, person)) })
+    }
+
+    /* Who the parish belongs to: the priest whose parish it is, named by `owns` in PEOPLE —
+     * not whoever happens to run this script, and not both admins. `Organization.createdById`
+     * holds one id, and `canDeleteOrg` reads it as the subscription boundary; a parish with two
+     * people able to delete it is not a boundary. Robert administers the Cathedral and can
+     * publish, invite and rename; retiring it is Fr. Alexander's alone. */
+    const ownerId = people.find(({ person }) => person.owns)?.profile.id
+
+    /* The group. `update: {}` is not an oversight — it is the "content is written once" rule
+     * in one line, so a rename done in the app outlives every re-run. */
     const org = await prisma.organization.upsert({
         where: { slug: ORG.slug },
         update: {},
-        create: ORG,
+        create: { ...ORG, createdById: ownerId },
     })
-    console.log(`  group    ${org.name} (@${org.slug})`)
 
-    for (const person of PEOPLE) {
-        const { profile, created, filled } = await ensureProfile(supabase, person)
+    /* Ownership is repaired, never reassigned. A row created before this column existed
+     * carries a null creator and can be deleted by nobody, which is a parish nobody can
+     * retire; filling that gap is the same kind of thing as asserting a membership. An
+     * existing value is left strictly alone, so ownership handed over in the future is not
+     * dragged back to this file's answer on the next run. */
+    if (!org.createdById && ownerId) {
+        await prisma.organization.update({
+            where: { id: org.id },
+            data: { createdById: ownerId },
+        })
+        org.createdById = ownerId
+        console.log(`  repair   set owner on ${org.slug}`)
+    }
+
+    const owner = people.find(({ profile }) => profile.id === org.createdById)
+    console.log(`  group    ${org.name} (@${org.slug})  owner: ${owner?.person.email ?? "none"}`)
+
+    for (const { person, profile, created, filled } of people) {
         await upsertMembership(profile.id, org.id, { role: person.role, status: "APPROVED" })
 
         const note = created

@@ -5,7 +5,14 @@ import { useShallow } from "zustand/react/shallow"
 
 import { ROUTES } from "@/lib/constants"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
-import { onPushReceived, onPushTapped, onPushTokenChange, pushSupported } from "@/lib/push"
+import { onAppState } from "@/lib/native"
+import {
+    onPushReceived,
+    onPushTapped,
+    onPushTokenChange,
+    openPushSettings,
+    pushSupported,
+} from "@/lib/push"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import usePushStore from "./store"
 
@@ -46,11 +53,11 @@ export const usePushListeners = (ready) => {
         if (postId) openSlide(`${ROUTES.POST}/${postId}`)
     }, [ready, pending, takePending])
 
-    /* A push that landed with the app already open. No banner is drawn — the reader is
-     * looking at the app — so the only thing it means is that the bell is now behind. */
+    /* A push that landed with the app already open. No banner is drawn — the reader is looking
+     * at the app — so all it means is that the panel is behind, possibly while on screen. */
     useEffect(() => {
         if (!pushSupported()) return
-        return onPushReceived(() => useNotificationsStore.getState().refreshUnread())
+        return onPushReceived(() => useNotificationsStore.getState().sync())
     }, [])
 
     /* The SDK rotating this installation's token. Re-registering is the only thing standing
@@ -61,13 +68,35 @@ export const usePushListeners = (ready) => {
         if (!pushSupported() || !ready) return
         return onPushTokenChange(() => usePushStore.getState().sync())
     }, [ready])
+
+    /* Coming back to the foreground, which is when a trip to the OS's notification settings
+     * becomes visible to us — see `refresh`. Gated on the session for the same reason as the
+     * rotation above: what it does with a grant is a POST.
+     *
+     * The notifications list is re-read here too, and this is the case `onPushReceived` cannot
+     * cover: a push delivered while the app was backgrounded draws its banner through the OS
+     * and never reaches a JS callback, so returning to the foreground is the first moment we
+     * can know about it. Without this, opening the app from the app switcher after a quiet
+     * hour would show yesterday's panel. */
+    useEffect(() => {
+        if (!pushSupported() || !ready) return
+        return onAppState((active) => {
+            if (!active) return
+            usePushStore.getState().refresh()
+            useNotificationsStore.getState().sync()
+        })
+    }, [ready])
 }
 
-/* The permission state and the deliberate ask, for whatever surface offers to turn this on.
+/* The permission state and the two shapes of the ask, for whatever surface offers to turn this
+ * on. Both resolve to a boolean, so a caller can say something about a refusal.
  *
- * `enable` resolves to whether push is now live, so the caller can say something about a
- * refusal — the one outcome the app cannot recover from on its own, since iOS will not prompt
- * a second time. */
+ * `enable` prompts and nothing else. Orientation wants that one: it asks only while a prompt
+ * can still be shown, and a signup step that handed someone to the OS's settings screen would
+ * be a dead end.
+ *
+ * `turnOn` is the standing offer, and chooses — prompt where one is possible, otherwise
+ * `openPushSettings`. */
 export const usePushPermission = () => {
     const [permission, enabling, enable] = usePushStore(
         useShallow(state => ([state.permission, state.loading.enable, state.enable])),
@@ -79,5 +108,9 @@ export const usePushPermission = () => {
         permission,
         enabling,
         enable: useCallback(() => enable(), [enable]),
+        turnOn: useCallback(
+            () => (permission === "denied" ? openPushSettings() : enable()),
+            [enable, permission],
+        ),
     }
 }

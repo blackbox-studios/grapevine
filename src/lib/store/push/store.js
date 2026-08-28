@@ -35,6 +35,8 @@ import { toErrorList } from '@/lib/utils'
  * through Settings, so the prompt is spent, once, on somebody who has said they want this —
  * not on the splash screen before they have seen a single notification worth having.
  *
+ * `refresh()` is quiet like `sync()`, and runs on every foreground.
+ *
  * ── Why the token is re-registered rather than remembered ────────────────────
  *
  * There is no persistence here and there should not be. FCM rotates tokens on reinstall, on a
@@ -90,6 +92,26 @@ const useStore = create(immer((set, get) => ({
         set(state => { state.permission = permission })
 
         if (permission === 'granted') await get().sync()
+    },
+
+    /* Re-reads the OS's answer, and registers the token if it has become a yes. Never prompts,
+     * which is what makes it safe on a path that runs on every single foreground.
+     *
+     * **The one screen that can reverse a spent refusal is outside the app** — the OS's own,
+     * where `openPushSettings` sends people — so that grant is only ever observable on the way
+     * back in. Missing it leaves a device whose reader has said yes showing that they said no,
+     * and holding a token the API was never told about.
+     *
+     * `sync` is conditional on there being no token rather than on the answer having changed,
+     * so it covers a registration that failed earlier as well as a grant that just happened,
+     * and costs no request otherwise. */
+    refresh: async () => {
+        if (!pushSupported()) return
+
+        const permission = await pushPermission()
+        set(state => { state.permission = permission })
+
+        if (permission === 'granted' && !get().token) await get().sync()
     },
 
     /* Reads the current token off the SDK and tells the API about it.
@@ -180,11 +202,11 @@ const useStore = create(immer((set, get) => ({
      * Parking the destination and letting `usePushListeners` open it once `ready` is the same
      * mechanism in both cases, rather than a navigation with a fallback bolted on.
      *
-     * The tally is refreshed regardless. The reader is arriving at the app *because* of a
-     * notification, so the bell is certainly behind — this is the moment the notifications
+     * The list is re-read regardless. The reader is arriving at the app *because* of a
+     * notification, so the panel is certainly behind — this is the moment the notifications
      * store's header describes as the gap push closes. */
     openFromPush: (postId) => {
-        useNotificationsStore.getState().refreshUnread()
+        useNotificationsStore.getState().sync()
         clearPushNotifications()
 
         if (postId) set(state => { state.pending = postId })

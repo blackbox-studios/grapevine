@@ -1,4 +1,5 @@
 import { FirebaseMessaging } from "@capacitor-firebase/messaging"
+import { AndroidSettings, IOSSettings, NativeSettings } from "capacitor-native-settings"
 
 import { isNative, platform } from "@/lib/native"
 
@@ -72,6 +73,30 @@ export const pushPermission = async () => {
         return receive === "prompt" || receive === "prompt-with-rationale" ? null : receive
     } catch {
         return "denied"
+    }
+}
+
+/* Hands the reader to the OS's own notification settings for this app, reporting whether it
+ * got there. Belongs to the `denied` state alone: it is the only way to turn push on once the
+ * prompt is spent, which is the state `pushPermission` reserves that value for, and anywhere
+ * one can still be shown this would be sending somebody to Settings for a question the app
+ * could have asked them itself.
+ *
+ * `IOSSettings.AppNotification` resolves to Apple's public `openNotificationSettingsURLString`
+ * (16+) or `openSettingsURLString`, and Android to ACTION_APP_NOTIFICATION_SETTINGS. **Most of
+ * that enum's other members are the undocumented `App-prefs:` schemes, and shipping one is an
+ * App Store rejection.** */
+export const openPushSettings = async () => {
+    if (!pushSupported()) return false
+
+    try {
+        const { status } = await NativeSettings.open({
+            optionAndroid: AndroidSettings.AppNotification,
+            optionIOS: IOSSettings.AppNotification,
+        })
+        return status === true
+    } catch {
+        return false
     }
 }
 

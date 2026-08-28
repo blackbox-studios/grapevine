@@ -5,6 +5,7 @@ import { useEffect } from "react"
 import useErrorListener from "@/lib/hooks/useErrorListener.hook"
 import useNative from "@/lib/hooks/useNative.hook"
 import { useAuthGate, useAuthInit } from "@/lib/store/auth/hook"
+import { useNotificationsWatch } from "@/lib/store/notifications/hook"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* App-wide side effects, mounted once by the root layout. Renders nothing — the
@@ -19,7 +20,9 @@ import useGlobalStore from "@/lib/store/global.store"
  *   2. Warm the authorized stores in the background once logged in.
  *   3. Surface store errors as toasts via useErrorListener.
  *   4. Drive the native shell (splash, status bar, hardware back, push) via useNative —
- *      every part of which is a no-op in a browser. */
+ *      every part of which is a no-op in a browser.
+ *   5. Keep the notification bell current on clients push cannot reach, via
+ *      useNotificationsWatch. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -45,6 +48,7 @@ export default function App() {
      * past, so the tap lands on the feed and the post is lost. `ready` is the same "the
      * question has been answered" the route gates wait for; see useAuthGate. */
     useNative(ready && loggedIn)
+    useNotificationsWatch(ready && loggedIn)
 
     return null
 }

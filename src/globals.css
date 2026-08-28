@@ -57,6 +57,8 @@
     --color-foreground: var(--foreground);
     --color-background: var(--background);
     --text-xxs: calc(10 / 16 * 1rem); /* 10px */
+    /* Overrides Tailwind's 16px; its unitless --text-base--line-height scales along. */
+    --text-base: calc(15 / 16 * 1rem); /* 15px */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);

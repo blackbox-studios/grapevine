@@ -1,137 +1,164 @@
 "use client"
 
-import { BackHeader } from "@/components/BackHeader"
-import { Button } from "@/components/ui/button"
-import { ROUTES } from "@/lib/constants"
-import { useTheme } from "@/lib/providers/Theme"
-import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { usePushPermission } from "@/lib/store/push/hook"
-import { appPath, cn } from "@/lib/utils"
+import Link from "next/link"
 
-const THEME_OPTIONS = [
-    { value: "light", label: "Light", image: appPath("/img/theme/light.png") },
-    { value: "system", label: "Auto", image: appPath("/img/theme/light-dark.png") },
-    { value: "dark", label: "Dark", image: appPath("/img/theme/dark.png") },
-]
+import PowerIcon from "@/assets/svg/icons/power.svg"
+import SettingsIcon from "@/assets/svg/icons/settings.svg"
+import UsersIcon from "@/assets/svg/icons/users.svg"
+import VerifiedIcon from "@/assets/svg/icons/verified.svg"
+import { AvatarPicker } from "@/components/AvatarPicker"
+import Icon from "@/components/Icon"
+import { ROLES, ROUTES } from "@/lib/constants"
+import { displayName } from "@/lib/name"
+import { useLogout } from "@/lib/store/auth/hook"
+import { useUser } from "@/lib/store/auth/hook"
+import { useCurrentOrg } from "@/lib/store/org/hook"
+import { cn, roleLabel } from "@/lib/utils"
 
-const SettingsGeneralPage = () => {
-    const { theme, setTheme } = useTheme()
+/* The account surface: who the viewer is, and every destination that hangs off them. It is
+ * also `/settings` itself — the index of the settings tree rather than a sibling of it, so
+ * the list of destinations *is* the landing page and General is one row on it.
+ *
+ * **This replaced a popover, and the replacement is the point.** Settings and the roster used
+ * to be reached from a menu on a desktop and from a two-column tab rail once you were inside
+ * Settings — the same handful of destinations expressed twice, in two shapes, neither of which
+ * fitted a phone (the rail's fixed 10rem column pushed the roster table off the right edge).
+ * One page with one list is the same answer at every width, and adding a destination is a row
+ * rather than a decision about which surface it belongs on.
+ *
+ * **Both the check and the role describe the *selected* group, not the viewer globally.** That
+ * is the switcher's whole purpose: someone who administers their parish and merely belongs to
+ * their diocese is an administrator on one and a member on the other, from the same session.
+ * A global `user.role` here would state the role of whichever membership happened to load
+ * first, and the check beside it would then disagree with the composer's presence two taps
+ * away. It is the same rule the server applies to an author's check — `Membership.role ==
+ * ADMIN` in the group the content is being read in. */
 
-    /* next-themes doesn't know the active theme until mounted; gate the selected
-     * state on it so the server/first-client render agree (nothing selected) before
-     * the switcher lights up the current choice. */
-    const mounted = useMounted()
-
-    /* The same centered column `/profile` uses, and for the same reason: this page holds one
-     * small control, and left-aligning it against the full width of a desktop shell put the
-     * heading and three thumbnails in the top-left corner of an otherwise empty screen. The
-     * roster next door genuinely needs the width — it is a table that scrolls sideways inside
-     * itself — so the constraint belongs on this page rather than on the settings layout.
-     *
-     * `max-w-[470px]` and the `md:pt-0` are lifted verbatim from `/profile`, so arriving here
-     * from that list does not change the shape of the page under the reader. */
-    return (
+/* One destination. An icon, the label, and a chevron — a shape that reads as "this goes
+ * somewhere", which a bare text row does not.
+ *
+ * `onClick` rather than `href` is what lets logout share it: signing out is not a place, but
+ * it belongs in this list because it is one of the things a person comes here to do, and a
+ * button that looked different from its neighbours would only be drawing attention to an
+ * implementation detail. */
+const Row = ({ icon: RowIcon, label, href, onClick, destructive = false }) => {
+    const body = (
         <>
-            {/* Titled "General" after the row on `/profile` that leads here, which is also where
-                the arrow goes back to. The theme switcher below is the first of what will be
-                several sections under it, which is why it keeps a heading of its own. */}
-            <BackHeader title="General" back={ROUTES.PROFILE} bleed />
+            {/* The bare icon — no disc, no ring. The span stays only to carry the row's tone:
+                `icon` is a drawn SVG whose paths are all currentColor, so it inherits red on
+                the destructive row the same way the chevron below does.
 
-            <section className="mx-auto flex w-full max-w-[470px] flex-col gap-6 pb-10 md:pt-0">
-                <h3 className="text-lg font-medium text-foreground">Appearance</h3>
-
-                <div className="flex flex-wrap gap-6">
-                    {THEME_OPTIONS.map(({ value, label, image }) => {
-                        const selected = mounted && theme === value
-
-                        return (
-                            <button
-                                key={value}
-                                type="button"
-                                onClick={() => setTheme(value)}
-                                aria-pressed={selected}
-                                className="flex flex-col items-center gap-2 outline-hidden cursor-pointer"
-                            >
-                                <span
-                                    className={cn(
-                                        "block overflow-hidden rounded-2xl border-2 transition-colors",
-                                        selected
-                                            ? "border-ring"
-                                            : "border-transparent hover:border-border"
-                                    )}
-                                >
-                                    <img
-                                        src={image}
-                                        alt={`${label} theme preview`}
-                                        className="h-24 w-32 object-cover"
-                                    />
-                                </span>
-                                <span
-                                    className={cn(
-                                        "text-sm",
-                                        selected ? "text-foreground" : "text-muted-foreground"
-                                    )}
-                                >
-                                    {label}
-                                </span>
-                            </button>
-                        )
-                    })}
-                </div>
-
-                <PushSection />
-            </section>
+                Unlike that chevron, these are not Material Symbols ligature names. They are
+                bespoke files that ship at their natural 24px, and every row uses that one size,
+                which is what keeps the labels aligned without a fixed-width slot. */}
+            <span
+                className={cn(
+                    "flex shrink-0 items-center justify-center",
+                    destructive ? "text-destructive" : "text-foreground",
+                )}
+            >
+                <RowIcon className="size-6 shrink-0" />
+            </span>
+            <span
+                className={cn(
+                    "flex-1 text-base font-medium",
+                    destructive && "text-destructive",
+                )}
+            >
+                {label}
+            </span>
+            {/* The chevron takes the row's tone too. Leaving it muted on the destructive row
+                left one grey element in a line that is otherwise entirely red, which reads as
+                the arrow belonging to something else. */}
+            <Icon
+                size="xl"
+                className={destructive ? "text-destructive" : "text-muted-foreground"}
+            >
+                chevron_right
+            </Icon>
         </>
+    )
+
+    const className =
+        "flex w-full cursor-pointer items-center gap-5 rounded-full px-4 py-3 text-left transition-colors hover:bg-accent"
+
+    if (href) {
+        return (
+            <Link href={href} scroll={false} className={className}>
+                {body}
+            </Link>
+        )
+    }
+
+    return (
+        <button type="button" onClick={onClick} className={className}>
+            {body}
+        </button>
     )
 }
 
-/* The one deliberate tap that asks the OS for permission to push.
- *
- * **A button, not a switch**, and that is a truthfulness point rather than a styling one.
- * A switch promises it can be moved back, and this cannot: once granted, turning push off is
- * a trip to the OS's own settings, and once denied, iOS will not show its prompt a second
- * time however many times the control is tapped. So each state says what is actually true and
- * only the one state that can act offers something to press.
- *
- * Absent entirely on the web, where `pushSupported()` is false — an empty "Notifications"
- * heading over a control that does nothing is worse than no section. Web push is a separate
- * delivery path, not a flag on this one; see the header of `lib/push.js`. */
-const PushSection = () => {
-    const { supported, permission, enabling, enable } = usePushPermission()
+const SettingsPage = () => {
+    const user = useUser()
+    const { current, isAdmin } = useCurrentOrg()
+    const { logout } = useLogout()
 
-    if (!supported) return null
+    /* The @handle is shown only when there is a name above it: `displayName` falls back to
+     * `@handle` for someone who has not finished orientation, so showing it here as well would
+     * print the same string twice. The condition is `displayName`'s own. */
+    const handle =
+        (user?.firstName || user?.lastName) && user?.handle ? `@${user.handle}` : null
 
+    /* No `pb-10` of its own any more: this page sits inside the settings layout now, and that
+     * layout supplies it. Everything else is as it was as a top-level route. */
     return (
-        <>
-            <h3 className="text-lg font-medium text-foreground">Notifications</h3>
+        <div className="mx-auto w-full max-w-[470px] pt-6 md:pt-0">
+            <header className="flex flex-col items-center gap-3 pb-8 text-center">
+                {/* The only editable thing on this surface, so the control lives on the
+                    picture itself rather than behind an "Edit profile" row that would lead to
+                    a screen holding one field. */}
+                <AvatarPicker person={user} className="size-24" />
 
-            {permission === "granted" && (
-                <p className="text-sm text-muted-foreground">
-                    Notifications are on for this device. Turn them off in your device
-                    settings.
-                </p>
-            )}
+                <div className="flex flex-col items-center gap-0.5">
+                    <div className="flex items-baseline justify-center gap-2">
+                        <h2 className="text-3xl font-semibold text-foreground">
+                            {displayName(user) || "—"}
+                        </h2>
+                        {isAdmin && (
+                            <VerifiedIcon
+                                aria-label={`Administrator of ${current?.name ?? "this group"}`}
+                                className="shrink-0 text-foreground"
+                            />
+                        )}
+                    </div>
 
-            {permission === "denied" && (
-                <p className="text-sm text-muted-foreground">
-                    Notifications are off. Your device won&apos;t ask again — turn them on for
-                    Grapevine in your device settings.
-                </p>
-            )}
-
-            {permission === null && (
-                <div className="flex flex-col items-start gap-3">
+                    {/* The role, held in the *selected* group — the line that explains why the
+                        check above is or is not there. */}
                     <p className="text-sm text-muted-foreground">
-                        Get a notification when your parish posts, or when someone likes
-                        something you wrote.
+                        {roleLabel(current?.role ?? ROLES.MEMBER)}
                     </p>
-                    <Button onClick={enable} disabled={enabling}>
-                        {enabling ? "Just a moment…" : "Turn on notifications"}
-                    </Button>
+
+                    {/* The @handle rather than the address. It is the identity other people
+                        see — the byline over a comment, the name in a mention — where an email
+                        is a credential nobody else ever reads. */}
+                    {handle && <p className="text-sm text-muted-foreground">{handle}</p>}
                 </div>
-            )}
-        </>
+            </header>
+
+            <nav className="flex flex-col gap-1 border-t pt-4">
+                <Row icon={SettingsIcon} label="General" href={ROUTES.SETTINGS_GENERAL} />
+
+                {/* Only for an admin of the group currently selected — which is the same gate
+                    the roster page applies to itself, and the same one the API enforces. A
+                    member switching into a group they administer gets the row without a
+                    reload; switching back takes it away. */}
+                {isAdmin && (
+                    <Row icon={UsersIcon} label="Users" href={ROUTES.SETTINGS_USERS} />
+                )}
+
+                <Row icon={PowerIcon} label="Log out" onClick={logout} destructive />
+            </nav>
+        </div>
     )
 }
 
-export default SettingsGeneralPage
+export default SettingsPage

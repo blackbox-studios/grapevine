@@ -18,7 +18,7 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { appPath, cn, formatCompact, SLIDE_TRANSITION } from "@/lib/utils"
+import { appPath, cn, formatCompact, postImages, SLIDE_TRANSITION } from "@/lib/utils"
 
 /* The comment sheet rises to this share of the surface — the media keeps the rest and shrinks
  * into it. Enough that the thread reads as the focus while the photo stays in view above it. */
@@ -29,7 +29,7 @@ const SHEET_RATIO = 0.62
  * overflow, so a photo taller than the room left it is cropped (Reels-style) rather than
  * letterboxed with side gaps. */
 const SlideMedia = ({ post }) => {
-    const images = post.images ?? (post.image ? [post.image] : [])
+    const images = postImages(post)
     if (images.length === 0) return null
 
     if (images.length > 1) {
@@ -108,9 +108,9 @@ const NotFound = () => (
     </div>
 )
 
-/* The mobile presentation of one post (`/p/:id`): a full-height, Reels-style surface that
- * swipes in from the right (the layout slides the feed left behind it) and back out on
- * dismiss. Unlike the desktop dialog the comments are *not* shown on landing — the media
+/* The mobile presentation of one post with a photo (`/p/:id`): a full-height, Reels-style
+ * surface that swipes in from the right (the layout slides the feed left behind it) and back
+ * out on dismiss. Unlike the desktop dialog the comments are *not* shown on landing — the media
  * fills the screen with the author + caption overlaid at the foot and a like/comment rail
  * down the right. Tapping comment raises the thread from the bottom: its height animates up
  * while the media region (a `flex-1` sibling) gives up exactly that room, so the photo

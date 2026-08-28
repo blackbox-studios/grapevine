@@ -65,8 +65,9 @@ Reference files:
 │   │       ├── connect/page.jsx     # /connect
 │   │       ├── credentials/page.jsx # /credentials
 │   │       ├── settings/
-│   │       │   ├── layout.jsx       # Settings tabs + NESTED <PageTransition/> for sub-tabs
-│   │       │   ├── page.jsx         # /settings (General)
+│   │       │   ├── layout.jsx       # Shared frame + NESTED <PageTransition/> for sub-pages
+│   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
+│   │       │   ├── general/page.jsx # /settings/general
 │   │       │   └── users/page.jsx   # /settings/users
 │   │       └── [...not-found]/page.jsx  # Catch-all → in-shell 404 (old `path: '*'`)
 │   ├── globals.css                  # Tailwind v4 + theme tokens (only file to change theme vars)
@@ -1148,6 +1149,12 @@ If the app is served under a base path (e.g. `/emc/ui`) rather than the host roo
 ### Buttons
 
 Use `<Button variant="..." size="...">` from `components/ui/button.jsx`. Variants: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`. Sizes: `default`, `xs`, `sm`, `lg`, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. Don't create alternate buttons.
+
+**Anything a reader is meant to press is `size="lg"`, with horizontal padding.** Not a preference: `default` is `h-9` with `px-2.5`, which is the size of a control *inside* something — a table row's action, a toolbar, a popover — and at the end of a paragraph on a phone it reads as a link that happens to have a border, sitting under body text it barely out-measures. `lg` is `h-12`, and because its padding is also `px-2.5` it needs the width added at the call site: `className="px-8"` for a pill sized to its label, `className="w-full sm:w-fit sm:px-10"` for one that fills the column on a phone and shrinks on a desktop. Every submit in the app already does one of the two — see `<Compose/>`, `<OrgCreator/>`, `<OrgEditor/>`.
+
+So: reach for `lg` first and justify anything smaller. `sm`/`xs` are for dense chrome where a full-size control would crowd its neighbours, and `default` — the variant's own default, which is what you get by writing no `size` at all — is almost never what a page-level action wants. Writing `<Button onClick={…}>Turn on notifications</Button>` and shipping it is the failure mode this rule exists to stop.
+
+The loading state is `<Ripple/>`, never a text placeholder — see **Action buttons during async work** below. `"Just a moment…"` in place of the label is the same mistake in a different dimension: it resizes the button mid-action and drops the name of the thing being done.
 
 ### Close affordances — `<Close/>`
 

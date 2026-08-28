@@ -1,13 +1,21 @@
 "use client"
 
-import { useCallback, useEffect, useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
+import { NOTIFICATIONS_POLL_MS } from "@/lib/constants"
+import { pushSupported } from "@/lib/push"
+import usePushStore from "@/lib/store/push/store"
 import useNotificationsStore from "./store"
 
-/* The panel behind the bell. Mounting this hook is what opens it — the fetch is on mount
+/* The panel behind the bell. Mounting this hook is what opens it — the read is on mount
  * rather than on a prop, because every surface that renders the list (the desktop popover,
  * the mobile slide route) is itself only mounted while it is open.
+ *
+ * **That read is an update, not a load.** The rows arrived at boot (`init` → `refresh`), so
+ * by the time anybody opens the panel `ready` is set and `load` takes its `sync` branch: the
+ * list paints from the store on the first frame and anything that arrived since is merged in
+ * behind it. The skeleton below is what is left for the case the preload failed.
  *
  * Reading is a side effect of that mount, and it is the whole "the bell stays lit until you
  * read the page" behaviour: the badge clears the moment the list is on screen. `markRead` is
@@ -15,8 +23,8 @@ import useNotificationsStore from "./store"
  * store for why it may not be skipped on a cached count of zero.
  *
  * The list is **not** cleared on unmount, unlike the open post's. There is one panel, its
- * contents are the same whichever surface showed them, and keeping the rows means re-opening
- * paints instantly and refreshes behind — `load` sees `ready` and only re-reads the tally. */
+ * contents are the same whichever surface showed them, and it is meant to outlive every
+ * surface that shows it — that is what the preload is for. */
 export const useNotifications = () => {
     const [items, ready, hasMore, loadingMore, load, loadMore, markRead] =
         useNotificationsStore(
@@ -31,12 +39,11 @@ export const useNotifications = () => {
             ])),
         )
 
-    /* **Ordered, not concurrent.** Both halves touch `unread`: `load` reads the tally (on a
-     * re-open directly, on a first open inside `refresh`'s Promise.all) and `markRead` writes
-     * it to zero. Fired together, the read can be answered before the mark-read commits and
-     * still settle last — likely on a first open, where it waits on the heavier list query —
-     * which writes the pre-read count back over the cleared badge. Awaiting the read first
-     * means the only tally left standing is the one `markRead` gets back. */
+    /* **Ordered, not concurrent.** Both halves touch `unread`: `load` reads the tally
+     * (alongside the list, in `sync`'s or `refresh`'s Promise.all) and `markRead` writes it to
+     * zero. Fired together, the read can be answered before the mark-read commits and still
+     * settle last, which writes the pre-read count back over the cleared badge. Awaiting the
+     * read first means the only tally left standing is the one `markRead` gets back. */
     useEffect(() => {
         const open = async () => {
             await load()
@@ -45,9 +52,9 @@ export const useNotifications = () => {
         open()
     }, [load, markRead])
 
-    /* Truthy on the very first render, so the skeleton is present on frame one rather than
-     * fading in a beat late. Only ever true before the first load resolves — a re-open finds
-     * `ready` still set and updates silently. */
+    /* The fallback, not the normal path. With the list preloaded at boot, `ready` is set long
+     * before anybody opens the panel and this never fires; what is left for it is the viewer
+     * who opens the bell while the preload is still in flight, or after it failed. */
     const skeleton = !ready
 
     return useMemo(() => ({
@@ -69,12 +76,59 @@ export const useUnreadCount = () => {
     return unread
 }
 
-/* Re-reads the tally without touching the list.
+/* Keeps the bell current wherever push cannot. Mounted once from App.jsx for the session.
  *
- * Exposed for the surfaces that have a reason to ask again — and, when push notifications
- * land, for the Capacitor listener, which runs outside React and reaches the same action
- * through `useNotificationsStore.getState()`. */
-export const useRefreshUnread = () => {
-    const refreshUnread = useNotificationsStore(state => state.refreshUnread)
-    return useCallback(() => refreshUnread(), [refreshUnread])
+ * **Reachable is not the same as native**, and the gate has to test the former: an iPhone
+ * without the APNs half of push, a reader who declined the permission prompt, and a device
+ * whose token registration failed are all native and all unreachable, and for them a poll is
+ * the only thing standing between a notification and a cold launch. So the condition is a
+ * permission granted *and* a token registered — a working install still polls nothing.
+ *
+ * Polling rather than the two realtime options, both of which cost more than they save here.
+ * Supabase Realtime needs the `anon`/`authenticated` grants and RLS policies `db:secure`
+ * revokes, reopening the Data API that the whole `/api` layer exists to keep shut. SSE would
+ * hold a connection per viewer for a signal that fires a few times a day.
+ *
+ * **Idle clients cost nothing**: `visibilitychange` stops the timer whenever the tab or the app
+ * is not on screen and checks once on the way back, which is the moment the tally is most
+ * likely to be stale. */
+export const useNotificationsWatch = (active) => {
+    const delivering = usePushStore(
+        state => pushSupported() && state.permission === "granted" && Boolean(state.token),
+    )
+
+    useEffect(() => {
+        if (!active || delivering) return
+
+        let timer = null
+
+        const check = () => useNotificationsStore.getState().pollUnread()
+
+        const start = () => {
+            if (timer) return
+            timer = setInterval(check, NOTIFICATIONS_POLL_MS)
+        }
+
+        const stop = () => {
+            if (!timer) return
+            clearInterval(timer)
+            timer = null
+        }
+
+        const onVisibility = () => {
+            if (document.hidden) return stop()
+            check()
+            start()
+        }
+
+        /* Mount starts the timer without checking: this goes active as `init` fires, whose
+         * read is already on its way. */
+        if (!document.hidden) start()
+        document.addEventListener("visibilitychange", onVisibility)
+
+        return () => {
+            stop()
+            document.removeEventListener("visibilitychange", onVisibility)
+        }
+    }, [active, delivering])
 }

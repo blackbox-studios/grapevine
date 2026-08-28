@@ -320,6 +320,20 @@ const main = async () => {
         })
     }
 
+    /* The parish belongs to the seeded owner, so the delete path is exercisable locally.
+     *
+     * Written here rather than in the upsert above because it needs a profile id, and the
+     * profiles are created in the loop that just ran. Unconditional, unlike the production
+     * seed's repair-only version: this file owns its fixtures and rewrites them every run.
+     *
+     * The diocese is deliberately left ownerless. Its admin is the bishop, who is not a
+     * platform owner, so nothing can delete it — which is the other half of the rule and worth
+     * having on screen beside a group that can be. */
+    await prisma.organization.update({
+        where: { id: org.id },
+        data: { createdById: byHandle.get("cathedraldean") },
+    })
+
     console.log("→ Posts, media, and comments")
     /* Oldest first, so `createdAt` ordering in the database matches the fixture's
      * newest-first array once the feed sorts it. */

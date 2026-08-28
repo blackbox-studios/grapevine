@@ -755,7 +755,9 @@ seam the webhook plugs into; it should not become a route.
 
 `prisma/seed.prod.js` asserts OWNER for the two bootstrap accounts the same way it asserts
 their memberships — it is access, not content, so it is repaired on every run. Nobody else is
-added there.
+added there. It also names the Cathedral's **owner** (`Organization.createdById`), which is a
+narrower fact than OWNER and belongs to one of them: both may create groups, only Fr. Alexander
+may delete this parish. A null creator is repaired on re-run and never reassigned.
 
 ### Onboarding a parish, end to end
 

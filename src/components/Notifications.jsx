@@ -132,7 +132,7 @@ export const NotificationList = ({ className, onOpened }) => {
                     </Transition>
                 ) : (
                     <Transition fast key="content">
-                        <ul className="flex flex-col">
+                        <ul className="flex flex-col gap-1">
                             {items.map((item) => (
                                 <li key={item.id}>
                                     <NotificationRow item={item} now={now} onOpen={openPost} />

@@ -219,7 +219,7 @@ export const NOTIFICATION_ROW = "flex items-start gap-3 rounded-full py-2 pl-5 p
  * and the timestamp a `text-xs` line already pushed down by `pt-0.5`. */
 export function NotificationsSkeleton({ count = 6 }) {
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1">
             {Array.from({ length: count }, (_, i) => (
                 <div key={i} className={NOTIFICATION_ROW}>
                     <Skeleton className="size-10 shrink-0 rounded-full" />

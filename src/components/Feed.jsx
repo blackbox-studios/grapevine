@@ -25,14 +25,37 @@ import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { CARD_SPRING, appPath, captionPreview, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
+import {
+    CARD_SPRING,
+    appPath,
+    captionPreview,
+    cn,
+    formatCompact,
+    postImages,
+    postPath,
+    timeAgoCompact,
+} from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
 
+/* And the budget for a post with no photo, where the writing *is* the post.
+ *
+ * Much larger than a caption's, and not by taste: a caption is read against the picture above
+ * it, so two lines of it plus a "more" is a reasonable share of a card whose subject is
+ * elsewhere. A text-only announcement has nothing else on the card at all — the same two lines
+ * would fold the whole post away behind an affordance, on a card with room to spare. This is
+ * around eight lines at the feed's column width, which holds a service schedule or a paragraph
+ * of news whole and still stops a very long letter from owning the scroll. */
+const TEXT_LIMIT = 700
+
 /* Instagram-style caption: the author handle in bold followed by the post body.
  * Bodies truncate with an inline "... more" affordance — at a word boundary, or at the
  * author's first line break if that comes first (`captionPreview`).
+ *
+ * `label` is optional and `limit` varies, because a text-only post renders its body through
+ * this same component without a handle in front of it and with far more room — see
+ * `TEXT_LIMIT` and the layout note in <PostCard/>.
  *
  * The caption stays a single inline paragraph so the body wraps naturally, and the
  * "more" word simply disappears on expand. Radix's Collapsible can't do this — its
@@ -47,23 +70,30 @@ const CAPTION_LIMIT = 100
  * with stray indentation does not stack up ragged margins, and long lines still wrap. Every
  * surface that renders a body carries it — the sheet's caption, the dialog's rail, the
  * overlay teaser — because the same post read differently on each otherwise. */
-const Caption = ({ label, text }) => {
+const Caption = ({ label, text, limit = CAPTION_LIMIT, className }) => {
     const [open, setOpen] = useState(false)
     const [ref, { height }] = useMeasure()
 
     /* Ends at the character budget or the author's first line break, whichever comes first —
      * see `captionPreview`. */
-    const { preview, truncated } = captionPreview(text, CAPTION_LIMIT)
+    const { preview, truncated } = captionPreview(text, limit)
 
     return (
+        /* `className` may set the type scale but must not add padding: the animated height is
+         * the paragraph's own, and with `border-box` any padding here would be subtracted from
+         * the text rather than added around it, clipping the last line. Use a margin. */
         <motion.div
-            className="overflow-hidden text-sm leading-snug"
+            className={cn("overflow-hidden text-sm leading-snug", className)}
             initial={false}
             animate={{ height: height || "auto" }}
             transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
         >
             <p ref={ref} className="whitespace-pre-line">
-                <span className="font-semibold">{label}</span>{" "}
+                {label && (
+                    <>
+                        <span className="font-semibold">{label}</span>{" "}
+                    </>
+                )}
                 {open || !truncated ? text : preview}
                 {truncated && !open && (
                     <>
@@ -82,7 +112,17 @@ const Caption = ({ label, text }) => {
     )
 }
 
-/* A single Instagram-style feed card: header, media, action row, likes, caption. */
+/* A single feed card, in one of two layouts.
+ *
+ * With a photo it is Instagram's: header, media, action row, likes, then the caption — the
+ * body last, in small type, prefixed with the author's handle, because it is written *to* the
+ * picture and read after it.
+ *
+ * With no photo none of that holds. The writing is the post, so it comes first and it is read
+ * first: header, the title as a headline, the body at reading size and at length
+ * (`TEXT_LIMIT`), then the action row underneath the thing it acts on. The handle comes off the
+ * body — there is no picture for it to be captioning, and the author is already named in the
+ * header two lines above. */
 const PostCard = ({ post }) => {
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
@@ -98,8 +138,17 @@ const PostCard = ({ post }) => {
      * is what turns them into "Dn. Paul". See lib/name.js. */
     const name = displayName(post.author)
 
-    /* A post carries either a single `image` or an `images` array (carousel). */
-    const images = post.images ?? (post.image ? [post.image] : [])
+    const images = postImages(post)
+    /* No photo is not a missing photo — it is the other layout. See the header above. */
+    const textOnly = images.length === 0
+
+    const body = post.body && (
+        textOnly ? (
+            <Caption text={post.body} limit={TEXT_LIMIT} className="mb-1 text-base leading-normal" />
+        ) : (
+            <Caption label={handle} text={post.body} />
+        )
+    )
 
     /* Pinch-to-peek the single-image card in place (touch only): a two-finger gesture lifts a
      * clone of the photo above the feed and springs it back on release. The tap that opens the
@@ -113,10 +162,10 @@ const PostCard = ({ post }) => {
     })
 
     /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
-     * than router.push: the surface overlays the *live* feed (the adaptive PostView: a
-     * centered dialog on desktop, a swipe-in sheet on mobile), so the feed has to stay
-     * mounted with its scroll offset untouched. A real navigation would unmount it and
-     * drop the reader back at the top on dismiss. See useSlideRoute.hook.js. */
+     * than router.push: the surface overlays the *live* feed (<PostView/>, which picks its own
+     * presentation), so the feed has to stay mounted with its scroll offset untouched. A real
+     * navigation would unmount it and drop the reader back at the top on dismiss. See
+     * useSlideRoute.hook.js. */
     const openPost = useCallback(() => {
         openSlide(postPath(post.id))
     }, [post.id])
@@ -156,8 +205,19 @@ const PostCard = ({ post }) => {
             </header>
 
             {post.title && (
-                <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
+                <h2
+                    className={cn(
+                        "text-lg",
+                        /* A headline sits close to the body it heads and carries the weight
+                           that makes it one; above a photo it is a single quiet line. */
+                        textOnly ? "pb-2 font-semibold leading-snug" : "pb-3 leading-none",
+                    )}
+                >
+                    {post.title}
+                </h2>
             )}
+
+            {textOnly && body}
 
             {/* On mobile the media breaks out of the feed's gutter to sit edge-to-edge (the
              * `-mx-4` cancels the shell's `px-4`, and it's a stretched flex item so the
@@ -192,7 +252,7 @@ const PostCard = ({ post }) => {
                 <Attachment
                     {...post.document}
                     href={appPath(post.document.url)}
-                    className={cn(images.length > 0 && "mt-3")}
+                    className="mt-3"
                 />
             )}
 
@@ -262,9 +322,7 @@ const PostCard = ({ post }) => {
                 </div>
             )}
 
-            {post.body && (
-                <Caption label={handle} text={post.body} />
-            )}
+            {!textOnly && body}
 
             <Comments
                 post={post}

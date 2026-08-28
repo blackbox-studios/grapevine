@@ -41,7 +41,7 @@ import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
 /* Whether this viewer may edit this group, and the one way in.
  *
  * **The switcher is the only entrance to group settings.** There was briefly a Groups row on
- * /profile leading to a list of the groups you administer, and it was a screen whose entire
+ * the account surface leading to a list of the groups you administer, and it was a screen whose entire
  * job was to choose between things this menu had already listed. Deleting it left the action
  * where the object is: the row for a parish is the thing that should offer to edit that
  * parish.

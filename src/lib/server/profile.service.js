@@ -8,7 +8,7 @@ import { requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
 import { projectViewer } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
-import { supabaseAdmin } from "@/lib/server/supabase"
+import { findAuthUserByEmail, supabaseAdmin } from "@/lib/server/supabase"
 import { uploadPrefix } from "@/lib/server/uploads.service"
 
 /* The viewer's own identity, the parish roster, and admission to the parish.
@@ -412,11 +412,27 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
 
     /* New person: create the credential first. If this fails there is no orphaned Profile
      * to clean up, whereas the reverse order would leave one behind. */
-    const { data, error } = await supabaseAdmin().auth.admin.createUser({
+    const supabase = supabaseAdmin()
+    const { data, error } = await supabase.auth.admin.createUser({
         email: address,
         email_confirm: true,
     })
-    if (error || !data?.user) {
+
+    /* "Already registered" is not a failure — it is an auth user with no Profile, and the
+     * fix is to adopt its id rather than to refuse the address.
+     *
+     * No Profile carries this address (the lookup above just said so), so the two stores have
+     * drifted: `db:reset` drops the Profile while the hosted `auth.users` row survives, and
+     * every address ever admitted through the app lands here on the next attempt. Refusing
+     * left it unaddable in both directions and the admin with a roster that does not contain
+     * the person the error says already exists.
+     *
+     * Adopting is also the only *correct* answer. `Profile.id` must mirror `auth.users.id` —
+     * a fresh uuid would key the Profile to an id the person's real token never carries, and
+     * every request would 401 with a valid session. Same reasoning as `provisionAuthUser`. */
+    const authUserId = data?.user?.id ?? (await findAuthUserByEmail(supabase, address))?.id
+
+    if (!authUserId) {
         throw invalid(
             `Could not create an account for ${address}: ${error?.message ?? "unknown error"}`,
             { email: "Failed" },
@@ -433,7 +449,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
          * they complete orientation, and the roster can tell the two states apart. */
         await tx.profile.create({
             data: {
-                id: data.user.id,
+                id: authUserId,
                 email: address,
                 handle,
                 vocation,
@@ -441,7 +457,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
         })
         return tx.membership.create({
             data: {
-                profileId: data.user.id,
+                profileId: authUserId,
                 orgId,
                 role,
                 status: "APPROVED",

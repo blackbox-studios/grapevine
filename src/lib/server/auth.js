@@ -275,11 +275,14 @@ export const isPlatformOwner = (viewer) => viewer?.platformRole === "OWNER"
  * **Narrower than either axis on its own**: a platform owner, *and* the one who created this
  * particular group. Not "an owner" — one subscriber must never reach another's parish — and
  * not an admin of the group, because a priest administering the parish he was given must not
- * be able to delete the group out from under whoever pays for it.
+ * be able to delete the thing the subscriber pays for.
  *
- * A null `createdById` means the group predates this column (the launch parish, written by
- * `seed.prod.js`) and is therefore deletable by nobody. That is deliberate: the one group
- * whose loss would matter most has no delete path at all.
+ * A null `createdById` means nobody owns the group, and it is deletable by nobody. That is not
+ * a gap to be papered over with "any owner who administers it": the seeds assign an owner when
+ * they create a group (see `seed.prod.js`), so the only rows that reach this state are ones
+ * whose owner's profile was deleted — and quietly promoting some other owner into that slot is
+ * exactly the cross-subscriber reach `createdById` exists to prevent. Reassigning is a
+ * deliberate act, out of band, not a fallback.
  *
  * Shared by `deleteOrg`, which enforces it, and `projectOrg`, which ships it to the client as
  * `canDelete` so the danger zone is drawn from the same rule the server would apply. Two

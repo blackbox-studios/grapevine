@@ -297,10 +297,12 @@ model Organization {
   /// who may delete it. Read it as the subscription boundary: a group belongs to whoever
   /// brought it into existence, and one owner's groups are invisible to another's.
   ///
-  /// **Nullable, and it means "nobody created this through the app"** — the launch parish
-  /// came from `seed.prod.js`, which predates this column, and is therefore deletable by no
-  /// one. That is the safe default for the one group whose loss would matter most, so it is
-  /// deliberately not backfilled.
+  /// **Nullable, and null means the group belongs to nobody** — so nobody can delete it. The
+  /// seeds assign an owner when they create a group (`seed.prod.js` gives the Cathedral to its
+  /// own priest, and repairs the column on an existing row), so the only way to reach this
+  /// state is an owner whose profile was deleted. Promoting some other owner into the empty
+  /// slot would be exactly the cross-subscriber reach this column exists to prevent, so
+  /// reassigning is a deliberate act rather than a fallback.
   ///
   /// `SetNull` rather than `Cascade`: deleting a person must never delete a parish's entire
   /// history as a side effect. The group survives, ownerless, and a new owner is set by the

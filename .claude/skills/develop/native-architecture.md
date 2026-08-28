@@ -366,6 +366,31 @@ the chunk is emitted into `out/` and never fetched on native.
 Android 13+ needs the `POST_NOTIFICATIONS` runtime permission; the plugin declares it
 and `requestPushPermission()` asks for it. Nothing to add to the manifest.
 
+### A refusal is not the end of the offer
+
+The prompt is spendable, and the two platforms spend it differently. iOS shows it **once
+per install**; Android reports `prompt-with-rationale` after a first refusal and will
+re-ask, so only its second refusal is final. `pushPermission()` folds that into three
+values worth acting on — `null` (a prompt will actually appear, Android's first "no"
+included), `"granted"`, and `"denied"` meaning **spent on both platforms**.
+
+So the "Turn on notifications" button in `/settings/general` is drawn in all three
+states, and `turnOn` in the push hook picks what a tap means: prompt while one is
+possible, otherwise `openPushSettings()` — the app's own notification pane, via
+`capacitor-native-settings`. A refusal must not remove the control; the way back exists,
+and it is a screen the app can open.
+
+- **The iOS options are not interchangeable.** `IOSSettings.AppNotification` resolves to
+  Apple's public `openNotificationSettingsURLString` (16+) / `openSettingsURLString`.
+  Most of that enum's other members are the undocumented `App-prefs:` schemes, and
+  shipping one is an App Store rejection.
+- **The return trip has to be watched for**, because the grant happens while the app is
+  backgrounded. `refresh()` runs on every foreground (`onAppState` in
+  `usePushListeners`) and registers the token if the answer has become yes; without it
+  the deep link is an instruction the app then ignores.
+- The plugin needs `npm run sync` plus a native rebuild — a pod install on iOS, a Gradle
+  sync on Android — before the button can do anything on device.
+
 > **Do not put `webContentsDebuggingEnabled: true` back in `capacitor.config.json`.** It
 > looks like what enables `chrome://inspect`, and it is not needed for that: Capacitor
 > defaults the key to the build's own debug flag (`CapConfig.java` reads
@@ -377,6 +402,13 @@ and `requestPushPermission()` asks for it. Nothing to add to the manifest.
 
 - **APNs does not work on the iOS Simulator.** A physical device is the only way to
   test the iOS half. Android's emulator is fine.
+- **`openPushSettings()` lands on the *root* of Settings on the iOS Simulator**, not on
+  Grapevine's notification pane, and nothing is wrong. The Simulator's Settings app has
+  no per-app notification pane to navigate to, so it abandons the deep link and stops at
+  the top; it says so in the device console (`… is for a selection not possible currently
+  'notifications', stashing as pending and returning`). It resolves on hardware, there is
+  no workaround, and switching the option to `IOSSettings.App` is not one — that trades
+  the right destination on every real device for a better one on the Simulator.
 - **`presentationOptions: []`** in `capacitor.config.json` is deliberate — JSON has
   nowhere to say so. It suppresses the iOS banner while the app is *foregrounded*,
   because the reader is already looking at the app; what a foreground push means here

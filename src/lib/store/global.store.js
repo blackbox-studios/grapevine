@@ -31,9 +31,9 @@ import useUploadsStore from '@/lib/store/uploads/store'
  *
  * `notifications` **is** booted here, and it is the one collection store that is — because
  * it is the only one that is not scoped to the selected group, so it has a request it can
- * make the moment there is a viewer. What it fetches on boot is the unread tally alone,
- * which is chrome the bell needs whether or not anybody opens the panel; the list itself is
- * loaded by the panel's own hook.
+ * make the moment there is a viewer. It fetches the tally *and* the first page of the list,
+ * so the panel is populated before anybody opens it; see that store's header for why a
+ * surface this small is worth preloading when the feed is not.
  *
  * `push` is booted here too, for the same reason and with one caveat worth stating: its
  * `init` **never prompts**. It registers this device's FCM token only where permission has

@@ -484,10 +484,6 @@ const NotificationsStep = ({ onDone, onBack, loading, fill }) => {
                 fill ? "min-h-0 flex-1" : "max-w-88",
             )}
         >
-            <Icon size="xl" className="text-(--mark-accent)" aria-hidden>
-                notifications
-            </Icon>
-
             <div className={cn("flex w-full flex-col items-center gap-4", fill && "mt-auto shrink-0 pt-6")}>
                 <GatewayButton
                     type="button"

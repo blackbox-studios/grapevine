@@ -3,11 +3,12 @@ export const ROUTES = {
     INBOX: "/inbox",
     POST: "/p",
     NOTIFICATIONS: "/notifications",
-    /* The account surface: who the viewer is, and every destination that hangs off them.
-     * A route rather than a menu, because it is where Settings and the roster are now
-     * reached from — see `app/(protected)/profile/page.jsx`. */
-    PROFILE: "/profile",
+    /* The account surface, and the index of the settings tree: who the viewer is, and every
+     * destination that hangs off them. A route rather than a menu, because it is where the
+     * settings sub-pages and the roster are reached from — see
+     * `app/(protected)/settings/page.jsx`. Everything below it is a row on that list. */
     SETTINGS: "/settings",
+    SETTINGS_GENERAL: "/settings/general",
     SETTINGS_USERS: "/settings/users",
     /* Signed in, but not yet through the door — see components/MemberGate.jsx. */
     WELCOME: "/welcome",
@@ -154,6 +155,12 @@ export const PAGE_SIZE = {
      * and the reader has something to scroll before the next one is asked for. */
     NOTIFICATIONS: 15,
 }
+
+/* How often a client push cannot reach re-checks the notification tally — see
+ * `useNotificationsWatch` for which clients those are. Short enough that a dot still feels
+ * like it appeared on its own; affordable because a tick with nothing to report costs the
+ * viewer lookup every request pays plus one index-only count. */
+export const NOTIFICATIONS_POLL_MS = 30_000
 
 /* ---------------------------------------------------------------------------
  * Uploads

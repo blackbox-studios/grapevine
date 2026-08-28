@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
 
+import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { MARK_LOBES, MARK_PALETTES, MARK_PATHS, MARK_SIZE, paletteFor } from "@/lib/mark"
 import { cn, withAlpha } from "@/lib/utils"
 
@@ -23,6 +24,11 @@ const MARK_WIPE_MS = 220
  * edge, which is what produces the swoop across the shape. */
 const MARK_WIPE_ORIGIN = { x: 1.12, y: 0.5 }
 const MARK_WIPE_FEATHER = 0.28
+
+/* Measured off the reference: the mark flies up and to the right from below
+ * while scaling in, overshooting ~6% before it settles. */
+const MARK_ENTER_FROM = { opacity: 0, scale: 0.06, x: "-47%", y: "80%" }
+const MARK_ENTER_TO = { opacity: 1, scale: 1, x: "0%", y: "0%" }
 
 /* ── Cycle hook ─────────────────────────────────────────────────────────────
  * Steps the mark through its palettes — steel → graphite → iris → jade — one
@@ -189,6 +195,9 @@ const GlossyMark = memo(({ from, to, onClick, className, style, ...props }) => {
     const paintedRef = useRef(false)
     const renderRef = useRef(null)
     const reduceMotion = useReducedMotion()
+    /* Armed after mount because Motion skips `initial` under an ancestor
+     * AnimatePresence with `initial={false}`, and this mark sits in one. */
+    const mounted = useMounted()
 
     /* Draws the outgoing palette, then the incoming one under its expanding mask.
      * Reads progress from a ref so the wipe never re-renders the React tree. */
@@ -276,11 +285,9 @@ const GlossyMark = memo(({ from, to, onClick, className, style, ...props }) => {
         return () => observer.disconnect()
     }, [render])
 
-    /* Measured off the reference: the mark flies up and to the right from below
-     * while scaling in, overshooting ~6% before it settles. */
     const entrance = reduceMotion ? {} : {
-        initial: { opacity: 0, scale: 0.06, x: "-47%", y: "80%" },
-        animate: { opacity: 1, scale: 1, x: "0%", y: "0%" },
+        initial: MARK_ENTER_FROM,
+        animate: mounted ? MARK_ENTER_TO : MARK_ENTER_FROM,
         transition: {
             default: { type: "spring", stiffness: 123, damping: 15, mass: 1 },
             opacity: { duration: 0.3, ease: "easeOut" },

@@ -84,10 +84,11 @@ const runRadius = (items, index) => {
  * the same deterministic gradient and initials a byline uses — so the person who liked your
  * post looks identical to the person who wrote one.
  *
- * `read` tints the row rather than hiding it. The badge clears the moment the panel opens, but
- * the highlight has to survive that: it is the reader's answer to "which of these are new",
- * and taking it away in the frame they opened it would remove the information at the moment
- * it is wanted. It goes on the next refresh, when the rows come back marked. */
+ * `read` tints the row rather than hiding it, and the tint outlives the badge by exactly one
+ * panel. The dot clears the moment the list is on screen, but the highlight stays for as long
+ * as the panel is open — it is the reader's answer to "which of these are new", and it would
+ * be useless if it went in the frame they opened it. Closing the panel takes it: the next open
+ * is a plain list. See `markRead` and `settleRead`. */
 const NotificationRow = ({ item, now, onOpen, className }) => {
     const line = LINES[item.type]
 

@@ -74,6 +74,10 @@ const INIT = {
     /* What the bell's dot stands for. Counts every unread notification, not just the ones
      * this page holds — the panel can be showing fifteen rows while forty are unread. */
     unread: 0,
+
+    /* Rows the server has marked read, whose tint is still on screen because the panel that
+     * did the reading has not closed yet. `settleRead` drains it. See `markRead`. */
+    settling: [],
 }
 
 const useStore = create(immer((set, get) => ({
@@ -151,7 +155,7 @@ const useStore = create(immer((set, get) => ({
      * reading out from under them — and it would bring every held row back marked `read`,
      * taking away the tint that answers "which of these are new" at the exact moment they are
      * looking at it. Merging keeps both: new rows arrive at the top, held rows are left as the
-     * reader found them.
+     * reader found them, tint included, until the panel closes and `settleRead` clears it.
      *
      * The first page is newest-first, so the fresh rows go on in the order the server sent
      * them and the cursor is untouched — everything below the join is still reachable by the
@@ -253,16 +257,21 @@ const useStore = create(immer((set, get) => ({
         }
     },
 
-    /* Clears the badge. Optimistic, because opening the panel *is* the reading and a dot
-     * that lingers for a round trip after the reader has plainly seen the list reads as
-     * broken. The snapshot is the count, restored on failure rather than assumed to be zero.
+    /* Clears the badge. Optimistic, because opening the panel *is* the reading and a dot that
+     * lingers for a round trip after the reader has plainly seen the list reads as broken.
      *
-     * **The rows keep their `read: false` on purpose.** Only the tally moves here. The panel
-     * tints what was unread when it opened, and that tint is the reader's answer to "which
-     * of these are new" — clearing it in the same frame they opened it would take the
-     * information away at exactly the moment it is wanted. `sync` leaves held rows alone for
-     * the same reason, so the tint survives every update the open panel takes; the next boot
-     * brings the rows back marked read, which is the right time for the highlight to go.
+     * **The tint outlives the badge by exactly one panel.** The rows keep `read: false` while
+     * the panel is open — that highlight is the reader's answer to "which of these are new",
+     * and taking it away in the frame they opened it would remove the information at the
+     * moment it is wanted. So the ids go into `settling` instead, and `settleRead` clears them
+     * when the panel closes. Opening it again shows a plain list.
+     *
+     * That deferral is the whole reason this is a list of ids rather than a flag. Only rows
+     * this call actually marked may be settled: a notification that arrives *while* the panel
+     * is open is genuinely unread, is counted by the bell, and must still be tinted on the
+     * next open. And a failed POST fills `settling` with nothing at all, so closing the panel
+     * cannot clear a highlight the server never agreed to — which would otherwise leave a lit
+     * bell above a list with nothing marked in it.
      *
      * **Posts unconditionally, and must.** The obvious guard — skip when `unread` is already
      * 0 — trusts a cached count. It is read on boot and on every push, but a like can land in
@@ -273,6 +282,7 @@ const useStore = create(immer((set, get) => ({
      * POST per open with nothing to mark. */
     markRead: async () => {
         const wasUnread = get().unread
+        const tinted = get().items.filter(item => !item.read).map(item => item.id)
 
         set(state => { state.unread = 0 })
 
@@ -284,7 +294,13 @@ const useStore = create(immer((set, get) => ({
 
         try {
             const { unread } = await api.post(API_ENDPOINTS.NOTIFICATIONS_READ)
-            set(state => { state.unread = unread })
+            set(state => {
+                state.unread = unread
+                /* Appended, not assigned: the panel can be opened, closed and opened again
+                 * before a slow POST answers, and the ids from an earlier open that has not
+                 * settled yet are still owed a clearing. */
+                state.settling.push(...tinted)
+            })
         } catch (error) {
             set(state => {
                 state.unread = wasUnread
@@ -292,6 +308,26 @@ const useStore = create(immer((set, get) => ({
             })
         }
     },
+
+    /* The other half of `markRead`, run when the panel closes: the rows it marked on the
+     * server stop being tinted here.
+     *
+     * Called from the hook's effect cleanup, so "closes" means the list unmounted — the
+     * desktop popover dismissed, or the mobile slide route popped. A post opened *from* a
+     * notification stacks over the panel and leaves it mounted, so coming back from one still
+     * shows the highlight; it goes when the panel itself does.
+     *
+     * Purely local. The server was told on open and has nothing more to hear; this only
+     * catches the rows up to what it already knows. */
+    settleRead: () => set(state => {
+        if (state.settling.length === 0) return
+
+        const ids = new Set(state.settling)
+        for (const item of state.items) {
+            if (ids.has(item.id)) item.read = true
+        }
+        state.settling = []
+    }),
 
     reset: () => set(() => ({ ...INIT })),
     clearErrors: () => set(state => { state.error = ERROR_INIT }),

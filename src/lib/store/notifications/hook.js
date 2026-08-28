@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
+import { usePathname } from "next/navigation"
 import { useShallow } from "zustand/react/shallow"
 
-import { NOTIFICATIONS_POLL_MS } from "@/lib/constants"
+import { APP_NAME, NOTIFICATIONS_POLL_MS } from "@/lib/constants"
 import { pushSupported } from "@/lib/push"
 import usePushStore from "@/lib/store/push/store"
 import useNotificationsStore from "./store"
@@ -22,11 +23,15 @@ import useNotificationsStore from "./store"
  * called on every open, including the ones with nothing to mark — see the note on it in the
  * store for why it may not be skipped on a cached count of zero.
  *
- * The list is **not** cleared on unmount, unlike the open post's. There is one panel, its
- * contents are the same whichever surface showed them, and it is meant to outlive every
+ * **Unmounting is the other half.** The rows keep their tint for as long as the panel is up,
+ * so closing it is what settles them — the one moment all three surfaces share, and the reason
+ * `settleRead` hangs off this effect's cleanup rather than off a close handler.
+ *
+ * The list itself is **not** cleared on unmount, unlike the open post's. There is one panel,
+ * its contents are the same whichever surface showed them, and it is meant to outlive every
  * surface that shows it — that is what the preload is for. */
 export const useNotifications = () => {
-    const [items, ready, hasMore, loadingMore, load, loadMore, markRead] =
+    const [items, ready, hasMore, loadingMore, load, loadMore, markRead, settleRead] =
         useNotificationsStore(
             useShallow(state => ([
                 state.items,
@@ -36,6 +41,7 @@ export const useNotifications = () => {
                 state.load,
                 state.loadMore,
                 state.markRead,
+                state.settleRead,
             ])),
         )
 
@@ -50,7 +56,13 @@ export const useNotifications = () => {
             await markRead()
         }
         open()
-    }, [load, markRead])
+
+        /* Closing the panel is what takes the highlight away — see `settleRead`. It belongs
+         * here rather than on the surfaces because there are three of them (the popover, the
+         * slide route, its cold-load form) and unmounting is the one thing they all do on the
+         * way out. */
+        return () => settleRead()
+    }, [load, markRead, settleRead])
 
     /* The fallback, not the normal path. With the list preloaded at boot, `ready` is set long
      * before anybody opens the panel and this never fires; what is left for it is the viewer
@@ -74,6 +86,35 @@ export const useNotifications = () => {
 export const useUnreadCount = () => {
     const unread = useNotificationsStore(state => state.unread)
     return unread
+}
+
+/* The same tally, in the browser tab: "(3) Grapevine", and plain "Grapevine" once read.
+ * Mounted once from App.jsx for the session.
+ *
+ * **The bell is only visible while the app is**, and the tab title is the one place this
+ * number reaches somebody who is reading something else — which is most of the time a parish
+ * feed is open. It clears itself: `markRead` writes `unread` to zero when the panel mounts,
+ * this re-runs, and the title goes back to the name.
+ *
+ * `pathname` is a dependency, and not for anything this hook does with it. Next renders the
+ * root layout's `metadata.title` per route, so a client navigation reconciles the `<title>`
+ * element and resets `document.title` to the static name — over the count we just wrote. The
+ * effect re-runs after the navigation and puts it back. Slide routes push through
+ * `usePathname` too and re-run this harmlessly, writing the string it already holds.
+ *
+ * No cleanup, and none is right: this is mounted for the life of the document, and the only
+ * ways out — a sign-out, which zeroes `unread`, and closing the tab — both settle the title
+ * without one.
+ *
+ * Inert rather than gated on native: a WebView has no tab, so setting `document.title` there
+ * is a string assignment nothing renders. Not worth an `isNative()` branch to skip. */
+export const useUnreadTitle = () => {
+    const unread = useUnreadCount()
+    const pathname = usePathname()
+
+    useEffect(() => {
+        document.title = unread > 0 ? `(${unread}) ${APP_NAME}` : APP_NAME
+    }, [unread, pathname])
 }
 
 /* Keeps the bell current wherever push cannot. Mounted once from App.jsx for the session.

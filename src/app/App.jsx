@@ -5,7 +5,7 @@ import { useEffect } from "react"
 import useErrorListener from "@/lib/hooks/useErrorListener.hook"
 import useNative from "@/lib/hooks/useNative.hook"
 import { useAuthGate, useAuthInit } from "@/lib/store/auth/hook"
-import { useNotificationsWatch } from "@/lib/store/notifications/hook"
+import { useNotificationsWatch, useUnreadTitle } from "@/lib/store/notifications/hook"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* App-wide side effects, mounted once by the root layout. Renders nothing — the
@@ -22,7 +22,9 @@ import useGlobalStore from "@/lib/store/global.store"
  *   4. Drive the native shell (splash, status bar, hardware back, push) via useNative —
  *      every part of which is a no-op in a browser.
  *   5. Keep the notification bell current on clients push cannot reach, via
- *      useNotificationsWatch. */
+ *      useNotificationsWatch.
+ *   6. Carry the unread tally into the browser tab — "(3) Grapevine" — via useUnreadTitle,
+ *      which is the only place that number reaches somebody looking at another tab. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -49,6 +51,10 @@ export default function App() {
      * question has been answered" the route gates wait for; see useAuthGate. */
     useNative(ready && loggedIn)
     useNotificationsWatch(ready && loggedIn)
+    /* Ungated, unlike the two above. `unread` is zero until a session loads one, so a signed-
+       out tab is already showing the plain name — and a gate here would mean the title kept a
+       count across a sign-out instead of following it back down to zero. */
+    useUnreadTitle()
 
     return null
 }

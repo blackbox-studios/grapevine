@@ -206,8 +206,13 @@ export function CommentsSkeleton({ count = 8 }) {
  * loaded. Restyle the row by editing this, and the skeleton follows.
  *
  * The row adds its own interaction and colour on top (`w-full`, cursor, hover, the unread
- * tint); none of that changes the box, so none of it belongs here. */
-export const NOTIFICATION_ROW = "flex items-start gap-3 rounded-full py-2 pl-5 pr-6.5"
+ * tint); none of that changes the box, so none of it belongs here.
+ *
+ * **The radius is not here either, and used to be.** It depends on the rows either side — a
+ * run of new notifications is rounded at its ends and square between them — so it cannot be a
+ * constant. See `runRadius` in components/Notifications.jsx. Nothing is lost on this side:
+ * these rows draw no background, so their corners were never visible. */
+export const NOTIFICATION_ROW = "flex items-start gap-3 py-2 pl-5 pr-6.5"
 
 /* Skeleton for the notifications panel (see components/Notifications.jsx): a stack of rows,
  * each an avatar, the actor's name and what they did, and the relative time on the right.

@@ -66,6 +66,24 @@ const runRadius = (items, index) => {
     return cn(opens && "rounded-t-3xl", closes && "rounded-b-3xl")
 }
 
+/* The 4px between rows, and the reason it is here rather than a `gap` on the list.
+ *
+ * A gap is uniform, and the seam inside a run is the one place there must not be one: two
+ * unread rows meet on square corners precisely so they read as a single block, and 4px of
+ * panel showing through that joint turns the block back into two segments with their inner
+ * corners flattened — the shape `runRadius` exists to avoid. So the spacing follows the same
+ * neighbour test the radius does, and only the joints that are not seams get it.
+ *
+ * Padding rather than margin, because the row inside is the thing with a background: the
+ * space has to sit outside it either way, and padding on the `<li>` cannot collapse against
+ * the next one. */
+const runGap = (items, index) => {
+    if (index === items.length - 1) return null
+
+    const seamed = !items[index].read && !items[index + 1].read
+    return seamed ? null : "pb-1"
+}
+
 /* One line: who did it, what they did, and when — and a way to the thing it is about.
  *
  * Every type points at a post, whether the subject was the post itself or a comment on it,
@@ -158,9 +176,9 @@ export const NotificationList = ({ className, onOpened }) => {
                     </Transition>
                 ) : (
                     <Transition fast key="content">
-                        <ul className="flex flex-col gap-1 px-2">
+                        <ul className="flex flex-col px-2">
                             {items.map((item, index) => (
-                                <li key={item.id}>
+                                <li key={item.id} className={runGap(items, index)}>
                                     <NotificationRow
                                         item={item}
                                         now={now}

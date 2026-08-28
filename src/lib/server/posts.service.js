@@ -702,8 +702,9 @@ export const deleteComment = async (viewer, commentId) => {
         throw forbidden("You can only delete your own comments.")
     }
 
-    /* **The one interactive transaction in this file**, and it earns it: the tally may only
-     * be decremented if this request is the one that actually claimed the row. Two people
+    /* **Interactive, and for a different reason than `addComment`'s**: not a dependency on a
+     * generated id, but on a *count*. The tally may only be decremented if this request is
+     * the one that actually claimed the row. Two people
      * can delete the same comment at once — the author and an admin — and the array form
      * would run both decrements, permanently under-counting the thread. `updateMany` with
      * `deletedAt: null` in its `where` makes the claim atomic, and `count` is what the

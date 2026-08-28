@@ -266,7 +266,7 @@ const OrgCreator = () => {
                     <DialogHeader className="border-b px-4 pb-4 pt-5">
                         <DialogTitle>New group</DialogTitle>
                         <DialogDescription>
-                            A news feed for a parish, monestary, or catechmumen group
+                            A news feed for a parish, monastery, or catechumen group
                         </DialogDescription>
                     </DialogHeader>
                     {body}

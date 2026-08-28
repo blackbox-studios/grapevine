@@ -151,6 +151,14 @@ export const appPath = (route) =>
  * ROUTES.POST so the path prefix lives in one place. */
 export const postPath = (id) => `${ROUTES.POST}/${id}`
 
+/* A post's photos, as one array whatever the wire shape.
+ *
+ * `projectMedia` sends `image` + `width`/`height` for a single photo and `images` for a
+ * carousel, so every surface that renders media had its own copy of this two-branch read —
+ * and an empty result is not a detail: it is what makes a post a text post, which the feed
+ * card and <PostView/> now both decide their whole layout on. One answer, in one place. */
+export const postImages = (post) => post?.images ?? (post?.image ? [post.image] : [])
+
 /* ---------------------------------------------------------------------------
  * Route resolution
  *
@@ -354,23 +362,6 @@ export function roleLabel(role) {
         .split("_")
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ")
-}
-
-/* What kind of group this is, for a human — "Parish", "Diocese", "Monastery".
- *
- * Mirrors the `OrgKind` enum. Written out rather than title-cased through `roleLabel`
- * because the two answer different questions and sharing one function would mean a new
- * `OrgKind` silently rendering as whatever its enum name happens to look like; here an
- * unmapped value falls back to the neutral "Group", which is the word the interface uses
- * for an organization anyway. */
-const ORG_KIND_LABELS = {
-    PARISH: "Parish",
-    DIOCESE: "Diocese",
-    MONASTERY: "Monastery",
-}
-
-export function orgKindLabel(kind) {
-    return ORG_KIND_LABELS[kind] ?? "Group"
 }
 
 /* Deterministic per-value avatar gradient. Same input always maps to the same

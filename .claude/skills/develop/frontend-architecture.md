@@ -65,8 +65,9 @@ Reference files:
 │   │       ├── connect/page.jsx     # /connect
 │   │       ├── credentials/page.jsx # /credentials
 │   │       ├── settings/
-│   │       │   ├── layout.jsx       # Settings tabs + NESTED <PageTransition/> for sub-tabs
-│   │       │   ├── page.jsx         # /settings (General)
+│   │       │   ├── layout.jsx       # Shared frame + NESTED <PageTransition/> for sub-pages
+│   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
+│   │       │   ├── general/page.jsx # /settings/general
 │   │       │   └── users/page.jsx   # /settings/users
 │   │       └── [...not-found]/page.jsx  # Catch-all → in-shell 404 (old `path: '*'`)
 │   ├── globals.css                  # Tailwind v4 + theme tokens (only file to change theme vars)
@@ -908,7 +909,7 @@ Auth redirects are done by two client wrapper components, each applied once at t
 <ProtectedGate>{/* shell */}</ProtectedGate>   <PublicGate>{children}</PublicGate>
 ```
 
-Each reads `useAuthed()` (the persisted `loggedIn`), waits for `useMounted()` so the `localStorage` value has rehydrated, then redirects on a mismatch and renders `null` until it is satisfied — so protected content is never painted for a signed-out visitor.
+Each reads `useAuthGate()` — `{ ready, loggedIn }` together, never `loggedIn` alone — waits for `useMounted()` so the persisted value has rehydrated, then redirects on a mismatch and renders `null` until it is satisfied, so protected content is never painted for a signed-out visitor. `settled = mounted && ready` is the condition; acting on the persisted `loggedIn` before `ready` bounces a viewer out of a magic-link callback before the tokens in the URL have been read.
 
 **That window shows nothing — don't put a spinner back in it.** One used to live there, with a one-second minimum on screen so it couldn't flicker, which meant every cold start paid a full second whether or not there was anything to wait for. A blank frame or two is the honest picture of a fast session check; a spinner with a floor makes the app slower than it is on every launch. If a future boot genuinely takes long enough to need covering, fix the wait, not the picture of it.
 
@@ -978,6 +979,12 @@ Consequences worth knowing:
 - **A scoped store is out of `initAuthorizedStores`.** It has no request to make until a group is resolved, and the resolution happens in a React effect. Boot it from its own hook instead.
 - **`skeleton` covers both waits.** `resolvingOrg || !ready` — the moment before a group is selected is as much "nothing to show" as the fetch itself, and letting the first fall through flashes an empty surface.
 - **Anything scoped must be emptied on switch, not just refetched.** Leaving `items` in place shows one parish's rows under another's name for a round trip, and every row's actions would write to the wrong group if tapped.
+
+**Two surfaces hang off the switcher, and the store holds only which one is open.** Editing a group is `editingId`, creating one is the `creating` flag (a flag, not an id — there is no group yet to name it after), and both are drawn by a component the shell mounts once (`<OrgEditor/>`, `<OrgCreator/>`) rather than by either entrance, because the desktop dropdown and the mobile panel are separate subtrees that must not each own a copy. Neither is a route: nobody links to a settings form, and component state is what keeps Android's back gesture closing the surface rather than unwinding a history entry. Deleting a group is the danger zone inside the editor, gated on the server-composed `canDelete` rather than on any rule the client re-derives — see §11 of `backend-architecture.md`.
+
+**A New group row sits at the foot of the switcher, drawn only for a platform `OWNER`** — `usePlatformOwner()`, which is deliberately *not* `usePrivileged`: that one walks `ROLE_LEVEL` and answers "may I act in this group", and OWNER is not a rank above ADMIN but a different question with no group in it. The entrance is here because this menu is already the answer to "which groups do I have", so "and make another" belongs at the bottom of that answer.
+
+**`useOrgCreator` is where two stores meet, and it is a hook for that reason.** The write lands in `user.orgs` so it belongs to the auth store (`createOrg`, beside `updateOrg`); the selection belongs to the org store. Composing them in the hook is what keeps the imports one-directional — `org` already reads `auth`, and `auth` calling back would be the cycle this section warns about. Creating a group **selects it**, because the next thing the owner does is invite people or post, both of which are scoped to the selection.
 
 **The switcher's two presentations are two components, not one responsive one** (`components/OrgNav.jsx`). Desktop is a dropdown over a nav that never moves. Mobile *pushes* the shell aside rather than covering it: `--org-nav-width` in `globals.css` is both the panel's width and the distance every displaced layer travels, and the layers apply it themselves (`SlideBase`, the mobile rail, the hamburger) off `useOrgNav().shift`, all on `SLIDE_TRANSITION`. Do **not** wrap them in one shifting container — a transformed ancestor becomes the containing block for every `position: fixed` descendant, which drags the slide-route surface along with the shell. `SlideBase` is where the two possible displacements are resolved, and a slide route wins.
 
@@ -1142,6 +1149,12 @@ If the app is served under a base path (e.g. `/emc/ui`) rather than the host roo
 ### Buttons
 
 Use `<Button variant="..." size="...">` from `components/ui/button.jsx`. Variants: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`. Sizes: `default`, `xs`, `sm`, `lg`, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. Don't create alternate buttons.
+
+**Anything a reader is meant to press is `size="lg"`, with horizontal padding.** Not a preference: `default` is `h-9` with `px-2.5`, which is the size of a control *inside* something — a table row's action, a toolbar, a popover — and at the end of a paragraph on a phone it reads as a link that happens to have a border, sitting under body text it barely out-measures. `lg` is `h-12`, and because its padding is also `px-2.5` it needs the width added at the call site: `className="px-8"` for a pill sized to its label, `className="w-full sm:w-fit sm:px-10"` for one that fills the column on a phone and shrinks on a desktop. Every submit in the app already does one of the two — see `<Compose/>`, `<OrgCreator/>`, `<OrgEditor/>`.
+
+So: reach for `lg` first and justify anything smaller. `sm`/`xs` are for dense chrome where a full-size control would crowd its neighbours, and `default` — the variant's own default, which is what you get by writing no `size` at all — is almost never what a page-level action wants. Writing `<Button onClick={…}>Turn on notifications</Button>` and shipping it is the failure mode this rule exists to stop.
+
+The loading state is `<Ripple/>`, never a text placeholder — see **Action buttons during async work** below. `"Just a moment…"` in place of the label is the same mistake in a different dimension: it resizes the button mid-action and drops the name of the thing being done.
 
 ### Close affordances — `<Close/>`
 

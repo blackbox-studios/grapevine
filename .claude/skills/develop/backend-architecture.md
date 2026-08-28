@@ -181,6 +181,9 @@ completed (offline, DNS, CORS, aborted connection).
 | `POST` | `/api/me/onboarding` | viewer | the updated viewer — first-run orientation, all fields at once |
 | `GET` | `/api/me/onboarding/handle?value=` | viewer | `{ handle, available, reason }` — advisory @handle check |
 | `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
+| `POST` | `/api/orgs` | **platform owner** | `201` + the created group, `Location` set. The creator is written an ADMIN membership in the same transaction |
+| `PATCH` | `/api/orgs/:orgId` | **group admin** | the updated group — name, bio, picture |
+| `DELETE` | `/api/orgs/:orgId` | **the owner who created it** | `204`. Body must echo the group's `slug` as `confirm` |
 | `GET` | `/api/orgs/:orgId/members` | **group admin** | `{ items, nextCursor }` — the roster |
 | `GET` | `/api/feed?limit=&cursor=&orgId=` | viewer | `{ items, nextCursor }` — the viewer's feed, newest first. `orgId` narrows it to one group and is checked with `requireMembership`, so it can only subtract from the viewer's own scope; omitted, the feed is the union of every approved membership |
 | `POST` | `/api/uploads` | viewer (per purpose) | `{ bucket, path, token, url }` — permission to upload one file |
@@ -231,6 +234,17 @@ their own. `projectPost` ships it as `canDelete`, which is also what decides whe
 options menu is offered at all. Soft, like a comment's, and it deliberately leaves the media
 in storage — the row still points at it, and a restore that has lost its photos is not one.
 
+**Creating and deleting a group answer to a third authority, and the three are not
+interchangeable.** `PATCH` is admin-of-this-group. `POST` is **platform owner**, because the
+group being created does not exist yet and so no per-group role can express the permission —
+see §11. `DELETE` is narrower than either: only the owner who *created* that group, so a
+parish priest administering his own parish cannot delete the group the subscriber pays for,
+and one subscriber can never reach another's. A group the viewer neither owns nor belongs to
+answers `404` on `DELETE`, for the same reason `requireMembership` does. The delete also
+requires the group's `slug` echoed in the request body — not a security control, but the
+guard against being right about the permission and wrong about the group, on an action that
+cascades to every post, comment, like, invite and membership it ever held.
+
 **Notifications are addressed to a person, not scoped to a group, and that is the one place
 this app's scoping rule does not apply.** Every other read narrows to the viewer's
 memberships or to the selected group; `listNotifications` filters on `recipientId` and
@@ -247,12 +261,17 @@ would load and project a page of rows on every sign-in to decide whether to draw
 **Writing a notification is a builder, not a write.** `notifyLike` / `unnotifyLike` in
 `notifications.service.js` *return* a Prisma operation, which the like toggles splice into
 the `$transaction([...])` they were already running — so the notification commits with the
-like that justifies it and costs no additional round trip. `notifyNewPost` is the exception
-and takes a transaction client instead, because its rows need the id of the post created
-alongside them; that is the same dependency that earns `deleteComment` its interactive
-transaction. A post's notification is also a **fan-out**: one row per approved member of the
-group. See that file's header, which also carries the game plan for grouping ("Mat. Carly and
-9 others") as a read-side change.
+like that justifies it and costs no additional round trip. `notifyNewPost` and
+`notifyComment` are the exceptions and take a transaction client instead, because their rows
+need the id of the post or comment created alongside them; that is the same dependency that
+earns `deleteComment` its interactive transaction, and it is why `addComment` is interactive
+too. A post's notification is also a **fan-out**: one row per approved member of the group,
+where a like or a comment notifies one person. See that file's header, which also carries the
+game plan for grouping ("Mat. Carly and 9 others") as a read-side change.
+
+**A `POST_COMMENT`'s subject is the comment, not the post**, which is what lets
+`unnotifyComment` retract it — along with that comment's `COMMENT_LIKE` rows — when the
+comment is soft-deleted and no cascade can reach them.
 
 **`POST /api/uploads` grants permission; it does not receive a file.** It answers a signed
 upload URL and the client sends the bytes straight to Supabase Storage, so a parish photo
@@ -274,20 +293,24 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   handler.js               # route() wrapper (request id, CORS, error serialization), pageParams()
   respond.js               # success responders (§2)
   cursor.js                # opaque cursors + the keyset helpers (§6.1)
-  auth.js                  # requireViewer / requireMembership / readableOrgIds
+  auth.js                  # requireViewer / requireMembership / requirePlatformOwner
   supabase.js              # server Supabase clients (anon for verification, service role)
   storage.js               # the bucket, object paths, and signed upload URLs
   projections.js           # database rows → wire shapes
   posts.service.js         # posts, comments, likes
-  profile.service.js       # the viewer, their groups, a group's roster
+  profile.service.js       # the viewer, a group's roster, admission
+  orgs.service.js          # a viewer's groups; creating, editing and deleting one
   notifications.service.js # the panel behind the bell, and the writes that fill it
   uploads.service.js       # purpose → permission + destination
 
 src/app/api/
   me/route.api.js
   uploads/route.api.js
-  orgs/route.api.js
+  orgs/route.api.js                         # GET — the viewer's groups; POST — create one
+  orgs/[orgId]/route.api.js                 # PATCH — edit; DELETE — destroy
   orgs/[orgId]/members/route.api.js
+  orgs/[orgId]/invites/route.api.js
+  memberships/[membershipId]/route.api.js   # PATCH — role, status, vocation
   feed/route.api.js
   posts/route.api.js                       # POST — publish
   posts/[postId]/route.api.js
@@ -464,7 +487,9 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Bucket provisioning (`npm run storage:setup`) | `scripts/setup-storage.mjs` |
 | Rows → wire shapes | `src/lib/server/projections.js` |
 | Posts, comments, likes | `src/lib/server/posts.service.js` |
-| Viewer, groups, roster | `src/lib/server/profile.service.js` |
+| Viewer, roster, admission | `src/lib/server/profile.service.js` |
+| Groups: list, create, edit, delete | `src/lib/server/orgs.service.js` |
+| Granting platform ownership (`npm run owner`) | `scripts/grant-owner.mjs` |
 | Notifications, the builders that write them, and the pushes that deliver them | `src/lib/server/notifications.service.js` |
 | Device tokens (register / detach / prune) | `src/lib/server/devices.service.js` |
 | FCM HTTP v1 transport | `src/lib/server/push.js` |
@@ -654,88 +679,123 @@ should need to change for a rename, because the projection absorbs it.
 
 ---
 
-## 11. Adding groups without editing the seed — the design, not yet built
+## 11. Platform ownership — the subscriber's axis
 
-**Status: proposed. Nothing below exists.** Written down now because the shape of it decides
-whether the prod seed stays two people and one parish, and because the obvious
-implementation is the wrong one.
+The person who pays for Grapevine gets to build with it. `Profile.platformRole`
+(`NONE | OWNER`) is that authority, and it is a **third axis**, held by a person rather than
+granted inside a group.
 
-Today a group is created by `prisma/seed.prod.js` and its first admin is a literal in that
-file. That is correct for launch — one parish, two admins, both of them the people building
-it — and it stops being correct the moment a second parish wants in. Onboarding a customer
-should not be a deploy.
+### Why it could not be a role
 
-### The gap: there is no third scope
-
-The app has exactly two authorization axes, and neither can express this:
+The app had exactly two axes and neither can express "may create a group":
 
 - `Membership.role` (ADMIN | MEMBER) is **per-group**. An admin of Holy Trinity has no
-  standing anywhere else, which is the entire point — see the schema header.
-- `Profile.vocation` is who someone is and **grants nothing**.
+  standing anywhere else, which is the entire point — see the schema header. There is no row
+  to hang this permission off, because the group being created does not exist yet.
+- `Profile.vocation` is who someone is and **grants nothing**, by construction. It must not
+  start.
 
-Creating a group is neither. It is not scoped to a group, because the group does not exist
-yet; whoever does it acts on the *platform*. So the honest change is a third axis, kept
-apart from the other two for the same reason those two are kept apart from each other:
+So it is a third column, kept apart from the other two for exactly the reason those two are
+kept apart from each other. The motivation is a real product shape, not tidiness: a parish
+priest buys a subscription and wants full reign over *his* groups — his parish, and a
+separate one for his catechumens — while remaining an ordinary member of the diocese group
+his parishioners also read. Ownership is the boundary of a subscription; membership is the
+boundary of a feed; and one person routinely sits on different sides of the two.
 
-```prisma
-/// Authority over the platform itself, not over any one group. Deliberately a third axis:
-/// `Membership.role` cannot express it (the group does not exist yet) and `vocation` grants
-/// nothing. OWNER is expected to be one or two people, forever.
-enum PlatformRole {
-  NONE
-  OWNER
+### What OWNER grants, and what it deliberately does not
 
-  @@map("platform_role")
-}
-
-model Profile {
-  // ...
-  platformRole PlatformRole @default(NONE) @map("platform_role")
-}
-```
-
-`ajkoranda@gmail.com` is `OWNER`. The prod seed asserts it the same way it asserts the
-memberships — that is the one line it would gain.
-
-### What it unlocks, and what it must not
-
-Two endpoints, both gated by a new `requirePlatformOwner(viewer)` in `lib/server/auth.js`:
-
-| Endpoint | Does |
+| Endpoint | Authority |
 |---|---|
-| `POST /api/orgs` | Creates a group: `name`, `kind`, `slug`, optional `parentId`. |
-| `POST /api/orgs/:orgId/members` | **Already exists.** Admits the head priest as ADMIN. |
+| `POST /api/orgs` | platform owner |
+| `DELETE /api/orgs/:orgId` | the platform owner who **created** that group |
+| `POST /api/orgs/:orgId/members` | group admin — unchanged, and it is the other half of onboarding |
 
-Onboarding a parish is therefore *create the group, then admit its priest as its admin* —
-two calls, the second of which is the invite flow that already works today. `admitOne`
-provisions the Supabase user, the Profile and the APPROVED membership in one step, so the
-priest simply signs in. Nothing new is needed for the hard half.
+`requirePlatformOwner` appears in exactly those two places, both in `orgs.service.js`, and
+**neither reads anybody's content**. An owner has no standing whatsoever in a group they did
+not create: not the feed, not the roster, not the member list. `requireViewer`'s membership
+scoping is untouched by this column, and `readableOrgIds` never consults it. Collapsing these
+is how a platform role becomes a backdoor.
 
-Three constraints that are easy to get wrong:
+**An owner's authority inside a group they created is a real `Membership` row.** `createOrg`
+writes an APPROVED ADMIN membership in the same transaction as the group, and
+`updateMembership` refuses to revoke or demote the creator's row. That is the load-bearing
+choice in this feature. The alternative — teaching `requireMembership` to answer yes for an
+owner's own groups — puts platform authority into the hot path of every authorization
+decision in the app, where one wrong condition is a cross-parish read, and it makes the owner
+invisible in their own roster because there is no row to show. Materializing the grant means
+every read path still asks the one question it has always asked, and adding this axis widened
+no existing check.
 
-1. **OWNER must not imply read access to every group.** It is the authority to *create* a
-   group and admit its first admin — not a master key to every parish's feed and roster.
-   `requireViewer`'s membership scoping stays exactly as it is, and `requirePlatformOwner`
-   is a separate check used only by the two endpoints above. An owner who wants to read a
-   parish gets a membership in it, visibly, like everyone else. Collapsing these is how a
-   platform role becomes a backdoor.
-2. **`GET /api/orgs` stays the viewer's own groups.** It is not a directory, and making it
-   one for owners would put a second meaning behind one endpoint. A console needs
+Three further constraints:
+
+1. **`GET /api/orgs` stays the viewer's own groups.** It is not a directory, and making it
+   one for owners would put a second meaning behind one endpoint. An owner console needs
    `GET /api/admin/orgs`, separately gated.
+2. **A platform owner is `access: ACTIVE` even with no memberships.** The one place ownership
+   touches a read, and it is a gate rather than a grant: a freshly provisioned owner has no
+   groups yet by definition, and without it they would sign in to the access-removed screen
+   and never reach the thing they paid for.
 3. **This is not a join-request flow.** Admission stays one-directional, and
    `MembershipStatus` stays `APPROVED | REVOKED` — see the schema header before reaching for
    a third value.
 
-### The surface
+### Granting it is a back door, on purpose
 
-A single screen, reachable only by an owner, that takes a parish name, a kind, and the head
-priest's email address, and performs the two calls. It belongs beside Settings → Groups
-rather than inside it: that screen lists groups you administer, and this one creates groups
-you will not.
+Nothing in `/api` writes `platform_role`. An endpoint that grants platform authority is a
+privilege-escalation surface standing in front of a role that changes hands a few times a
+year — the wrong trade in every direction. It is granted by a script:
 
-Until it exists, onboarding a second parish is: add the group and the priest's email to
-`seed.prod.js`, run `npm run db:seed:prod`. That works, it is idempotent, and it is a deploy
-— which is precisely the cost this section exists to eventually remove.
+```bash
+npm run owner                            # list every owner and the groups they created
+npm run owner -- priest@parish.org       # grant OWNER, provisioning the account if new
+npm run owner -- --revoke someone@x.org  # take it back; their groups are left alone
+```
+
+`scripts/grant-owner.mjs` has the same trust boundary the seeds already have: a trusted
+machine with the database URL, never shipped, never reachable over the network. It
+**provisions** — a new customer has no account and the app is invite-only, so granting
+ownership to an unknown address creates the Supabase user and the Profile too, which is what
+makes "they bought it, now let them in" one command. When billing exists, that script is the
+seam the webhook plugs into; it should not become a route.
+
+`prisma/seed.prod.js` asserts OWNER for the two bootstrap accounts the same way it asserts
+their memberships — it is access, not content, so it is repaired on every run. Nobody else is
+added there. It also names the Cathedral's **owner** (`Organization.createdById`), which is a
+narrower fact than OWNER and belongs to one of them: both may create groups, only Fr. Alexander
+may delete this parish. A null creator is repaired on re-run and never reassigned.
+
+### Onboarding a parish, end to end
+
+1. `npm run owner -- priest@parish.org` — he can now sign in and build.
+2. He signs in, completes `/welcome`, and `POST /api/orgs` creates his group. He is its ADMIN
+   from the moment it exists.
+3. `POST /api/orgs/:orgId/members` admits his parishioners — the invite flow that already
+   worked, which provisions each person's Supabase user, Profile and APPROVED membership in
+   one step. Nothing new was needed for the hard half.
+
+No deploy, no seed edit. Step 2 has a surface: `<OrgCreator/>`, opened from a **New group** row
+at the foot of the group switcher, which is drawn only for an owner. `projectViewer` ships
+`platformRole` for that gate. See the Groups section of `frontend-architecture.md`.
+
+`DELETE` is the danger zone at the foot of `<OrgEditor/>`, collapsed until asked for and armed
+only once the group's name has been typed. It is drawn off `canDelete`, which `projectOrg`
+composes from `canDeleteOrg` — the same predicate `deleteOrg` enforces, so the button cannot be
+offered for an action that would then 403. `createdById` itself is deliberately *not* shipped:
+the client is told the answer, not the inputs.
+
+The human types the group's **name**; the wire carries its **slug**. Two strings for one
+confirmation, on purpose — the slug is the stable key and the right thing for the API to check,
+and it is also a value this app never shows anybody, so asking a person to type it would be
+asking them to confirm with something they have never seen.
+
+### `OrgKind.GROUP`
+
+Not every group is a parish, so `GROUP` was added as the residual value and is what `createOrg`
+defaults to. Beyond that the column does nothing: it grants nothing, nothing branches on it,
+and no screen renders it — every group behaves identically. The create form does not ask for it
+(a permanent decision with no consequence is a bad question) and `updateOrg` refuses to change
+it. It is kept because the rows that predate it genuinely are a parish and a diocese, and this
+column is the only place that is recorded.
 
 ---
 

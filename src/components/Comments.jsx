@@ -179,8 +179,14 @@ const NoComments = () => (
 )
 
 /* The scrollable comment thread — skeleton on first load, then the rows. `header`
- * is an optional pinned node (the post caption on desktop). Presentational: all
- * data/actions come from the owning body via props.
+ * is an optional node the thread opens with (the post itself, on the surfaces that render it
+ * there). Presentational: all data/actions come from the owning body via props.
+ *
+ * **`header` sits outside the skeleton swap, because it is data the surface already has.** The
+ * thread is fetched and the post is not, so covering the post with a comment skeleton would
+ * hide the thing the reader opened for the length of a round trip — and on a text post, where
+ * that node *is* the post, there would be nothing on screen at all. Inside the crossfade it
+ * would also fade out and back in on every load, which reads as the post reloading.
  *
  * The rows sit in a `<Reflow/>` so a new comment fades in at the top while the thread below
  * it — the "load more" button included — glides down, and a deleted one is closed over
@@ -201,60 +207,62 @@ const CommentsList = ({ comments, now, skeleton, hasMore, loadMore, loadingMore,
     })
 
     return (
-        <AnimatePresence mode="wait" initial={false}>
-            {skeleton ? (
-                <Transition fast key="skeleton">
-                    <CommentsSkeleton />
-                </Transition>
-            ) : (
-                <Transition fast key="content">
-                    {/* `relative` is <Reflow/>'s requirement — read that component. */}
-                    <div className="relative flex flex-col py-2">
-                        {header}
-                        <Reflow>
-                            {comments.length === 0 ? (
-                                <NoComments key="empty" />
-                            ) : (
-                                comments.map((comment) => (
-                                    <CommentRow
-                                        key={comment.localId ?? comment.id}
-                                        comment={comment}
-                                        now={now}
-                                        onToggleLike={() => toggleLike(comment.id)}
-                                        onDelete={() => remove(comment.id)}
-                                    />
-                                ))
-                            )}
-                        </Reflow>
-                        {hasMore && (
-                            /* The sentinel below usually gets there first, so this is the
-                             * fallback: a failed page leaves the list the same length, which
-                             * is the state that stops the sentinel re-firing, and the reader
-                             * needs something to press. */
-                            <motion.button
-                                layout="position"
-                                transition={ROW_SPRING}
-                                type="button"
-                                onClick={loadMore}
-                                disabled={loadingMore}
-                                aria-label="Load more comments"
-                                className="flex w-full justify-center py-3 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
-                            >
-                                {loadingMore ? (
-                                    <Ripple aria-label="Loading comments" className="size-8 [&_circle]:stroke-current" />
+        <div className="flex flex-col py-2">
+            {header}
+            <AnimatePresence mode="wait" initial={false}>
+                {skeleton ? (
+                    <Transition fast key="skeleton">
+                        <CommentsSkeleton />
+                    </Transition>
+                ) : (
+                    <Transition fast key="content">
+                        {/* `relative` is <Reflow/>'s requirement — read that component. */}
+                        <div className="relative flex flex-col">
+                            <Reflow>
+                                {comments.length === 0 ? (
+                                    <NoComments key="empty" />
                                 ) : (
-                                    <More className="size-6" />
+                                    comments.map((comment) => (
+                                        <CommentRow
+                                            key={comment.localId ?? comment.id}
+                                            comment={comment}
+                                            now={now}
+                                            onToggleLike={() => toggleLike(comment.id)}
+                                            onDelete={() => remove(comment.id)}
+                                        />
+                                    ))
                                 )}
-                            </motion.button>
-                        )}
-                        {/* Mounted unconditionally: a node that appears only once `hasMore` is
-                          * known would need a second intersection event, which a panel nobody
-                          * has scrolled never produces. */}
-                        <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
-                    </div>
-                </Transition>
-            )}
-        </AnimatePresence>
+                            </Reflow>
+                            {hasMore && (
+                                /* The sentinel below usually gets there first, so this is the
+                                 * fallback: a failed page leaves the list the same length,
+                                 * which is the state that stops the sentinel re-firing, and
+                                 * the reader needs something to press. */
+                                <motion.button
+                                    layout="position"
+                                    transition={ROW_SPRING}
+                                    type="button"
+                                    onClick={loadMore}
+                                    disabled={loadingMore}
+                                    aria-label="Load more comments"
+                                    className="flex w-full justify-center py-3 text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
+                                >
+                                    {loadingMore ? (
+                                        <Ripple aria-label="Loading comments" className="size-8 [&_circle]:stroke-current" />
+                                    ) : (
+                                        <More className="size-6" />
+                                    )}
+                                </motion.button>
+                            )}
+                            {/* Mounted unconditionally: a node that appears only once
+                              * `hasMore` is known would need a second intersection event,
+                              * which a panel nobody has scrolled never produces. */}
+                            <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
+                        </div>
+                    </Transition>
+                )}
+            </AnimatePresence>
+        </div>
     )
 }
 
@@ -367,12 +375,17 @@ const CommentsDrawer = ({ post, open, onOpenChange }) => {
 /* -------------------------------------------------------------------------- */
 
 /* The full comments surface for a post as a self-contained flex column: post
- * header, pinned caption + comment thread (its own internal scroll), the post's
+ * header, the post's caption above the comment thread (one internal scroll), the post's
  * action row (like / comment), the like tally, and the composer. Reused across every
- * post surface — the desktop dialog's right rail and the mobile sheet, both in
- * `PostView` (`/p/:id`) — pass a `className` (e.g. `flex-1`) to size it inside its
- * parent. */
-export const CommentsPanel = ({ post, dismiss, className }) => {
+ * post surface — the desktop dialog's right rail, and both presentations of a text post,
+ * all in `PostView` (`/p/:id`) — pass a `className` (e.g. `flex-1`) to size it inside its
+ * parent.
+ *
+ * `caption` replaces the block the thread opens with. The default is the Instagram caption —
+ * the author's handle in bold followed by the body — which is written to be read *under a
+ * photo*. A post with no photo is not captioning anything, so its surfaces pass the post
+ * itself: a headline and the body. See <PostTextView/>. */
+export const CommentsPanel = ({ post, dismiss, caption, className }) => {
     const { comments, skeleton, hasMore, loadMore, loadingMore, toggleLike, add, remove, viewer } =
         useComments(post.id)
     const now = useNow()
@@ -384,7 +397,7 @@ export const CommentsPanel = ({ post, dismiss, className }) => {
 
     /* The caption and the attachment travel together: an opened post has no other place to
      * offer its file, and a reader who came here from the card expects to find it. */
-    const caption = post.body || post.document ? (
+    const lead = caption ?? (post.body || post.document ? (
         <div className="flex flex-col gap-3 px-4 pb-2 pt-4">
             {post.body && (
                 <div className="flex items-start gap-3">
@@ -400,7 +413,7 @@ export const CommentsPanel = ({ post, dismiss, className }) => {
                 <Attachment {...post.document} href={appPath(post.document.url)} />
             )}
         </div>
-    ) : null
+    ) : null)
 
     return (
         <div className={cn("flex min-h-0 flex-col", className)}>
@@ -427,7 +440,7 @@ export const CommentsPanel = ({ post, dismiss, className }) => {
                     loadingMore={loadingMore}
                     toggleLike={toggleLike}
                     remove={remove}
-                    header={caption}
+                    header={lead}
                 />
             </div>
 

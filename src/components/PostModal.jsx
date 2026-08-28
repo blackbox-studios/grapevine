@@ -6,15 +6,15 @@ import useMeasure from "react-use-measure"
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
 import { CommentsSkeleton, PostMediaSkeleton } from "@/components/Skeleton"
-import { Close } from "@/components/Widgets"
-import { appPath } from "@/lib/utils"
+import { Overlay } from "@/components/Widgets"
+import { appPath, postImages } from "@/lib/utils"
 
 /* The post's media. Sized by a *definite* height so the box width derives from the media's
  * aspect ratio (the dialog then shrinks to media + rail), capped at `95vw − rail` so a wide
  * photo can't shove the rail off-screen. Carousels reuse the `bare` variant (fills its box,
  * dots overlaid). */
 const PostMedia = ({ post }) => {
-    const images = post.images ?? (post.image ? [post.image] : [])
+    const images = postImages(post)
     if (images.length === 0) return null
 
     if (images.length > 1) {
@@ -66,31 +66,20 @@ const NotFound = () => (
     </div>
 )
 
-/* The desktop presentation of one post (`/p/:id`): a centered dialog on a dimmed backdrop,
- * media on the left and the comment rail on the right. This is the exact surface the feed's
- * comment icon / photo tap used to open as a Radix dialog; now it's URL-driven and shareable.
+/* The desktop presentation of one post with a photo (`/p/:id`): a centered dialog on a dimmed
+ * backdrop, media on the left and the comment rail on the right. This is the exact surface the
+ * feed's comment icon / photo tap used to open as a Radix dialog; now it's URL-driven and
+ * shareable.
  *
  * The mobile presentation lives in a separate <PostSlide/> — the two behave so differently
  * (a fading dialog vs. a Reels-style swipe-in sheet) that <PostView/> picks between them by
- * breakpoint rather than branching on `isDesktop` throughout one component. */
+ * breakpoint rather than branching on `isDesktop` throughout one component. A post with no
+ * photo at all is a third surface again (<PostTextView/>).
+ *
+ * <Overlay/> is the dimmed, fading, click-to-dismiss box, shared with that third surface so the
+ * two dialogs arrive and leave identically. */
 const PostModal = ({ post, skeleton, dismiss }) => (
-    <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
-    >
-        {/* Dimmed backdrop over the (still-mounted) feed; click to dismiss. Hidden from the
-         * a11y tree (the labelled Close button + Escape are the exposed affordances) so it
-         * isn't announced as a second control. */}
-        <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={dismiss}
-            className="absolute inset-0 cursor-default bg-black/80"
-        />
+    <Overlay dismiss={dismiss} label="Close post">
         <div className="relative z-10 flex h-[90dvh] w-auto max-w-[95vw] overflow-hidden rounded-2xl bg-black lg:border">
             {!skeleton && !post ? (
                 <NotFound />
@@ -112,8 +101,7 @@ const PostModal = ({ post, skeleton, dismiss }) => (
                 </>
             )}
         </div>
-        <Close onClick={dismiss} aria-label="Close post" className="fixed right-4 top-4 z-10" />
-    </motion.div>
+    </Overlay>
 )
 
 export default PostModal

@@ -1,13 +1,18 @@
+/* The browser tab's title. Two things write it — the root layout's `metadata`, and
+ * `useUnreadTitle` prefixing the unread count — and a second copy would rename the tab. */
+export const APP_NAME = "Grapevine"
+
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
     POST: "/p",
     NOTIFICATIONS: "/notifications",
-    /* The account surface: who the viewer is, and every destination that hangs off them.
-     * A route rather than a menu, because it is where Settings and the roster are now
-     * reached from — see `app/(protected)/profile/page.jsx`. */
-    PROFILE: "/profile",
+    /* The account surface, and the index of the settings tree: who the viewer is, and every
+     * destination that hangs off them. A route rather than a menu, because it is where the
+     * settings sub-pages and the roster are reached from — see
+     * `app/(protected)/settings/page.jsx`. Everything below it is a row on that list. */
     SETTINGS: "/settings",
+    SETTINGS_GENERAL: "/settings/general",
     SETTINGS_USERS: "/settings/users",
     /* Signed in, but not yet through the door — see components/MemberGate.jsx. */
     WELCOME: "/welcome",
@@ -109,10 +114,13 @@ export const API_ENDPOINTS = {
     /* Is this @handle free? Answered live while the viewer types one during orientation,
      * so a collision surfaces on the step that caused it rather than after the last one. */
     ME_HANDLE: "/me/onboarding/handle",
+    /* GET for the viewer's own groups; POST to create one, which only a platform OWNER may
+     * do. Never a directory of every group in the system. */
     ORGS: "/orgs",
-    /* PATCH only — the group's own name, bio and picture, for an admin of it. There is no
-     * GET here: a viewer's groups already arrive with the viewer from /me, and a second
-     * endpoint returning the same row would be a second thing to go stale. */
+    /* PATCH the group's own name, bio and picture, for an admin of it; DELETE it, for the
+     * owner who created it. There is no GET here: a viewer's groups already arrive with the
+     * viewer from /me, and a second endpoint returning the same row would be a second thing
+     * to go stale. */
     ORG: (orgId) => `/orgs/${orgId}`,
     ORG_MEMBERS: (orgId) => `/orgs/${orgId}/members`,
     ORG_INVITES: (orgId) => `/orgs/${orgId}/invites`,
@@ -152,6 +160,12 @@ export const PAGE_SIZE = {
     NOTIFICATIONS: 15,
 }
 
+/* How often a client push cannot reach re-checks the notification tally — see
+ * `useNotificationsWatch` for which clients those are. Short enough that a dot still feels
+ * like it appeared on its own; affordable because a tick with nothing to report costs the
+ * viewer lookup every request pays plus one index-only count. */
+export const NOTIFICATIONS_POLL_MS = 30_000
+
 /* ---------------------------------------------------------------------------
  * Uploads
  *
@@ -183,6 +197,17 @@ export const UPLOAD_PURPOSES = {
  * how long a parish's name is allowed to be. */
 export const MAX_ORG_NAME_LENGTH = 80
 export const MAX_ORG_BIO_LENGTH = 280
+
+/* A group's slug: URL-safe, lowercase, and permanent.
+ *
+ * Set once when the group is created (`createOrg` derives it from the name unless one is
+ * given) and never editable afterwards — it is the natural key the seeds upsert on and the
+ * only stable handle anything outside the database has on a group. The shape is the same
+ * family as `HANDLE_PATTERN`: it must start and end alphanumeric, so a slug can never render
+ * as a leading dash or collide with a path segment. */
+export const ORG_SLUG_MIN = 3
+export const ORG_SLUG_MAX = 48
+export const ORG_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/
 
 /* What the file picker accepts and the server admits.
  *
@@ -299,6 +324,19 @@ export const OTP_RESEND_SECONDS = 60
 export const ROLES = {
     ADMIN: "ADMIN",
     MEMBER: "MEMBER",
+}
+
+/* Authority over the platform, not over a group — the subscriber's axis. Mirrors the
+ * `PlatformRole` enum.
+ *
+ * **Presentation only, like every role constant here.** It decides whether the switcher
+ * offers "New group"; `requirePlatformOwner` on the server is what actually decides, and a
+ * client that lied about this would get a 403. It is deliberately not part of `ROLE_LEVEL` —
+ * OWNER is not a rank above ADMIN, it is a different question, and putting it on that ladder
+ * would make `<Privileged/>` start answering it. */
+export const PLATFORM_ROLES = {
+    NONE: "NONE",
+    OWNER: "OWNER",
 }
 
 /* Hierarchical comparison for `<Privileged/>`: a control requiring MEMBER is visible to an

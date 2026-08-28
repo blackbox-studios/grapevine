@@ -400,7 +400,7 @@ const SettingsUsersPage = () => {
             {/* The group and its count are the title because that is what this roster is — a
                 phone shows one screen at a time, and "which parish am I looking at" is the
                 question the table's own columns cannot answer. */}
-            <BackHeader title={heading} back={ROUTES.PROFILE} bleed />
+            <BackHeader title={heading} back={ROUTES.SETTINGS} bleed />
 
             <section className="flex flex-col gap-6">
                 {/* The bar carries the heading on a phone, leaving Admissions alone on this row

@@ -5,6 +5,7 @@ import { motion } from "motion/react"
 import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
+import Hyperlink from "@/components/Hyperlink"
 import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
@@ -16,20 +17,45 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import More from "@/assets/svg/icons/more.svg"
 import Ripple from "@/assets/svg/ripple.svg"
+import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useCurrentOrg } from "@/lib/store/org/hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { CARD_SPRING, appPath, captionPreview, cn, formatCompact, postPath, timeAgoCompact } from "@/lib/utils"
+import {
+    CARD_SPRING,
+    appPath,
+    captionPreview,
+    cn,
+    formatCompact,
+    postImages,
+    postPath,
+    timeAgoCompact,
+} from "@/lib/utils"
 
 /* Roughly two lines of caption at the feed's column width before truncating. */
 const CAPTION_LIMIT = 100
 
+/* And the budget for a post with no photo, where the writing *is* the post.
+ *
+ * Much larger than a caption's, and not by taste: a caption is read against the picture above
+ * it, so two lines of it plus a "more" is a reasonable share of a card whose subject is
+ * elsewhere. A text-only announcement has nothing else on the card at all — the same two lines
+ * would fold the whole post away behind an affordance, on a card with room to spare. This is
+ * around eight lines at the feed's column width, which holds a service schedule or a paragraph
+ * of news whole and still stops a very long letter from owning the scroll. */
+const TEXT_LIMIT = 700
+
 /* Instagram-style caption: the author handle in bold followed by the post body.
  * Bodies truncate with an inline "... more" affordance — at a word boundary, or at the
  * author's first line break if that comes first (`captionPreview`).
+ *
+ * `label` is optional and `limit` varies, because a text-only post renders its body through
+ * this same component without a handle in front of it and with far more room — see
+ * `TEXT_LIMIT` and the layout note in <PostCard/>.
  *
  * The caption stays a single inline paragraph so the body wraps naturally, and the
  * "more" word simply disappears on expand. Radix's Collapsible can't do this — its
@@ -44,23 +70,30 @@ const CAPTION_LIMIT = 100
  * with stray indentation does not stack up ragged margins, and long lines still wrap. Every
  * surface that renders a body carries it — the sheet's caption, the dialog's rail, the
  * overlay teaser — because the same post read differently on each otherwise. */
-const Caption = ({ label, text }) => {
+const Caption = ({ label, text, limit = CAPTION_LIMIT, className }) => {
     const [open, setOpen] = useState(false)
     const [ref, { height }] = useMeasure()
 
     /* Ends at the character budget or the author's first line break, whichever comes first —
      * see `captionPreview`. */
-    const { preview, truncated } = captionPreview(text, CAPTION_LIMIT)
+    const { preview, truncated } = captionPreview(text, limit)
 
     return (
+        /* `className` may set the type scale but must not add padding: the animated height is
+         * the paragraph's own, and with `border-box` any padding here would be subtracted from
+         * the text rather than added around it, clipping the last line. Use a margin. */
         <motion.div
-            className="overflow-hidden text-sm leading-snug"
+            className={cn("overflow-hidden text-sm leading-snug", className)}
             initial={false}
             animate={{ height: height || "auto" }}
             transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
         >
             <p ref={ref} className="whitespace-pre-line">
-                <span className="font-semibold">{label}</span>{" "}
+                {label && (
+                    <>
+                        <span className="font-semibold">{label}</span>{" "}
+                    </>
+                )}
                 {open || !truncated ? text : preview}
                 {truncated && !open && (
                     <>
@@ -79,7 +112,17 @@ const Caption = ({ label, text }) => {
     )
 }
 
-/* A single Instagram-style feed card: header, media, action row, likes, caption. */
+/* A single feed card, in one of two layouts.
+ *
+ * With a photo it is Instagram's: header, media, action row, likes, then the caption — the
+ * body last, in small type, prefixed with the author's handle, because it is written *to* the
+ * picture and read after it.
+ *
+ * With no photo none of that holds. The writing is the post, so it comes first and it is read
+ * first: header, the title as a headline, the body at reading size and at length
+ * (`TEXT_LIMIT`), then the action row underneath the thing it acts on. The handle comes off the
+ * body — there is no picture for it to be captioning, and the author is already named in the
+ * header two lines above. */
 const PostCard = ({ post }) => {
     const [commentsOpen, setCommentsOpen] = useState(false)
     const now = useNow()
@@ -95,8 +138,17 @@ const PostCard = ({ post }) => {
      * is what turns them into "Dn. Paul". See lib/name.js. */
     const name = displayName(post.author)
 
-    /* A post carries either a single `image` or an `images` array (carousel). */
-    const images = post.images ?? (post.image ? [post.image] : [])
+    const images = postImages(post)
+    /* No photo is not a missing photo — it is the other layout. See the header above. */
+    const textOnly = images.length === 0
+
+    const body = post.body && (
+        textOnly ? (
+            <Caption text={post.body} limit={TEXT_LIMIT} className="mb-1 text-base leading-normal" />
+        ) : (
+            <Caption label={handle} text={post.body} />
+        )
+    )
 
     /* Pinch-to-peek the single-image card in place (touch only): a two-finger gesture lifts a
      * clone of the photo above the feed and springs it back on release. The tap that opens the
@@ -110,10 +162,10 @@ const PostCard = ({ post }) => {
     })
 
     /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
-     * than router.push: the surface overlays the *live* feed (the adaptive PostView: a
-     * centered dialog on desktop, a swipe-in sheet on mobile), so the feed has to stay
-     * mounted with its scroll offset untouched. A real navigation would unmount it and
-     * drop the reader back at the top on dismiss. See useSlideRoute.hook.js. */
+     * than router.push: the surface overlays the *live* feed (<PostView/>, which picks its own
+     * presentation), so the feed has to stay mounted with its scroll offset untouched. A real
+     * navigation would unmount it and drop the reader back at the top on dismiss. See
+     * useSlideRoute.hook.js. */
     const openPost = useCallback(() => {
         openSlide(postPath(post.id))
     }, [post.id])
@@ -153,8 +205,19 @@ const PostCard = ({ post }) => {
             </header>
 
             {post.title && (
-                <h2 className="pb-3 text-lg leading-none">{post.title}</h2>
+                <h2
+                    className={cn(
+                        "text-lg",
+                        /* A headline sits close to the body it heads and carries the weight
+                           that makes it one; above a photo it is a single quiet line. */
+                        textOnly ? "pb-2 font-semibold leading-snug" : "pb-3 leading-none",
+                    )}
+                >
+                    {post.title}
+                </h2>
             )}
+
+            {textOnly && body}
 
             {/* On mobile the media breaks out of the feed's gutter to sit edge-to-edge (the
              * `-mx-4` cancels the shell's `px-4`, and it's a stretched flex item so the
@@ -189,7 +252,7 @@ const PostCard = ({ post }) => {
                 <Attachment
                     {...post.document}
                     href={appPath(post.document.url)}
-                    className={cn(images.length > 0 && "mt-3")}
+                    className="mt-3"
                 />
             )}
 
@@ -259,9 +322,7 @@ const PostCard = ({ post }) => {
                 </div>
             )}
 
-            {post.body && (
-                <Caption label={handle} text={post.body} />
-            )}
+            {!textOnly && body}
 
             <Comments
                 post={post}
@@ -269,6 +330,63 @@ const PostCard = ({ post }) => {
                 onOpenChange={setCommentsOpen}
             />
         </article>
+    )
+}
+
+/* A group with nothing in it yet.
+ *
+ * **What it says depends on who is reading**, and that is the whole reason it is not one
+ * sentence. An admin of a fresh group is looking at two jobs nobody has told them about —
+ * publish something, and put people here to read it — so this is where they are told. A member
+ * can do neither, and pointing them at a roster they cannot open would be an instruction that
+ * dead-ends in a 403; they get the plain fact instead.
+ *
+ * Only the roster is a link, because only the roster is a place. The composer is a dialog
+ * owned by the nav with no route and no store flag to open it from here, so it is named rather
+ * than linked — lifting its open state into a store to make one word clickable would be a
+ * store with one purpose and a lifetime nobody could name.
+ *
+ * **The link is the loud variant, not `soft`.** This is the one call to action on an otherwise
+ * empty screen, and `soft` holds the inherited colour until the pointer is already on it — on a
+ * phone, where there is no hover at all, that is a link nobody can see. `soft` is for a link
+ * sitting beside a louder primary action, which is the opposite of this. */
+const FeedEmpty = () => {
+    const { current, isAdmin } = useCurrentOrg()
+
+    /* No group at all is a different sentence from a group with nothing in it, and it is a
+     * state only an owner reaches: `accessFor` keeps them ACTIVE with no memberships, so a
+     * freshly provisioned owner meets this on their very first sign-in, and so does one who
+     * has just deleted their last group. Everyone else with no memberships is stopped by the
+     * gate long before the feed. Telling them "nothing has been posted here" would name a
+     * group that does not exist. */
+    if (!current) {
+        return (
+            <div className="flex flex-col items-center gap-2 px-8 py-20 text-center">
+                <h2 className="text-lg font-semibold text-foreground">No groups yet</h2>
+                <div className="text-sm text-muted-foreground">
+                    Create your first group from the group switcher to start posting.
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col items-center gap-2 px-8 py-20 text-center">
+            <h2 className="text-lg font-semibold text-foreground">No posts yet</h2>
+            <div className="text-sm text-muted-foreground">
+                {isAdmin ? (
+                    <>
+                        Create a post with the compose button, and{" "}
+                        <Hyperlink href={ROUTES.SETTINGS_USERS} className="font-medium">
+                            add members
+                        </Hyperlink>{" "}
+                        so there is somebody to read it.
+                    </>
+                ) : (
+                    <>Nothing has been posted in {current?.name ?? "this group"} yet.</>
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -283,6 +401,12 @@ const Feed = ({ posts = [], hasMore = false, loadingMore = false, onLoadMore }) 
      * fallback (and its spinner is the visible "loading" state) for the rare case the content
      * is too short to scroll into the trigger zone. */
     useInfiniteScroll(onLoadMore, { enabled: hasMore })
+
+    /* Before the container below, not inside it: <Reflow/> measures and animates a list, and
+       an empty state is not a list item that arrived. The caller only renders this component
+       once loading has settled, so an empty `posts` is a real answer rather than a pending
+       one. */
+    if (posts.length === 0) return <FeedEmpty />
 
     return (
         /* `relative` is <Reflow/>'s requirement, not decoration — read that component.

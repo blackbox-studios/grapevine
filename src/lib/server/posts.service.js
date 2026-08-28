@@ -9,8 +9,10 @@ import { forbidden, invalid, notFound } from "@/lib/server/errors"
 import { membershipIn, requireMembership, readableOrgIds } from "@/lib/server/auth"
 import {
     newPostRecipients,
+    notifyComment,
     notifyLike,
     notifyNewPost,
+    pushComment,
     pushLike,
     pushNewPost,
     unnotifyComment,
@@ -630,7 +632,7 @@ export const toggleCommentLike = async (viewer, commentId) => {
     }
 }
 
-/* Posts a comment as the viewer.
+/* Posts a comment as the viewer, and tells the post's author about it.
  *
  * Any APPROVED member may comment — this is the one write a non-admin can perform, and it
  * is the reason `loadReadablePost` (membership) is the check here rather than
@@ -645,20 +647,33 @@ export const addComment = async (viewer, postId, text) => {
     const body = String(text ?? "").trim()
     if (!body) throw invalid("Comment text is required.", { text: "Required" })
 
-    /* Sequential, for the same reason as the like toggles: the tally bump does not read
-     * anything the insert returns, so there is nothing to hold a pooled connection open
-     * for. */
-    const [comment] = await prisma.$transaction([
-        prisma.comment.create({
+    /* Interactive because the notification's subject is the comment: it needs an id that does
+     * not exist until the insert above it has run, which is the one dependency the array form
+     * cannot express. The same trade `createPost` makes for its fan-out. */
+    const comment = await prisma.$transaction(async (tx) => {
+        const created = await tx.comment.create({
             data: { postId, authorId: viewer.id, body },
             include: commentInclude(viewer.id),
-        }),
-        prisma.post.update({
+        })
+
+        await tx.post.update({
             where: { id: postId },
             data: { commentCount: { increment: 1 } },
             select: { id: true },
-        }),
-    ])
+        })
+
+        await notifyComment(tx, {
+            recipientId: post.authorId,
+            actorId: viewer.id,
+            commentId: created.id,
+            postId,
+        })
+
+        return created
+    })
+
+    /* The author's phone, after the commit and never awaited — see notifications.service.js. */
+    pushComment({ recipientId: post.authorId, actor: viewer, postId })
 
     /* Freshly written by the viewer, so it is theirs to remove. */
     return projectComment(comment, { liked: false, orgId: post.orgId, canDelete: true })
@@ -687,8 +702,9 @@ export const deleteComment = async (viewer, commentId) => {
         throw forbidden("You can only delete your own comments.")
     }
 
-    /* **The one interactive transaction in this file**, and it earns it: the tally may only
-     * be decremented if this request is the one that actually claimed the row. Two people
+    /* **Interactive, and for a different reason than `addComment`'s**: not a dependency on a
+     * generated id, but on a *count*. The tally may only be decremented if this request is
+     * the one that actually claimed the row. Two people
      * can delete the same comment at once — the author and an admin — and the array form
      * would run both decrements, permanently under-counting the thread. `updateMany` with
      * `deletedAt: null` in its `where` makes the claim atomic, and `count` is what the

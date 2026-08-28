@@ -206,8 +206,9 @@ export function CommentsSkeleton({ count = 8 }) {
  * loaded. Restyle the row by editing this, and the skeleton follows.
  *
  * The row adds its own interaction and colour on top (`w-full`, cursor, hover, the unread
- * tint); none of that changes the box, so none of it belongs here. */
-export const NOTIFICATION_ROW = "flex items-start gap-3 rounded-full py-2 pl-5 pr-6.5"
+ * tint), and its own radius, which varies with the rows either side and so cannot be a
+ * constant; none of that changes the box, so none of it belongs here. */
+export const NOTIFICATION_ROW = "flex items-start gap-3 py-2 pl-5 pr-6.5"
 
 /* Skeleton for the notifications panel (see components/Notifications.jsx): a stack of rows,
  * each an avatar, the actor's name and what they did, and the relative time on the right.
@@ -219,7 +220,7 @@ export const NOTIFICATION_ROW = "flex items-start gap-3 rounded-full py-2 pl-5 p
  * and the timestamp a `text-xs` line already pushed down by `pt-0.5`. */
 export function NotificationsSkeleton({ count = 6 }) {
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1">
             {Array.from({ length: count }, (_, i) => (
                 <div key={i} className={NOTIFICATION_ROW}>
                     <Skeleton className="size-10 shrink-0 rounded-full" />

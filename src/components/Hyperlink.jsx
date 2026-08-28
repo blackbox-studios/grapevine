@@ -10,7 +10,12 @@ import { cn } from "@/lib/utils"
  * sits next to a louder primary action and shouldn't compete for attention.
  *
  * `href` is optional: with no href it renders a non-navigating span so it can be
- * used purely as decorative link-styled text. */
+ * used purely as decorative link-styled text.
+ *
+ * **It cannot sit inside a `<p>`.** The underline wipe is built from `<div>`s, and a `<div>`
+ * inside a `<p>` is invalid HTML — React reports it as a hydration error and the browser
+ * silently closes the paragraph early. Prose that embeds one has to be a flow container
+ * (`<div>`), not a paragraph. */
 const Hyperlink = ({ children, className, soft, href, ...props }) => {
     const Comp = href ? NextLink : "span"
 

@@ -250,6 +250,58 @@ export const requireMembership = (viewer, orgId, { role } = {}) => {
     return membership
 }
 
+/* ---------------------------------------------------------------------------
+ * Platform authority
+ * ------------------------------------------------------------------------- */
+
+/* Is this viewer a platform owner — the person who pays for Grapevine?
+ *
+ * **This answers one question and must never be asked as a second one.** It is the right to
+ * bring a group into existence and to delete a group you brought, and that is the whole of
+ * it. It is not "is this person important", it is not a read grant, and it is deliberately
+ * not consulted by `requireMembership`, `readableOrgIds`, or anything that decides what a
+ * viewer may see. An owner has exactly the standing in a parish they did not create that any
+ * other stranger has: none.
+ *
+ * The authority an owner *does* hold inside a group they created is a real APPROVED ADMIN
+ * `Membership`, written by `createOrg` and protected from removal by `updateMembership`. So
+ * every read path keeps asking the same one question it always asked, and adding this axis
+ * widened no existing check — which is the only reason a platform role can be added to an
+ * app like this without becoming a backdoor. */
+export const isPlatformOwner = (viewer) => viewer?.platformRole === "OWNER"
+
+/* May this viewer destroy this group?
+ *
+ * **Narrower than either axis on its own**: a platform owner, *and* the one who created this
+ * particular group. Not "an owner" — one subscriber must never reach another's parish — and
+ * not an admin of the group, because a priest administering the parish he was given must not
+ * be able to delete the thing the subscriber pays for.
+ *
+ * A null `createdById` means nobody owns the group, and it is deletable by nobody. That is not
+ * a gap to be papered over with "any owner who administers it": the seeds assign an owner when
+ * they create a group (see `seed.prod.js`), so the only rows that reach this state are ones
+ * whose owner's profile was deleted — and quietly promoting some other owner into that slot is
+ * exactly the cross-subscriber reach `createdById` exists to prevent. Reassigning is a
+ * deliberate act, out of band, not a fallback.
+ *
+ * Shared by `deleteOrg`, which enforces it, and `projectOrg`, which ships it to the client as
+ * `canDelete` so the danger zone is drawn from the same rule the server would apply. Two
+ * copies of this predicate is how an affordance comes to be offered for an action that then
+ * 403s. */
+export const canDeleteOrg = (viewer, org) =>
+    isPlatformOwner(viewer) && Boolean(org?.createdById) && org.createdById === viewer.id
+
+/* Asserts platform ownership, for the two endpoints that create and delete groups.
+ *
+ * 403 rather than 404: unlike a group id, the *existence* of these endpoints is not a
+ * secret, and there is nothing to leak by saying plainly that this is not yours to do. */
+export const requirePlatformOwner = (viewer) => {
+    if (!isPlatformOwner(viewer)) {
+        throw forbidden("Only a Grapevine owner can do that.")
+    }
+    return viewer
+}
+
 /* The organizations whose posts a viewer may read: every APPROVED membership.
  *
  * Returned as an array of ids rather than a single id because the feed is already a union

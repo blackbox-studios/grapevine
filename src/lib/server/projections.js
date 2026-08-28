@@ -1,5 +1,6 @@
 import "server-only"
 
+import { canDeleteOrg } from "@/lib/server/auth"
 import { documentType, formatBytes } from "@/lib/utils"
 
 /* Database rows → wire shapes.
@@ -183,8 +184,18 @@ export const projectNotification = (notification) => ({
 
 /* An organization, as the Groups surface and the viewer's profile read it. `role` and
  * `status` come from the viewer's membership, so this is always a viewer-relative view of
- * a group rather than a public one. */
-export const projectOrg = (org, membership) => ({
+ * a group rather than a public one.
+ *
+ * `canDelete` is composed here for the same reason a post's is: it is a rule the client would
+ * otherwise re-derive, and a re-derived rule can disagree with the one `deleteOrg` enforces —
+ * which shows up as a delete button that 403s. It is narrower than `role` and cannot be worked
+ * out from anything else in this shape, since `createdById` is deliberately not shipped. See
+ * `canDeleteOrg`. Defaults false, the safe answer, so a partial projection can never
+ * manufacture the affordance.
+ *
+ * `slug` goes over because the delete confirmation is keyed on it — `deleteOrg` requires the
+ * caller to echo it back. Nothing renders it. */
+export const projectOrg = (org, membership, { canDelete = false } = {}) => ({
     id: org.id,
     slug: org.slug,
     name: org.name,
@@ -193,6 +204,7 @@ export const projectOrg = (org, membership) => ({
     bio: org.bio,
     role: membership?.role ?? null,
     status: membership?.status ?? null,
+    canDelete,
 })
 
 /* Whether this viewer may use the app, and if not, why.
@@ -202,12 +214,19 @@ export const projectOrg = (org, membership) => ({
  * precedence: one approved membership is enough to be in, regardless of what else is
  * revoked.
  *
+ * **A platform owner is always ACTIVE, and that is the one place ownership touches a read.**
+ * Not a privilege — it opens no group and reveals nothing — but a newly provisioned owner has
+ * no memberships yet, by definition: they are about to create their first group. Without this
+ * they would sign in to the access-removed screen and have no way to reach the thing they
+ * just paid for. See the `PlatformRole` note in `prisma/schema.prisma`.
+ *
  * Three values, not four. There is no PENDING, because nobody can ask to join — an admin
  * admits people and the membership is APPROVED from the moment it exists. REVOKED and NONE
  * stay distinct because they need different wording: one person was removed, the other was
  * never attached to a parish at all. */
-const accessFor = (memberships) => {
+const accessFor = (memberships, platformRole) => {
     if (memberships.some((m) => m.status === "APPROVED")) return "ACTIVE"
+    if (platformRole === "OWNER") return "ACTIVE"
     if (memberships.some((m) => m.status === "REVOKED")) return "REVOKED"
     return "NONE"
 }
@@ -236,17 +255,26 @@ export const projectViewer = (profile, memberships = []) => {
         lastName: profile.lastName,
         avatar: profile.avatarUrl,
         vocation: profile.vocation,
+        /* The third axis, shipped so a client can offer the create-a-group affordance to the
+         * one person it applies to. Presentation only, exactly like `role` — the endpoints it
+         * unlocks run `requirePlatformOwner` themselves, and a client that lied about this
+         * would get a 403 for its trouble. */
+        platformRole: profile.platformRole,
         /* Date only — `@db.Date`, so there is no time to strip and no timezone to shift it
          * across. Sent as YYYY-MM-DD, which is what a date input expects. */
         birthday: profile.birthday ? profile.birthday.toISOString().slice(0, 10) : null,
         onboardedAt: profile.onboardedAt?.toISOString() ?? null,
         createdAt: profile.createdAt.toISOString(),
-        access: accessFor(memberships),
+        access: accessFor(memberships, profile.platformRole),
         role: primary?.role ?? null,
         /* Only groups the viewer is actually in. A revoked membership informs `access`
          * above but must not appear as one of their groups. */
         orgs: memberships
             .filter((m) => m.status === "APPROVED")
-            .map((membership) => projectOrg(membership.org, membership)),
+            .map((membership) =>
+                projectOrg(membership.org, membership, {
+                    canDelete: canDeleteOrg(profile, membership.org),
+                }),
+            ),
     }
 }

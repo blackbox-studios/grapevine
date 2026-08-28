@@ -2,20 +2,13 @@ import "server-only"
 
 import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
-import {
-    HANDLE_MAX,
-    HANDLE_MIN,
-    HANDLE_PATTERN,
-    MAX_ORG_BIO_LENGTH,
-    MAX_ORG_NAME_LENGTH,
-    UPLOAD_PURPOSES,
-} from "@/lib/constants"
+import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN, UPLOAD_PURPOSES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { approvedMemberships, requireMembership } from "@/lib/server/auth"
+import { requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
-import { projectOrg, projectViewer } from "@/lib/server/projections"
+import { projectViewer } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
-import { supabaseAdmin } from "@/lib/server/supabase"
+import { findAuthUserByEmail, supabaseAdmin } from "@/lib/server/supabase"
 import { uploadPrefix } from "@/lib/server/uploads.service"
 
 /* The viewer's own identity, the parish roster, and admission to the parish.
@@ -39,9 +32,7 @@ const LAST_SEEN_THROTTLE_MS = 10 * 60 * 1000
 /* The viewer's own memberships are not queried here at all — `requireViewer` loads them
  * with the profile (see `viewerMemberships` in `lib/server/auth.js`), every status, with
  * each organization, already ordered APPROVED-first. Nothing in this file should ask the
- * database for them again: the viewer probe, the Groups list, and every admin check read
- * that one snapshot. `membershipsFor` used to live here and was the second and third round
- * trip of a request that had already loaded the answer.
+ * database for them again: the viewer probe and every admin check read that one snapshot.
  *
  * The roster below is a different question — *other* people's memberships in one group —
  * and that one is still a query. */
@@ -336,109 +327,6 @@ export const listMembers = async (viewer, orgId) => {
     return { items: memberships.map(projectMember), nextCursor: null }
 }
 
-/* The viewer's groups — the Groups surface.
- *
- * Not paginated: a person belongs to a handful of parishes, not a feed's worth. It still
- * returns the `{ items, nextCursor }` collection shape with a null cursor, because the
- * contract says a collection is always that object even where pagination looks
- * unnecessary — adding a key to an object is non-breaking, turning an array into one is
- * not. */
-export const listOrgs = async (viewer) => {
-    const memberships = approvedMemberships(viewer)
-    return {
-        items: memberships.map((membership) => projectOrg(membership.org, membership)),
-        nextCursor: null,
-    }
-}
-
-/* A group's name, description and picture — the group settings form.
- *
- * Admin of *that* group, which is the same permission as publishing into it and for the same
- * reason: these three fields are the parish's public face. They appear in the switcher, on
- * the Groups surface, and beside every post the group has ever published, so changing one is
- * an act of administration rather than a member's preference.
- *
- * **`slug` and `kind` are deliberately not editable here.** The slug is the natural key the
- * seeds upsert on and the only stable handle anything outside the database has on a group;
- * letting it move would break every such reference for a cosmetic gain, since nothing in the
- * UI shows it. `kind` decides what a group *is* (parish, diocese, monastery) and sits above
- * a parish admin — a diocese that could be renamed into a monastery by one of its parish
- * priests is not a permission this app should hand out. Both belong to whatever creates
- * groups; see the "Adding groups without editing the seed" note in backend-architecture.md.
- *
- * Every field is optional and absent means "leave alone", so the form can send only what
- * changed and the avatar picker can save a picture without touching the name mid-edit. An
- * explicitly null `bio` does clear it — that is the one way to remove a description, and it
- * is distinguishable from absence because `undefined` is what Prisma ignores.
- */
-export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
-    requireMembership(viewer, orgId, { role: "ADMIN" })
-
-    const data = {}
-
-    if (name !== undefined) {
-        const value = String(name ?? "").trim().replace(/\s+/g, " ")
-        if (!value) throw invalid("Enter a name for this group.", { name: "Required" })
-        if (value.length > MAX_ORG_NAME_LENGTH) {
-            throw invalid(
-                `A group name can be at most ${MAX_ORG_NAME_LENGTH} characters.`,
-                { name: "Too long" },
-            )
-        }
-        data.name = value
-    }
-
-    if (bio !== undefined) {
-        /* Trimmed to null rather than to "": the column is nullable and the projection hands
-         * the client `bio` verbatim, so an empty string would render as a description that is
-         * present and blank — a surface with nothing in it instead of no surface. */
-        const value = String(bio ?? "").trim()
-        if (value.length > MAX_ORG_BIO_LENGTH) {
-            throw invalid(
-                `A description can be at most ${MAX_ORG_BIO_LENGTH} characters.`,
-                { bio: "Too long" },
-            )
-        }
-        data.bio = value || null
-    }
-
-    if (avatar !== undefined) {
-        const url = String(avatar ?? "").trim()
-        if (!url) throw invalid("A picture is required.", { avatar: "Required" })
-
-        /* The same check `updateAvatar` makes, with the group as the owner. Without it this
-         * endpoint would take any string as a picture, and a crafted request could point a
-         * parish's avatar at an off-site image the switcher would then render as parish
-         * identity — or at another group's object, whose path is unguessable and reachable
-         * no other way. Only a grant from POST /api/uploads mints a URL that passes, and
-         * that grant already ran this exact authorization. */
-        if (
-            !isOwnedUrl(url, {
-                prefix: uploadPrefix(UPLOAD_PURPOSES.ORG_AVATAR),
-                ownerId: orgId,
-            })
-        ) {
-            throw invalid("A group picture must be uploaded through Grapevine.", {
-                avatar: "Unrecognized file",
-            })
-        }
-        data.avatarUrl = url
-    }
-
-    if (Object.keys(data).length === 0) {
-        throw invalid("Nothing to update.", { name: "Required" })
-    }
-
-    const org = await prisma.organization.update({ where: { id: orgId }, data })
-
-    /* Projected with the viewer's own membership, so the response carries the same `role`
-     * and `status` shape every other org the client holds does — the store swaps this row
-     * into the viewer's list, and a row missing those two fields would read as a group the
-     * viewer has no standing in. */
-    const membership = viewer.memberships.find((entry) => entry.orgId === orgId)
-    return projectOrg(org, membership)
-}
-
 /* ---------------------------------------------------------------------------
  * Admission
  * ------------------------------------------------------------------------- */
@@ -524,11 +412,27 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
 
     /* New person: create the credential first. If this fails there is no orphaned Profile
      * to clean up, whereas the reverse order would leave one behind. */
-    const { data, error } = await supabaseAdmin().auth.admin.createUser({
+    const supabase = supabaseAdmin()
+    const { data, error } = await supabase.auth.admin.createUser({
         email: address,
         email_confirm: true,
     })
-    if (error || !data?.user) {
+
+    /* "Already registered" is not a failure — it is an auth user with no Profile, and the
+     * fix is to adopt its id rather than to refuse the address.
+     *
+     * No Profile carries this address (the lookup above just said so), so the two stores have
+     * drifted: `db:reset` drops the Profile while the hosted `auth.users` row survives, and
+     * every address ever admitted through the app lands here on the next attempt. Refusing
+     * left it unaddable in both directions and the admin with a roster that does not contain
+     * the person the error says already exists.
+     *
+     * Adopting is also the only *correct* answer. `Profile.id` must mirror `auth.users.id` —
+     * a fresh uuid would key the Profile to an id the person's real token never carries, and
+     * every request would 401 with a valid session. Same reasoning as `provisionAuthUser`. */
+    const authUserId = data?.user?.id ?? (await findAuthUserByEmail(supabase, address))?.id
+
+    if (!authUserId) {
         throw invalid(
             `Could not create an account for ${address}: ${error?.message ?? "unknown error"}`,
             { email: "Failed" },
@@ -545,7 +449,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
          * they complete orientation, and the roster can tell the two states apart. */
         await tx.profile.create({
             data: {
-                id: data.user.id,
+                id: authUserId,
                 email: address,
                 handle,
                 vocation,
@@ -553,7 +457,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
         })
         return tx.membership.create({
             data: {
-                profileId: data.user.id,
+                profileId: authUserId,
                 orgId,
                 role,
                 status: "APPROVED",
@@ -636,11 +540,41 @@ export const updateMembership = async (viewer, membershipId, input) => {
 
     const membership = await prisma.membership.findUnique({
         where: { id: membershipId },
-        include: { profile: true },
+        /* The group comes along for the owner check below. One `include` on a single row, so
+         * it is the same statement rather than a second round trip. */
+        include: { profile: true, org: { select: { createdById: true } } },
     })
     if (!membership) throw notFound("Member not found.")
 
     requireMembership(viewer, membership.orgId, { role: "ADMIN" })
+
+    /* The group's owner cannot be revoked or demoted, by anybody.
+     *
+     * This is what makes `Organization.createdById` a subscription boundary rather than a
+     * label. An owner creates a group and admits its priest as a second admin; without this,
+     * that priest could revoke the owner's membership and take the group — and there would
+     * be no way back, because every route into a group goes through a membership row and the
+     * owner would no longer have one.
+     *
+     * It is also why an owner's authority inside their own group can be an ordinary
+     * membership instead of a special case checked on every read: the row is guaranteed to
+     * stay there. See the header of `orgs.service.js`.
+     *
+     * Note this is not the same guard as the self-protection below, and neither subsumes the
+     * other: that one stops an admin locking *themselves* out, this one stops an admin
+     * locking out somebody else who cannot be replaced. */
+    if (membership.org.createdById && membership.profileId === membership.org.createdById) {
+        if (status && status !== "APPROVED") {
+            throw invalid("The owner of a group cannot be removed from it.", {
+                status: "Not allowed",
+            })
+        }
+        if (role && role !== "ADMIN") {
+            throw invalid("The owner of a group is always an admin of it.", {
+                role: "Not allowed",
+            })
+        }
+    }
 
     /* An admin cannot demote or remove themselves.
      *

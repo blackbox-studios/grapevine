@@ -53,3 +53,9 @@ export const supabaseAdmin = () => {
     }
     return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, STATELESS)
 }
+
+/* Re-exported rather than defined here: the seeds need the same lookup and cannot import this
+ * file, which `server-only` closes to them. See `server/auth-users.js` for why it is its own
+ * module and what the paging cap means. Admission calls it on the failure path of
+ * `createUser`, which is the shape that note describes. */
+export { findAuthUserByEmail } from "./auth-users"

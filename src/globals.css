@@ -57,6 +57,8 @@
     --color-foreground: var(--foreground);
     --color-background: var(--background);
     --text-xxs: calc(10 / 16 * 1rem); /* 10px */
+    /* Overrides Tailwind's 16px; its unitless --text-base--line-height scales along. */
+    --text-base: calc(15 / 16 * 1rem); /* 15px */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -184,7 +186,7 @@
     --secondary-foreground: oklch(1 0 0);
     --muted: oklch(0.41 0 0);
     --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --accent: oklch(0.985 0 0 / 5%);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.66 0.2 24.48);
     --success: oklch(0.78 0.11 168);

@@ -22,7 +22,7 @@
  *
  * Two accounts are provisioned as real, sign-innable Supabase users:
  *
- *   SEED_ADMIN_EMAIL    Priest Alexander   PRIEST    ADMIN    can publish
+ *   SEED_ADMIN_EMAIL    Priest Alexander   PRIEST    ADMIN    can publish; also OWNER
  *   SEED_MEMBER_EMAIL   Jordan Rivera      FAITHFUL  MEMBER   can like and comment
  *
  * **Set those two env vars to addresses you can actually receive mail at.** Signing in
@@ -158,6 +158,11 @@ const PEOPLE = [
         email: ADMIN_EMAIL,
         vocation: "PRIEST",
         role: "ADMIN",
+        /* The one seeded platform owner, so `POST /api/orgs` and the delete path are
+         * exercisable locally. It is a third axis, not a bigger `role`: he is the Cathedral's
+         * ADMIN, the diocese's MEMBER, and an owner of neither — ownership is a property of
+         * the person, and the groups he owns are only the ones he creates from the app. */
+        platformRole: "OWNER",
         avatarUrl: "/img/mock/priest-alexander.png",
         signIn: true,
     },
@@ -294,6 +299,7 @@ const main = async () => {
             lastName: person.lastName,
             avatarUrl: person.avatarUrl ?? null,
             vocation: person.vocation,
+            platformRole: person.platformRole ?? "NONE",
         }
 
         const profile = await prisma.profile.upsert({
@@ -313,6 +319,20 @@ const main = async () => {
             status: person.status ?? "APPROVED",
         })
     }
+
+    /* The parish belongs to the seeded owner, so the delete path is exercisable locally.
+     *
+     * Written here rather than in the upsert above because it needs a profile id, and the
+     * profiles are created in the loop that just ran. Unconditional, unlike the production
+     * seed's repair-only version: this file owns its fixtures and rewrites them every run.
+     *
+     * The diocese is deliberately left ownerless. Its admin is the bishop, who is not a
+     * platform owner, so nothing can delete it — which is the other half of the rule and worth
+     * having on screen beside a group that can be. */
+    await prisma.organization.update({
+        where: { id: org.id },
+        data: { createdById: byHandle.get("cathedraldean") },
+    })
 
     console.log("→ Posts, media, and comments")
     /* Oldest first, so `createdAt` ordering in the database matches the fixture's
@@ -395,6 +415,22 @@ const main = async () => {
                     updatedAt: commentedAt,
                 },
             })
+
+            /* The notification `addComment` would have written, for the same reason the like
+             * rows below get theirs: the seed inserts the comment directly rather than
+             * through the one path that pairs the two. */
+            if (commentAuthorId !== authorId) {
+                await prisma.notification.create({
+                    data: {
+                        recipientId: authorId,
+                        actorId: commentAuthorId,
+                        type: "POST_COMMENT",
+                        subjectId: comment.id,
+                        postId: fixture.id,
+                        createdAt: commentedAt,
+                    },
+                })
+            }
         }
 
         /* The like rows behind the counter written above. One second apart so the ordering

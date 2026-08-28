@@ -80,7 +80,7 @@ function DialogHeader({
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-4 text-base", className)}
+      className={cn("flex flex-col gap-2 text-base", className)}
       {...props} />
   );
 }

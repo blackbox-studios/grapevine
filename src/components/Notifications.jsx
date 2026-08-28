@@ -39,8 +39,31 @@ import { cn, postPath, timeAgoCompact } from "@/lib/utils"
 const LINES = {
     POST_LIKE: () => "liked your post",
     COMMENT_LIKE: () => "liked your comment",
+    POST_COMMENT: () => "commented on your post",
     NEW_POST: (item) =>
         item.orgName ? `posted in ${item.orgName}` : "shared a new post",
+}
+
+/* The corner radius one row takes, given the rows around it.
+ *
+ * A run of unread rows reads as one block — rounded at its two ends, square where rows meet —
+ * so the neighbours that decide this are the unread ones, and a highlight ending halfway down
+ * the list still closes itself off. A run of one is a pill.
+ *
+ * A read row is always a pill: it draws no background until the cursor is on it, and a hover
+ * is one row being pointed at rather than part of anything. One radius serves both states,
+ * because a row shows the tint or the hover and never both.
+ *
+ * `rounded-3xl` rather than `rounded-t-full` at the ends: `rounded-full` on a 56px row clamps
+ * to 28px corners, and rounding only two of them lifts that clamp into a 56px dome. */
+const runRadius = (items, index) => {
+    if (items[index].read) return "rounded-full"
+
+    const opens = index === 0 || items[index - 1].read
+    const closes = index === items.length - 1 || items[index + 1].read
+
+    if (opens && closes) return "rounded-full"
+    return cn(opens && "rounded-t-3xl", closes && "rounded-b-3xl")
 }
 
 /* One line: who did it, what they did, and when — and a way to the thing it is about.
@@ -54,11 +77,9 @@ const LINES = {
  * the same deterministic gradient and initials a byline uses — so the person who liked your
  * post looks identical to the person who wrote one.
  *
- * `read` tints the row rather than hiding it. The badge clears the moment the panel opens, but
- * the highlight has to survive that: it is the reader's answer to "which of these are new",
- * and taking it away in the frame they opened it would remove the information at the moment
- * it is wanted. It goes on the next refresh, when the rows come back marked. */
-const NotificationRow = ({ item, now, onOpen }) => {
+ * `read` tints the row rather than hiding it. How long that tint lives is `markRead`'s
+ * decision, not this component's. */
+const NotificationRow = ({ item, now, onOpen, className }) => {
     const line = LINES[item.type]
 
     return (
@@ -66,12 +87,17 @@ const NotificationRow = ({ item, now, onOpen }) => {
             type="button"
             onClick={() => onOpen(item.postId)}
             /* The box comes from NOTIFICATION_ROW, which the skeleton uses too — restyling
-               the row's padding or radius means editing that constant, not this line. What
-               is added here is only what does not affect layout. */
+               the row's padding means editing that constant, not this line. What is added
+               here is only what does not affect layout. The radius arrives as `className`
+               because it depends on the rows either side; see `runRadius`.
+
+               Hover is for read rows only: an unread row already sits at `bg-accent`, and
+               shifting it under the cursor would read as the row changing state. */
             className={cn(
                 NOTIFICATION_ROW,
-                "w-full cursor-pointer text-left transition-colors hover:bg-accent",
-                !item.read && "bg-accent/50",
+                "w-full cursor-pointer text-left transition-colors",
+                item.read ? "hover:bg-accent" : "bg-accent",
+                className,
             )}
         >
             <Avatar person={item.actor} className="size-10" />
@@ -94,7 +120,7 @@ const NotificationRow = ({ item, now, onOpen }) => {
 
 const EmptyState = () => (
     <div className="py-12 text-center text-sm text-muted-foreground">
-        Nothing yet. Likes on your posts and new announcements will show up here.
+        Nothing yet. Likes, comments, and new announcements will show up here.
     </div>
 )
 
@@ -132,10 +158,15 @@ export const NotificationList = ({ className, onOpened }) => {
                     </Transition>
                 ) : (
                     <Transition fast key="content">
-                        <ul className="flex flex-col">
-                            {items.map((item) => (
+                        <ul className="flex flex-col gap-1 px-2">
+                            {items.map((item, index) => (
                                 <li key={item.id}>
-                                    <NotificationRow item={item} now={now} onOpen={openPost} />
+                                    <NotificationRow
+                                        item={item}
+                                        now={now}
+                                        onOpen={openPost}
+                                        className={runRadius(items, index)}
+                                    />
                                 </li>
                             ))}
                         </ul>

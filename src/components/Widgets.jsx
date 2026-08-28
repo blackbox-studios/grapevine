@@ -1,3 +1,7 @@
+"use client"
+
+import { motion } from "motion/react"
+
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,6 +89,44 @@ export const Close = ({ className, children, ...props }) => (
     >
         {children ?? <Icon>close</Icon>}
     </Button>
+)
+
+/* A centered surface on a dimmed backdrop, for the overlays that are not Radix dialogs — the
+ * desktop presentations of the slide routes, which are mounted by <SlideRouter/> and dismissed
+ * by unwinding a history entry rather than by a primitive's open state.
+ *
+ * The backdrop is hidden from the accessibility tree: the labelled Close button and Escape are
+ * the exposed ways out, and announcing a second unnamed control would only be a decoy. It is
+ * still a `<button>` rather than a div so a click lands without a handler on a non-interactive
+ * element.
+ *
+ * The fade belongs here rather than at a call site because it is what makes two different
+ * dialogs read as the same surface arriving.
+ *
+ * The pill sits in the window's corner, which reads as the surface's own corner only while the
+ * surface is most of the window — true of the photo dialog and not of a narrow one. Pass
+ * `close={false}` and draw it anchored to the surface instead; the styling is `<Close/>` either
+ * way, so the two still match. */
+export const Overlay = ({ dismiss, label = "Close", close = true, children }) => (
+    <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+    >
+        <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            onClick={dismiss}
+            className="absolute inset-0 cursor-default bg-black/80"
+        />
+        {children}
+        {close && (
+            <Close onClick={dismiss} aria-label={label} className="fixed right-4 top-4 z-10" />
+        )}
+    </motion.div>
 )
 
 /* A post's attachment, as a row: icon, name, type and size, and one trailing affordance.

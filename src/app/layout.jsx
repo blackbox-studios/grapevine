@@ -2,9 +2,10 @@ import "@/globals.css"
 
 import Providers from "@/app/providers"
 import App from "@/app/App"
+import { APP_NAME } from "@/lib/constants"
 
 export const metadata = {
-    title: "Grapevine",
+    title: APP_NAME,
     icons: { icon: "/favicon.svg" },
 }
 

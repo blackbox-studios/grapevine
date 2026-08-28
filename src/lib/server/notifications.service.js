@@ -9,10 +9,11 @@ import { pushConfigured, sendPush } from "@/lib/server/push"
 
 /* Notifications: the panel behind the bell, and the writes that fill it.
  *
- * One event type today — somebody liked something you wrote — split by `type` into a like
- * on a post and a like on a comment. The read side is a plain keyset page of the viewer's
- * own rows; the write side is two builders the like toggles splice into the transaction
- * they were already running.
+ * Three kinds of event: somebody liked something you wrote (split by `type` into a like on a
+ * post and a like on a comment), somebody commented on your post, and an admin published into
+ * a group you belong to. The read side is a plain keyset page of the viewer's own rows,
+ * identical for all of them; the write side is a builder per event, spliced into the
+ * transaction the write it accompanies was already running.
  *
  * ── Why the writes are builders and not functions that write ─────────────────
  *
@@ -199,7 +200,28 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
     })
 }
 
-/* Retracts every "liked your comment" for a comment that has just been deleted.
+/* The write for "somebody commented on your post". Null when the commenter is the author,
+ * matching `notifyLike`.
+ *
+ * **The subject is the comment, not the post.** Keying on the post would collapse a whole
+ * conversation into one row per person, which cannot name *which* comment to open to and
+ * leaves `unnotifyComment` nothing to identify when one of them is deleted. One row per
+ * comment also means the unique key cannot collide, so this is a `create` rather than the
+ * like's upsert.
+ *
+ * Takes the transaction client for the reason `notifyNewPost` does: it needs the id of the
+ * row created alongside it. */
+export const notifyComment = (tx, { recipientId, actorId, commentId, postId }) => {
+    if (recipientId === actorId) return null
+
+    return tx.notification.create({
+        data: { recipientId, actorId, type: "POST_COMMENT", subjectId: commentId, postId },
+    })
+}
+
+/* Retracts every notification whose subject is a comment that has just been deleted — both
+ * the "liked your comment" rows and the "commented on your post" row the comment itself
+ * wrote.
  *
  * **The one gap the cascade cannot cover.** `postId` carries the foreign key, so deleting a
  * post takes its notifications with it — including the ones about its comments. A *comment*
@@ -208,11 +230,15 @@ export const unnotifyLike = ({ recipientId, actorId, type, subjectId }) => {
  * comment" for a comment no longer in the thread, the unread tally counts it, and tapping
  * the row opens a post the comment does not appear in.
  *
+ * Filtered on `type` as well as `subjectId`: the two comment-subject types are named, so a
+ * future type keyed on something else cannot be swept up by a deletion it has nothing to do
+ * with.
+ *
  * Takes the transaction client, like `notifyNewPost` and for the same reason as everything
  * else here: the retraction commits with the deletion that justifies it or not at all. */
 export const unnotifyComment = (tx, commentId) =>
     tx.notification.deleteMany({
-        where: { type: "COMMENT_LIKE", subjectId: commentId },
+        where: { type: { in: ["COMMENT_LIKE", "POST_COMMENT"] }, subjectId: commentId },
     })
 
 /* Who hears about a new post: every APPROVED member of the group except whoever wrote it.
@@ -350,6 +376,27 @@ export const pushLike = ({ recipientId, actor, type, postId }) => {
                 body: type === "COMMENT_LIKE" ? "liked your comment" : "liked your post",
                 postId,
                 type,
+            }),
+        ),
+    )
+}
+
+/* "Dn. Paul commented on your post."
+ *
+ * **No excerpt of what was said**, though the body is right there at the call site: the panel
+ * row does not load a comment's text (see `notificationInclude`), and a banner that quoted it
+ * would say more on a lock screen than the row it corresponds to says in the app. */
+export const pushComment = ({ recipientId, actor, postId }) => {
+    if (recipientId === actor.id) return
+
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: displayName(actor),
+                body: "commented on your post",
+                postId,
+                type: "POST_COMMENT",
             }),
         ),
     )

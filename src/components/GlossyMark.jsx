@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
 
-import { useMounted } from "@/lib/hooks/useMounted.hook"
+import { useEntered } from "@/lib/hooks/useEntered.hook"
 import { MARK_LOBES, MARK_PALETTES, MARK_PATHS, MARK_SIZE, bodyRampFor, paletteFor } from "@/lib/mark"
 import { cn, withAlpha } from "@/lib/utils"
 
@@ -198,9 +198,9 @@ const GlossyMark = memo(({ from, to, onClick, className, style, ...props }) => {
     const paintedRef = useRef(false)
     const renderRef = useRef(null)
     const reduceMotion = useReducedMotion()
-    /* Armed after mount because Motion skips `initial` under an ancestor
-     * AnimatePresence with `initial={false}`, and this mark sits in one. */
-    const mounted = useMounted()
+    /* The mark sits under an AnimatePresence with `initial={false}`, so `initial` below is
+     * skipped and the fly-in is this flip instead. */
+    const entered = useEntered()
 
     /* Draws the outgoing palette, then the incoming one under its expanding mask.
      * Reads progress from a ref so the wipe never re-renders the React tree. */
@@ -290,7 +290,7 @@ const GlossyMark = memo(({ from, to, onClick, className, style, ...props }) => {
 
     const entrance = reduceMotion ? {} : {
         initial: MARK_ENTER_FROM,
-        animate: mounted ? MARK_ENTER_TO : MARK_ENTER_FROM,
+        animate: entered ? MARK_ENTER_TO : MARK_ENTER_FROM,
         transition: {
             default: { type: "spring", stiffness: 123, damping: 15, mass: 1 },
             opacity: { duration: 0.3, ease: "easeOut" },

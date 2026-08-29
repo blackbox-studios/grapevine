@@ -25,7 +25,7 @@
  *
  * THE LOOK
  *
- * The app icon, corners included: flat mark on the dark gradient field. It reads as the app
+ * The app icon, corners included: the mark on a black field. It reads as the app
  * rather than as a wordmark, and being self-contained on its own dark field it needs no
  * assumption about the client's background — which is what keeps it correct in a dark-mode
  * inbox and a light one without a second asset.
@@ -46,7 +46,7 @@ const { width: W, height: H } = MARK_SIZE
 /* Kept in step with generate-icons.mjs by hand — the icon and the email logo are the same
  * artwork, and a divergence here would show up as two different-looking Grapevines. */
 const MARK = "#2BBB9C"
-const FIELD = { top: "#052B22", bottom: "#000000" }
+const FIELD = { top: "#000000", bottom: "#000000" }
 const MARK_SCALE = 0.62
 
 /* 144px for a 72px slot: the retina copy. Email cannot ask for a 2x asset the way `srcset`

@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, useReducedMotion } from "motion/react"
 
 import { useMounted } from "@/lib/hooks/useMounted.hook"
-import { MARK_LOBES, MARK_PALETTES, MARK_PATHS, MARK_SIZE, paletteFor } from "@/lib/mark"
+import { MARK_LOBES, MARK_PALETTES, MARK_PATHS, MARK_SIZE, bodyRampFor, paletteFor } from "@/lib/mark"
 import { cn, withAlpha } from "@/lib/utils"
 
 /* ── Geometry and palettes ──────────────────────────────────────────────────
@@ -50,6 +50,7 @@ export function useMarkCycle() {
 
 /* Path2D has no serialisable form, so the outline is built once per module load
  * and shared by every instance. */
+const MARK_COUNTERS = typeof Path2D === "undefined" ? [] : MARK_PATHS.map(d => new Path2D(d))
 const MARK_PATH = typeof Path2D === "undefined" ? null : MARK_PATHS.reduce((path, d) => {
     path.addPath(new Path2D(d))
     return path
@@ -81,10 +82,10 @@ const paintBlurred = (ctx, blur, { color, radius, dx = 0, dy = 0 }, draw) => {
 
 const easeOut = (t) => 1 - Math.pow(1 - t, 3)
 
-/* Paints the mark as a single blown-glass body lit from the top-left: a base ramp
- * along the light axis, a specular bloom over each lobe, a bright rim on the
- * shaded edges, and a pair of hard glints. Coordinates are in the mark's own
- * viewBox units; `blur` converts those to the output pixels the shadow wants. */
+/* Paints the mark as two blown-glass counters, each lit from the top-left the
+ * same way: a base ramp along the light axis, a specular bloom, a bright rim on
+ * the shaded edges, and a hard glint. Coordinates are in the mark's own viewBox
+ * units; `blur` converts those to the output pixels the shadow wants. */
 const paintMark = (ctx, palette, blur) => {
     ctx.save()
 
@@ -100,42 +101,44 @@ const paintMark = (ctx, palette, blur) => {
      * containment the clip gave, but it inherits the antialiasing instead of discarding
      * it. This is also why the wipe's offscreen pass composites cleanly: it starts from
      * the same soft alpha rather than a binary mask. */
-    const body = ctx.createLinearGradient(-0.05 * W, -0.08 * H, 1.02 * W, 1.06 * H)
-    palette.body.forEach(([offset, color]) => body.addColorStop(offset, color))
-    ctx.fillStyle = body
-    ctx.fill(MARK_PATH, "evenodd")
+    MARK_LOBES.forEach((lobe, i) => {
+        const ramp = bodyRampFor(lobe)
+        const body = ctx.createLinearGradient(ramp.x1, ramp.y1, ramp.x2, ramp.y2)
+        palette.body.forEach(([offset, color]) => body.addColorStop(offset, color))
+        ctx.fillStyle = body
+        ctx.fill(MARK_COUNTERS[i], "evenodd")
+    })
     ctx.globalCompositeOperation = "source-atop"
 
     const { alpha, scale } = palette.bloom
-    MARK_LOBES.forEach((lobe, index) => {
+    MARK_LOBES.forEach((lobe) => {
         const r = lobe.r * W * scale
         /* The highlight sits up and slightly left of centre, where the key light
-         * would strike a sphere. The trailing lobe catches less of it. */
+         * would strike a sphere. */
         const x = lobe.x * W - 0.12 * r
         const y = lobe.y * H - 0.46 * r
-        const strength = index === 0 ? alpha : alpha * 0.78
 
         const bloom = ctx.createRadialGradient(x, y, 0, x, y, r * 0.98)
-        bloom.addColorStop(0, withAlpha(palette.glint, strength))
-        bloom.addColorStop(0.42, withAlpha(palette.glint, strength * 0.38))
+        bloom.addColorStop(0, withAlpha(palette.glint, alpha))
+        bloom.addColorStop(0.42, withAlpha(palette.glint, alpha * 0.38))
         bloom.addColorStop(1, withAlpha(palette.glint, 0))
         ctx.fillStyle = bloom
         ctx.fillRect(0, 0, W, H)
     })
 
-    /* Offsetting a blurred stroke up-left leaves its ring inside the clip only
-     * along the opposite edges — so the glow lands on the bottom-right, and the
-     * dark counter-stroke on the top-left. */
+    /* Offsetting a blurred stroke up-left leaves its ring inside each counter only
+     * along the opposite edges — so the glow lands on the bottom-right of both g's,
+     * and the dark counter-stroke on the top-left. */
     paintBlurred(ctx, blur, { color: withAlpha(palette.rim, 0.85), radius: 5, dx: -3.5, dy: -3.5 }, (c) => {
         c.lineWidth = 10
         c.strokeStyle = "#000"
-        c.stroke(MARK_PATH)
+        MARK_COUNTERS.forEach((path) => c.stroke(path))
     })
 
     paintBlurred(ctx, blur, { color: withAlpha("#000000", 0.22), radius: 7, dx: 4, dy: 4 }, (c) => {
         c.lineWidth = 12
         c.strokeStyle = "#000"
-        c.stroke(MARK_PATH)
+        MARK_COUNTERS.forEach((path) => c.stroke(path))
     })
 
     MARK_LOBES.forEach((lobe) => {

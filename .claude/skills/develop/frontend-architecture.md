@@ -112,8 +112,13 @@ Reference files:
 │   │   │   ├── cursor.js            # opaque cursor encode/decode + paginate
 │   │   │   ├── posts.service.js     # business logic — the seam Prisma replaces
 │   │   │   └── projections.js       # database rows → wire shapes
-│   │   ├── hooks/                   # Cross-cutting React hooks (not Zustand hooks)
+│   │   ├── hooks/                   # Cross-cutting React hooks (not Zustand hooks).
+│   │   │                            #   Look here before writing one — a useState(false) +
+│   │   │                            #   useEffect setTrue is useMounted; viewport is
+│   │   │                            #   useIsDesktop; layout effect is useIsomorphicLayoutEffect.
 │   │   │   ├── useDebounce.hook.jsx
+│   │   │   ├── useMounted.hook.js
+│   │   │   ├── useIsDesktop.hook.js
 │   │   │   ├── useNow.hook.jsx
 │   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
 │   │   │   ├── useScroll.hook.js      # useVibing + usePullToRefresh (container-targeted)

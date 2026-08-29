@@ -29,7 +29,13 @@ const INIT = {
 
     /* The one open thread. Only one comments surface is open at a time, so this holds a
      * flat list rather than a per-post cache; the hook resets it on close, so every open
-     * re-fetches. `post` is the id being viewed, and `cursor` its next-page token. */
+     * re-fetches. `post` is the id being viewed, and `cursor` its next-page token.
+     *
+     * **Server order, rendered as it arrives — never sorted here.** The thread is ranked by
+     * `Comment.score` (see src/lib/rank.js), and only the server holds the number, so a
+     * client-side sort could only re-order a page by something else. That also means a like
+     * does not move the row it was just applied to: the new rank lands on the next open,
+     * which is the only moment a reader is not looking at the comment they are touching. */
     items: [],
     post: null,
     cursor: null,

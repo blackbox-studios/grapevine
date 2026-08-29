@@ -190,7 +190,7 @@ completed (offline, DNS, CORS, aborted connection).
 | `POST` | `/api/posts` | **group admin** | `201` + the created post, `Location` set |
 | `GET` | `/api/posts/:postId` | member of its group | the post resource |
 | `DELETE` | `/api/posts/:postId` | **admin of its group** | `204` |
-| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread oldest-first |
+| `GET` | `/api/posts/:postId/comments?limit=&cursor=` | member of its group | `{ items, nextCursor }` — the viewer's own comments first, then the thread by rank (`Comment.score`; see "Ranking a comment thread") |
 | `POST` | `/api/posts/:postId/comments` | member of its group | `201` + the created comment, `Location` set |
 | `POST` | `/api/posts/:postId/likes` | member of its group | `{ liked, likes }` — toggles the viewer's like |
 | `DELETE` | `/api/comments/:commentId` | its author, **or** an admin of the post's group | `204` |
@@ -292,7 +292,7 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   errors.js                # ERROR_CODES + ERROR_STATUS registry, AppError, notFound(), invalid()
   handler.js               # route() wrapper (request id, CORS, error serialization), pageParams()
   respond.js               # success responders (§2)
-  cursor.js                # opaque cursors + the keyset helpers (§6.1)
+  cursor.js                # opaque cursors + the keyset helpers, by time and by rank (§6.1)
   auth.js                  # requireViewer / requireMembership / requirePlatformOwner
   supabase.js              # server Supabase clients (anon for verification, service role)
   storage.js               # the bucket, object paths, and signed upload URLs
@@ -479,7 +479,9 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Error codes → status registry, `AppError` | `src/lib/server/errors.js` |
 | Error serialization, request id, response headers | `src/lib/server/handler.js` → `route()` |
 | Success responders | `src/lib/server/respond.js` |
-| Opaque cursors + keyset helpers | `src/lib/server/cursor.js` |
+| Opaque cursors + keyset helpers (by time and by rank) | `src/lib/server/cursor.js` |
+| Comment thread ranking — the formula and its weights | `src/lib/rank.js` |
+| Rescoring a corpus after a re-tune (`npm run comments:rescore`) | `scripts/rescore-comments.mjs` |
 | Authentication + authorization | `src/lib/server/auth.js` |
 | Server Supabase clients | `src/lib/server/supabase.js` |
 | Storage bucket, object paths, signed uploads | `src/lib/server/storage.js` |
@@ -560,9 +562,8 @@ Three things about it are load-bearing:
 - **The key is the pair, never `createdAt` alone.** Two posts can share a timestamp, and a
   non-unique key silently drops or repeats rows at a page boundary. `id` is the tiebreaker
   that makes the ordering total.
-- **`direction` must match the query's `orderBy`** — `"desc"` for the feed, `"asc"` for a
-  comment thread. Mismatch them and the second page silently repeats the first rather than
-  failing.
+- **`direction` must match the query's `orderBy`** — `"desc"` for the feed. Mismatch them
+  and the second page silently repeats the first rather than failing.
 - **End-of-collection is detected by over-fetching one row** (`take: limit + 1`), never by
   `COUNT(*)`. A count makes the database touch every matching row on every request to
   produce a number the contract does not even carry.
@@ -570,13 +571,73 @@ Three things about it are load-bearing:
 The models carry indexes in exactly the sort order the cursor compares, so a page is an
 index range scan.
 
+The same file carries a second trio — `scoreWhere` / `scoreOrder` / `scorePage` — keyed on
+`(score, id)` for the one collection ordered by a rank rather than by time. They are
+separate rather than a `field` parameter, because the guarantee is weaker and that is worth
+opting into: a timestamp is immutable, so a keyset over it passes every row exactly once
+however long the reader takes, while a score moves when somebody likes the comment, so a row
+can cross the cursor between two requests and be served twice or not at all. That is
+inherent to paging any ranked list, it is bounded by the likes landing mid-scroll on one
+thread, and the client dedupes by id on append.
+
 **A comment thread pins the viewer's own comments above the paged body**, newest first, so
 the reply someone just left is still at the top when they reopen the sheet — matching what
 the optimistic client already showed them. That block is not part of the keyset: it is
 fetched whole (capped, see `PINNED_OWN_COMMENTS`), returned only on the cursorless first
 page, and `nextCursor` still comes off the body's last row. What it *does* touch every page
 is the body's `where`, which excludes the pinned ids — resolve them on every call, not just
-the first, or page two serves the same comment a second time in its chronological place.
+the first, or page two serves the same comment a second time in its ranked place.
+
+### Ranking a comment thread
+
+The body below that pinned block is ordered by **`Comment.score`**, descending — a single
+stored number combining recency, likes, and "the post's author wrote it". The formula and the
+whole rationale live in the header of **`src/lib/rank.js`**, which is the only thing allowed
+to compute it; what follows is the shape of the decision.
+
+The unit is hours, which makes every weight a sentence about time:
+
+```
+score = hours since a fixed epoch
+      + LIKE_DOUBLING_HOURS x log2(1 + likes)   (6h, so 1 like = 6h, 3 likes = 12h, 15 = 24h)
+      + POST_AUTHOR_HOURS   if the post's author wrote it   (12h — worth three likes)
+```
+
+**Why it is a column and not an `ORDER BY` expression.** The obvious way to write "newer
+wins" is to divide by age, as Hacker News does. Age changes every second, so no stored value
+could stay correct and the thread would have to be sorted in memory — meaning every comment
+on the post is loaded to serve eight of them, with no keyset pagination available at all.
+Scoring the *absolute* timestamp instead (Reddit's `hot` does this) makes the number
+time-invariant: every row grows by the same amount as time passes, so the ordering between
+two rows never changes on its own. The score then moves only when a like lands, which is a
+write we are already inside — the same argument that makes `likeCount` a column — and
+`(post_id, score DESC, id DESC)` is an index range scan.
+
+**Why not Reddit's `best`**, which is the algorithm actually built for comments: it ranks by
+the lower bound of the Wilson score interval, which needs a denominator. Grapevine has likes
+and no dislikes, so every comment's observed rate is 1.0 and Wilson collapses into a monotone
+function of the like count. Add a downvote and this is the thing to revisit.
+
+**Why not Instagram's**, which is what people picture when they ask: learned models scoring
+each comment *per viewer* (how often you interact with the commenter, how likely you are to
+reply or report). A per-viewer score cannot be a column at all, it needs a feature store, and
+it earns its keep on a thread of forty thousand strangers rather than one with eleven people
+who all know each other. The part of it worth copying needs no model and is copied: your own
+comments go on top.
+
+Two consequences worth knowing before touching either file:
+
+- **`addComment` and `toggleCommentLike` both write `score`** alongside the row they change,
+  in the same transaction, from the same pure function. The like toggle computes it from the
+  count it read *before* the increment, so two people liking one comment in the same few
+  milliseconds leave the score a single like light — the visible `likeCount` stays exact, and
+  the next like recomputes from a fresh read. That is a deliberate trade against a second
+  statement on a request that already costs four.
+- **Re-tuning the weights re-ranks nothing by itself.** Existing rows keep the score they
+  were written with, which sorts a thread by which side of the deploy each comment landed on.
+  Change the constants and run **`npm run comments:rescore`** (`-- --dry` to preview) in the
+  same breath. The migration that added the column carries the only other copy of the
+  formula, in SQL, for its backfill — frozen there as history, not maintained.
 
 ### Denormalized tallies
 
@@ -584,6 +645,11 @@ the first, or page two serves the same comment a second time in its chronologica
 transaction as the write that changes them, so they cannot drift from the rows that justify
 them. They exist because every feed card renders both, and counting per card would be two
 extra queries per post per page.
+
+`Comment.score` is maintained the same way and for a related reason — see "Ranking a comment
+thread" above. It is not a tally but a derived ranking, and unlike the counters it can be
+regenerated from the row's own columns at any time, which is what `npm run comments:rescore`
+does.
 
 Likes are still **rows** (`PostLike`, `CommentLike`) — the feed has to answer "did *this
 viewer* like it" per card, which a counter cannot. The composite primary key makes a

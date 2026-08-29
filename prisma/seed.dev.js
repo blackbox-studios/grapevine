@@ -50,6 +50,7 @@
 
 import "dotenv/config"
 
+import { commentScore } from "../src/lib/rank.js"
 import { describeDatabase, requireLocalDatabase } from "../scripts/db-target.mjs"
 import { COMMENTS, FEED } from "./seed-data.js"
 import {
@@ -413,6 +414,14 @@ const main = async () => {
                     likeCount: comment.likes ?? 0,
                     createdAt: commentedAt,
                     updatedAt: commentedAt,
+                    /* Through the same function the app writes it with, rather than left on
+                     * the column default — a corpus of zero-scored comments would sort by id
+                     * and hide every ranking bug this fixture exists to make visible. */
+                    score: commentScore({
+                        createdAt: commentedAt,
+                        likeCount: comment.likes ?? 0,
+                        byPostAuthor: commentAuthorId === authorId,
+                    }),
                 },
             })
 

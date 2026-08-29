@@ -517,12 +517,27 @@ enum MediaKind {
 /// what makes threaded replies an additive change instead of a migration on a table
 /// that will by then hold every comment in the app.
 model Comment {
-  id        String    @id @default(cuid())
-  postId    String    @map("post_id")
-  authorId  String    @map("author_id") @db.Uuid
-  parentId  String?   @map("parent_id")
+  id        String  @id @default(cuid())
+  postId    String  @map("post_id")
+  authorId  String  @map("author_id") @db.Uuid
+  parentId  String? @map("parent_id")
   body      String
-  likeCount Int       @default(0) @map("like_count")
+  likeCount Int     @default(0) @map("like_count")
+
+  /// Where this comment sits in its thread — the thread is this column, descending.
+  ///
+  /// Recency, likes and "the post's author wrote it", collapsed into one number by
+  /// `commentScore()` in src/lib/rank.js, which is the only thing that may write it.
+  /// Read that module's header before touching this: the reason it is a stored column
+  /// and not an `ORDER BY` expression is that the time term scores the comment's
+  /// *absolute* timestamp rather than its age, so the value never goes stale on its own
+  /// and the whole thread stays pageable by keyset off an index.
+  ///
+  /// Maintained in the same transaction as the insert and as every like — same argument
+  /// as the tallies above. The default is only for the migration that added the column;
+  /// nothing in the app inserts a comment without a score.
+  score Float @default(0)
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -533,7 +548,12 @@ model Comment {
   replies Comment[]     @relation("CommentThread")
   likes   CommentLike[]
 
-  /// Matches the thread's keyset order (oldest first).
+  /// The thread's one hot query: a post's comments in rank order, paged by keyset on
+  /// `(score, id)`. Sort columns in the order the cursor compares them, so a page is an
+  /// index range scan and not a sort of the whole thread.
+  @@index([postId, score(sort: Desc), id(sort: Desc)])
+  /// Still here for the pinned block — the viewer's own comments on a post, newest
+  /// first, which is the one comment read that is chronological rather than ranked.
   @@index([postId, createdAt, id])
   @@index([parentId])
   /// Without this, deleting a profile cascades with a sequential scan of every comment

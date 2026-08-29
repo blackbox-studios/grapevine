@@ -34,6 +34,7 @@ script ships an app whose launcher icon, browser tab, and notification tray disa
 | `MARK_PATHS` | every rendering of the mark, everywhere |
 | `MARK_SIZE` | the 139x100 box all placement maths is a fraction of |
 | `MARK_LOBES` | where the specular highlights and glints land |
+| `MARK_BODY_RAMP` | the light axis, applied per counter so both g's fade the same |
 | `MARK_PALETTES` | the gloss ramps, the rim, **and `accent`** — the gateway button colour |
 
 Changing `MARK_PATHS` is the cheap half. Everything below is the other half.
@@ -90,8 +91,8 @@ that should *not* follow a mark change — but it does follow a **colour** chang
 
 ### 3. `android/app/src/main/res/values/colors.xml` — `notification_accent`
 
-`#2BBB9C`, the brand green, duplicating `ICON_MARK` in the generator. The script rewrites
-`values/ic_launcher_background.xml` but has no knowledge of this file.
+`#2BBB9C`, the brand green — the same `--brand` / jungle 0.72 stop as `globals.css`. The
+script rewrites `values/ic_launcher_background.xml` but has no knowledge of this file.
 
 ### 4. `capacitor.config.json` — four background colours
 

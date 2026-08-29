@@ -6,9 +6,15 @@ import GlossyMark, { paletteFor, useMarkCycle } from "@/components/GlossyMark"
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
 import { Button } from "@/components/ui/button"
+import { useEntered } from "@/lib/hooks/useEntered.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { cn } from "@/lib/utils"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+
+/* How long everything but the mark waits before fading in: the entrance spring is still
+ * travelling for most of it, so the content arrives to a mark that has landed rather than
+ * racing it. Both layouts read from it, which is what keeps them staggering alike. */
+const CONTENT_DELAY = 0.75
 
 /* The chrome shared by every screen that stands between arriving and being in the app:
  * sign-in, first-run orientation, and the access-removed notice.
@@ -79,77 +85,98 @@ import { AnimatePresence, motion } from "motion/react"
  * — measured at a 560px jump on the intro → email step, which reads exactly like a bug.
  * Keyed as one unit, an exiting screen keeps its own heading, its own mark and its own
  * geometry for as long as it is on screen. */
-const FormScreen = ({ heading, subheading, children, footer, onBack, mark }) => (
-    <div className="flex h-full w-full flex-col">
-        {/* Reserved whether or not there is a way back, so the heading sits at the same
-         * height on every step and does not jump as the arrow appears.
-         *
-         * `size-11` is 44px — Apple's minimum touch target, and worth stating explicitly
-         * because the glyph inside is roughly half that. The negative margin pulls the box's
-         * padding back out to the column's edge so the *icon* still lines up with the
-         * heading below it. */}
-        <div className="flex h-11 shrink-0 items-center">
-            {onBack && (
-                <button
-                    type="button"
-                    onClick={onBack}
-                    aria-label="Back"
-                    className="-ml-2.5 flex size-11 cursor-pointer items-center justify-center text-foreground transition-opacity active:opacity-60"
-                >
-                    <Icon size="xl">arrow_back</Icon>
-                </button>
-            )}
-        </div>
+const FormScreen = ({ heading, subheading, children, footer, onBack, mark, revealed }) => {
+    const reduceMotion = useReducedMotion()
 
-        {mark ? (
-            /* The opening screen: mark over a centred heading, floating in the space the
-             * absent fields leave behind. */
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 pb-4 text-center">
-                {mark}
-                <div className="flex flex-col gap-2">
-                    <h1 className="text-3xl font-semibold leading-tight text-foreground">
-                        {heading}
-                    </h1>
-                    {subheading && (
-                        <p className="font-heading leading-snug text-muted-foreground">
-                            {subheading}
-                        </p>
-                    )}
-                </div>
+    /* The mark lands, then the rest follows it in. Only on the screen that carries one: a
+     * screen with nothing to wait for must not make the reader wait. */
+    const reveal =
+        mark && !reduceMotion
+            ? {
+                  animate: { opacity: revealed ? 1 : 0.01 },
+                  transition: { duration: 0.3, ease: "easeInOut", delay: CONTENT_DELAY },
+              }
+            : {}
+
+    return (
+        <div className="flex h-full w-full flex-col">
+            {/* Reserved whether or not there is a way back, so the heading sits at the same
+             * height on every step and does not jump as the arrow appears.
+             *
+             * `size-11` is 44px — Apple's minimum touch target, and worth stating explicitly
+             * because the glyph inside is roughly half that. The negative margin pulls the
+             * box's padding back out to the column's edge so the *icon* still lines up with
+             * the heading below it. */}
+            <div className="flex h-11 shrink-0 items-center">
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        aria-label="Back"
+                        className="-ml-2.5 flex size-11 cursor-pointer items-center justify-center text-foreground transition-opacity active:opacity-60"
+                    >
+                        <Icon size="xl">arrow_back</Icon>
+                    </button>
+                )}
             </div>
-        ) : (
-            (heading || subheading) && (
-                /* Left-aligned and large, unlike the hero's centred stack. A question reads
-                 * as a question when it sits where reading starts. */
-                <div className="flex shrink-0 flex-col gap-2 pt-2 pb-6">
-                    {heading && (
+
+            {mark ? (
+                /* The opening screen: mark over a centred heading, floating in the space the
+                 * absent fields leave behind. */
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 pb-4 text-center">
+                    {mark}
+                    <motion.div {...reveal} className="flex flex-col gap-2">
                         <h1 className="text-3xl font-semibold leading-tight text-foreground">
                             {heading}
                         </h1>
-                    )}
-                    {subheading && (
-                        <p className="font-heading leading-snug text-muted-foreground">
-                            {subheading}
-                        </p>
-                    )}
+                        {subheading && (
+                            <p className="font-heading leading-snug text-muted-foreground">
+                                {subheading}
+                            </p>
+                        )}
+                    </motion.div>
                 </div>
-            )
-        )}
+            ) : (
+                (heading || subheading) && (
+                    /* Left-aligned and large, unlike the hero's centred stack. A question
+                     * reads as a question when it sits where reading starts. */
+                    <div className="flex shrink-0 flex-col gap-2 pt-2 pb-6">
+                        {heading && (
+                            <h1 className="text-3xl font-semibold leading-tight text-foreground">
+                                {heading}
+                            </h1>
+                        )}
+                        {subheading && (
+                            <p className="font-heading leading-snug text-muted-foreground">
+                                {subheading}
+                            </p>
+                        )}
+                    </div>
+                )
+            )}
 
-        {footer && !mark && <div className="shrink-0 pb-4">{footer}</div>}
+            {footer && !mark && <div className="shrink-0 pb-4">{footer}</div>}
 
-        {/* `min-h-0` so this can actually give up space when the keyboard takes it — without
-         * it a flex child refuses to shrink below its content and pushes the action back off
-         * the bottom, which is the very bug this layout exists to fix. On the opening screen
-         * the centred block above has already claimed the free space, so this is only as
-         * tall as the action itself. */}
-        <div className={cn("flex flex-col", mark ? "shrink-0" : "min-h-0 flex-1")}>
-            {children}
+            {/* `min-h-0` so this can actually give up space when the keyboard takes it —
+             * without it a flex child refuses to shrink below its content and pushes the
+             * action back off the bottom, which is the very bug this layout exists to fix.
+             * On the opening screen the centred block above has already claimed the free
+             * space, so this is only as tall as the action itself. */}
+            <motion.div
+                {...reveal}
+                className={cn("flex flex-col", mark ? "shrink-0" : "min-h-0 flex-1")}
+            >
+                {children}
+            </motion.div>
+
+            {footer && mark && (
+                <motion.div {...reveal} className="shrink-0 pt-4">
+                    {footer}
+                </motion.div>
+            )}
         </div>
-
-        {footer && mark && <div className="shrink-0 pt-4">{footer}</div>}
-    </div>
-)
+    )
+}
 
 /* The keyboard-safe frame, and the one thing in it that does *not* swap per screen: the
  * height and the bottom padding, which answer to the keyboard rather than to the step.
@@ -190,6 +217,9 @@ const GatewayShell = ({
     const { from, to, advance } = useMarkCycle()
     const palette = paletteFor(to)
     const isDesktop = useIsDesktop()
+    /* Held here rather than in FormScreen: the screens remount as the flow steps, so a flag
+     * living there would replay the wait every time the opening screen came back. */
+    const entered = useEntered()
 
     /* The variant is a *mobile* decision, not a route one: the same screen is a hero on a
      * desktop and a form on a phone. `useIsDesktop` is reactive, so a rotated tablet or a
@@ -206,6 +236,7 @@ const GatewayShell = ({
                     subheading={subheading}
                     footer={footer}
                     onBack={onBack}
+                    revealed={entered}
                     /* Smaller than the hero's, which is sized to fill a screen with nothing
                      * else on it. Still tappable, so the palette cycle survives. */
                     mark={
@@ -249,10 +280,9 @@ const GatewayShell = ({
                     />
                 </div>
 
-                {/* Everything but the mark fades in together, ~0.75s after mount. Keeping
-                  * that single delay here is what makes the three screens feel like one. */}
+                {/* Everything but the mark fades in together. */}
                 <Transition
-                    delay={0.75}
+                    delay={CONTENT_DELAY}
                     className="flex h-auto w-full flex-col items-center gap-6 px-6 pb-12 sm:pb-16 lg:gap-8 lg:px-0 lg:pb-0"
                 >
                     {(heading || subheading) && (

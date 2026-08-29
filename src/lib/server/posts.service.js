@@ -588,8 +588,16 @@ export const toggleCommentLike = async (viewer, commentId) => {
      * liking the *same comment* within the same few milliseconds both compute from the same
      * old count, so the score lands one like light. `likeCount` itself stays exact — it is
      * still `increment` — and the next like or unlike recomputes the score from a fresh read.
-     * The whole error is under half an hour of virtual freshness on one comment, which is
-     * below the resolution anyone can see in an ordering. */
+     *
+     * The error is one like's worth of weight, and that is worth reading off the curve rather
+     * than guessing at: `6 x (log2(n+2) - log2(n+1))` is *largest at the smallest n*, because
+     * the first like is the biggest doubling there is. On a comment with none, two racing
+     * likes both score `6 x log2(2)` = 6h against a true `6 x log2(3)` = 9.5h, so it lands
+     * **3.5 hours light** — and that is the likely case, several people opening a fresh reply
+     * at once. It falls under half an hour only past about sixteen likes. Tolerable because
+     * it is bounded, because it is self-healing on the next like, and because a few hours of
+     * virtual freshness moves a comment past the handful written in the same window and no
+     * further — not because it is small. */
     const score = commentScore({
         createdAt: comment.createdAt,
         likeCount: comment.likeCount + (existing ? -1 : 1),

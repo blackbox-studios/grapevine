@@ -11,10 +11,9 @@ import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { cn } from "@/lib/utils"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 
-/* How long everything but the mark waits before fading in. The entrance spring is still
+/* How long everything but the mark waits before fading in: the entrance spring is still
  * travelling for most of it, so the content arrives to a mark that has landed rather than
- * racing it. Both layouts share the number: the stagger is a large part of what makes the
- * flow read as one screen at any width. */
+ * racing it. Both layouts read from it, which is what keeps them staggering alike. */
 const CONTENT_DELAY = 0.75
 
 /* The chrome shared by every screen that stands between arriving and being in the app:
@@ -89,11 +88,8 @@ const CONTENT_DELAY = 0.75
 const FormScreen = ({ heading, subheading, children, footer, onBack, mark, revealed }) => {
     const reduceMotion = useReducedMotion()
 
-    /* The mark lands, then the rest follows it in — the hero's stagger, on a layout that
-     * cannot borrow the hero's markup. It is a change of `animate` because FormLayout's
-     * AnimatePresence suppresses `initial` for everything below it (see useEntered), and it
-     * applies only on the screen carrying the mark: a screen with nothing to wait for must
-     * not make the reader wait. */
+    /* The mark lands, then the rest follows it in. Only on the screen that carries one: a
+     * screen with nothing to wait for must not make the reader wait. */
     const reveal =
         mark && !reduceMotion
             ? {
@@ -221,9 +217,8 @@ const GatewayShell = ({
     const { from, to, advance } = useMarkCycle()
     const palette = paletteFor(to)
     const isDesktop = useIsDesktop()
-    /* Held by the shell rather than by the screen, because the stagger belongs to arriving
-     * at the flow and not to every step of it: the screens remount as the flow advances, and
-     * coming back to the opening one must not make the reader sit through the wait again. */
+    /* Held here rather than in FormScreen: the screens remount as the flow steps, so a flag
+     * living there would replay the wait every time the opening screen came back. */
     const entered = useEntered()
 
     /* The variant is a *mobile* decision, not a route one: the same screen is a hero on a
@@ -285,7 +280,7 @@ const GatewayShell = ({
                     />
                 </div>
 
-                {/* Everything but the mark fades in together, on one delay. */}
+                {/* Everything but the mark fades in together. */}
                 <Transition
                     delay={CONTENT_DELAY}
                     className="flex h-auto w-full flex-col items-center gap-6 px-6 pb-12 sm:pb-16 lg:gap-8 lg:px-0 lg:pb-0"

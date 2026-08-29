@@ -198,8 +198,8 @@ const GlossyMark = memo(({ from, to, onClick, className, style, ...props }) => {
     const paintedRef = useRef(false)
     const renderRef = useRef(null)
     const reduceMotion = useReducedMotion()
-    /* The mark sits under an AnimatePresence with `initial={false}`, so `initial` below is
-     * skipped and the fly-in is this flip instead. */
+    /* This mark sits inside an AnimatePresence, so the `initial` below never plays on its
+     * own; the flip is what flies it in. */
     const entered = useEntered()
 
     /* Draws the outgoing palette, then the incoming one under its expanding mask.

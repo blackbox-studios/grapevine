@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants.js"
 
 /* Subpath the app is served under. Empty for local dev; the combined image can set
  * NEXT_PUBLIC_BASE_PATH=/<slug> to match the backend mount. Kept in sync with
@@ -41,11 +42,6 @@ const nextConfig = {
               /* Capacitor serves the bundle off a local file handler, so there is no
                * image optimizer (or any other server route) to hit. */
               images: { unoptimized: true },
-              /* Do NOT add `distDir` here to keep this build away from `next dev`'s
-               * .next — with `output: "export"` Next writes the exported site *into*
-               * distDir, so it silently relocates out/ and cap sync then fails with
-               * "Could not find the web assets directory: ./out". Stop the dev server
-               * before a native build instead; see native-architecture.md. */
           }
         : {}),
 
@@ -72,4 +68,14 @@ const nextConfig = {
     },
 }
 
-export default nextConfig
+/* The dev server builds into its own directory, which is what lets `npm run build`
+ * and `npm run build:native` run while `next dev` is up without corrupting it.
+ *
+ * The move has to be on this side. Under `output: "export"` Next reads `distDir` as
+ * where the *exported site* goes and forces the build directory back to `.next`
+ * (hasCustomExportOutput, in next/dist/build), so pointing the native build somewhere
+ * else silently relocates out/ and `cap sync` then fails with "Could not find the web
+ * assets directory: ./out". Moving the dev server costs nothing by comparison: a
+ * production build overwriting .next is then writing a directory nothing is reading. */
+export default (phase) =>
+    phase === PHASE_DEVELOPMENT_SERVER ? { ...nextConfig, distDir: ".next-dev" } : nextConfig

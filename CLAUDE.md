@@ -77,6 +77,8 @@ npm run build:native     # static export → out/ (the bundle Capacitor ships)
 npm run sync             # build:native + cap sync (push assets into android/ and ios/)
 npm run ios              # sync + open Xcode
 npm run android          # sync + open Android Studio
+npm run open:ios         # open Xcode against the last sync (no rebuild)
+npm run open:android     # ...same for Android Studio — one sync serves both platforms
 
 npm run db:up            # start the local dev Postgres (docker-compose.yml)
 npm run db:down          # stop it, keeping the data
@@ -123,4 +125,4 @@ correct, so run a reset yourself rather than asking an agent to work around it.
 
 **Native** ships from the static export: `npm run ios` / `npm run android` builds `out/`, syncs it into the native project, and opens the platform IDE to archive from there. Re-run `npm run sync` after any web change — the native projects hold a copy of `out/`, not a live reference. The export contains no API, so a native build needs `NEXT_PUBLIC_API_BASE_URL` pointing at a deployed instance. The Supabase URL and anon key are inlined at build time too, so re-sync after changing either.
 
-> `build:native` overwrites `.next` with the export, so `npm run start` afterwards serves a build with no `/api`. Re-run `npm run build` before `npm run start` if you've built native in between.
+> `build:native` overwrites `.next` with the export, so `npm run start` afterwards serves a build with no `/api`. Re-run `npm run build` before `npm run start` if you've built native in between. `next dev` is unaffected either way — it builds into `.next-dev`, so a build of either target can run while it stays up.

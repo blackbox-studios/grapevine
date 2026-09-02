@@ -13,7 +13,19 @@ export const ROUTES = {
      * `app/(protected)/settings/page.jsx`. Everything below it is a row on that list. */
     SETTINGS: "/settings",
     SETTINGS_GENERAL: "/settings/general",
-    SETTINGS_USERS: "/settings/users",
+    /* Everything about the *person* — name, handle, the parish facts, the picture. "Info"
+     * rather than "Profile", so it reads the same as the group tree's own Info a level away:
+     * the two settings surfaces are deliberately the same shape asked about different
+     * subjects. */
+    SETTINGS_INFO: "/settings/info",
+    /* The group tree, and it is a **sibling** of the account tree rather than a branch of it.
+     * A group is not a setting of yours: your role in it can change, you can be removed from
+     * it, and the surface is admin-only where `/settings` is everyone's. Its own root is what
+     * lets it be gated in one layout instead of per page, and what keeps `isRouteActive` from
+     * lighting the account tab while somebody edits a parish. */
+    GROUP: "/group",
+    GROUP_INFO: "/group/info",
+    GROUP_USERS: "/group/users",
     /* Signed in, but not yet through the door — see components/MemberGate.jsx. */
     WELCOME: "/welcome",
     ACCESS: "/access",
@@ -60,17 +72,18 @@ export const RUNTIME_ROUTES = [
     /* No dynamic segment on this one — the resolver simply reports a null `param`, which the
      * surface ignores. A runtime route is a way of resolving a URL, not a shape of URL. */
     { prefix: ROUTES.NOTIFICATIONS, slide: true, base: ROUTES.DEFAULT },
-    /* No `slide: false` route exists yet. The presentation is registered and wired
+    /* No `slide: false` route exists yet. The presentation stays registered and wired
      * (<RuntimeRoute/> draws one in the shell's page slot) because the split is what keeps the
-     * overlay from being the only thing this mechanism can express — group settings was one
-     * briefly and turned out to want a dialog, not a place. The first screen that genuinely
-     * needs a linkable URL with a runtime id adds a line here and one in RUNTIME_SURFACES. */
+     * overlay from being the only thing this mechanism can express. The first screen that
+     * genuinely needs a linkable URL carrying a runtime id adds a line here and one in
+     * RUNTIME_SURFACES — and most surfaces that look like they need one do not, because an id
+     * only has to be *addressable* if somebody would share or bookmark it. */
 ]
 
 /* Route trees that must collapse to a single top-level page-transition key, because a
  * nested layout underneath runs its own <PageTransition/> for its sub-routes. Without
  * this the shell would cross-fade the whole pane on every sub-tab change. */
-export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS]
+export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS, ROUTES.GROUP]
 
 /* Simulated network latency for what is *still* mocked.
  *
@@ -114,6 +127,14 @@ export const API_ENDPOINTS = {
     /* Is this @handle free? Answered live while the viewer types one during orientation,
      * so a collision surfaces on the step that caused it rather than after the last one. */
     ME_HANDLE: "/me/onboarding/handle",
+    /* Somebody else's profile, and the two lists hanging off it. Keyed by @handle for the
+     * same reason `/u/:handle` is: it is the identifier the reader tapped. Every one of these
+     * is scoped by `visibleProfile` — you may read a person you share an APPROVED group with,
+     * and nobody else, so this is not a directory of everyone in the system. */
+    PROFILE: (handle) => `/profiles/${handle}`,
+    PROFILE_FOLLOW: (handle) => `/profiles/${handle}/follow`,
+    PROFILE_FOLLOWERS: (handle) => `/profiles/${handle}/followers`,
+    PROFILE_FOLLOWING: (handle) => `/profiles/${handle}/following`,
     /* GET for the viewer's own groups; POST to create one, which only a platform OWNER may
      * do. Never a directory of every group in the system. */
     ORGS: "/orgs",
@@ -158,6 +179,9 @@ export const PAGE_SIZE = {
     /* Comfortably more than the desktop popover shows at once, so the first page fills it
      * and the reader has something to scroll before the next one is asked for. */
     NOTIFICATIONS: 15,
+    /* A follow row is one line, so a page has to overfill the modal it is read in for the
+     * scroll that fetches the next one to exist at all. */
+    FOLLOWS: 20,
 }
 
 /* How often a client push cannot reach re-checks the notification tally — see
@@ -433,6 +457,54 @@ export const VOCATION_OPTIONS = [
     VOCATIONS.PRIEST,
     VOCATIONS.BISHOP,
 ]
+
+/* Who is asked for an ordination date — at orientation, and in Settings.
+ *
+ * **The three ordained ranks, and deliberately not READER.** A reader is *tonsured*, not
+ * ordained, and a matushka is not clergy at all; asking either for the date of an ordination
+ * they never had is asking a question with no true answer. It is a presentation rule and not
+ * a permission — `updateProfile` accepts the field from anybody, because a reader ordained a
+ * deacon next month must not have to wait for a deploy to record it.
+ *
+ * Read as a Set at the call sites; a list here so it reads in ecclesiastical order like every
+ * other vocation constant. */
+export const CLERGY_VOCATIONS = [VOCATIONS.DEACON, VOCATIONS.PRIEST, VOCATIONS.BISHOP]
+
+/* Who is addressed by their **Christian name** rather than their given one — see
+ * `givenName()` in `lib/name.js`, which is the only thing that reads this.
+ *
+ * The ranks a name is conferred with. A reader is tonsured to one, a deacon and a priest are
+ * ordained, a monk is tonsured again and a bishop consecrated again — and each of those hands
+ * the man the name he is thereafter called by, which is why "Priest Robert" names somebody
+ * nobody in the parish knows.
+ *
+ * **A separate list from `CLERGY_VOCATIONS`, not a superset to fold into it.** That one
+ * answers "who was ordained", which decides whether orientation asks for a date and which
+ * deliberately excludes a reader. This answers "whose name changed", which includes him. The
+ * two happen to differ by one entry today; merging them would make the next divergence a bug.
+ *
+ * MATUSHKA is absent: her title comes from her husband's ordination rather than from anything
+ * conferred on her, so nothing has renamed her. */
+export const CHRISTIAN_NAME_VOCATIONS = [
+    VOCATIONS.READER,
+    VOCATIONS.DEACON,
+    VOCATIONS.PRIEST,
+    VOCATIONS.BISHOP,
+]
+
+/* Month names, spelled out, for the name-day control and anything else that prints a month.
+ *
+ * Not `toLocaleDateString`: the app prerenders to static HTML, and a locale-formatted month is
+ * one of the few things that reliably differs between the build machine and the reader's
+ * browser — which is a hydration mismatch on a control nobody has touched. */
+export const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+/* How long a Christian name may be. The same ceiling a name part gets in `readName`, for the
+ * same reason: the only failures worth catching are empty and absurd. */
+export const MAX_CHRISTIAN_NAME_LENGTH = 80
 
 /* Whether a signed-in viewer may use the app, and if not, why.
  *

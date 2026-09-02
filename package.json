@@ -12,6 +12,8 @@
     "sync": "npm run build:native && cap sync",
     "ios": "npm run sync && cap open ios",
     "android": "npm run sync && cap open android",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",

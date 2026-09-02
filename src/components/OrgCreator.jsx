@@ -40,7 +40,7 @@ import { useOrgCreator } from "@/lib/store/org/hook"
 
 /* Creating a group — a dialog on a desktop, a bottom sheet on a phone.
  *
- * **Every structural decision here is <OrgEditor/>'s, on purpose.** The two are one surface to
+ * **Every structural decision here is the composer's, on purpose.** The two are one surface to
  * the reader — you act in it and dismiss it — so they share the dialog/drawer split, the
  * scroll-and-footer layout, the dirty guard, and the `data-vaul-no-drag` that keeps a touch in
  * a text field from swiping the sheet shut. Read that component's header for why this is
@@ -220,7 +220,7 @@ const NotPermitted = () => (
     </div>
 )
 
-/* Mounted once by the protected shell, beside <OrgEditor/>. Both entrances — the row at the
+/* Mounted once by the protected shell. Both entrances — the row at the
  * foot of the desktop dropdown and of the mobile panel — set `creating` in the org store. */
 const OrgCreator = () => {
     const { open, close, create, saving, canCreate } = useOrgCreator()

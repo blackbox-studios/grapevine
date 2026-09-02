@@ -68,7 +68,8 @@ Reference files:
 │   │       │   ├── layout.jsx       # Shared frame + NESTED <PageTransition/> for sub-pages
 │   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
 │   │       │   ├── general/page.jsx # /settings/general
-│   │       │   └── users/page.jsx   # /settings/users
+│   │       │   └── info/page.jsx    # /settings/info — the viewer's own details
+│   │       ├── group/               # admin-only tree: index, info/, users/ (gated in its layout)
 │   │       └── [...not-found]/page.jsx  # Catch-all → in-shell 404 (old `path: '*'`)
 │   ├── globals.css                  # Tailwind v4 + theme tokens (only file to change theme vars)
 │   ├── assets/
@@ -137,6 +138,8 @@ Reference files:
 │   │       ├── feed/                # { store.js, hook.js } — the paginated list
 │   │       ├── post/                # { store.js, hook.js } — the one open post + all post writes
 │   │       ├── comments/            # { store.js, hook.js } — the one open thread
+│   │       ├── profile/             # { store.js, hook.js } — the one open profile + every follow write
+│   │       ├── follows/             # { store.js, hook.js } — the one open follower/following list
 │   │       ├── notifications/       # { store.js, hook.js } — the bell's tally + the panel's list
 │   │       └── push/                # { store.js, hook.js } — FCM permission + this device's token
 └── app/api/**/route.api.js          # the API. `.api.js`, NOT `route.js` — see backend-architecture.md
@@ -427,6 +430,38 @@ The order in `lib/store/post/store.js` → `load` is the whole feature:
 4. **Cold load takes the same path.** No cache means step 1 finds nothing, the readiness
    flag stays false, and the surface shows its skeleton until the fetch lands. Same action,
    same endpoint, both ways in.
+
+`profile` / `follows` are the same split applied a second time, which is what makes it a
+pattern rather than a one-off: `profile` owns the person the open card is about *and* every
+follow write in the app, `follows` owns the rows of both lists about them. The dependency runs
+one way — `profile` reaches into `follows` through a narrow `patchRow`, and `follows` imports
+nothing — so a follow tapped on a card's header and the same follow tapped on a row in its list
+cannot disagree.
+
+`follows` holds **a slot per direction and loads both together**, which is a deliberate
+departure from "one open collection per store". They are two tabs of one surface that a reader
+flips between freely, so loading on tab-switch put a round trip and a skeleton in front of every
+flip — for a page of twenty rows. Fetching the pair in parallel on open costs one extra request
+and makes every switch after it instant; it is also what lets all three tab panels stay mounted
+and cross-fade, which a single shared slot could not survive.
+
+`profile` also shows what step 1 looks like when the cache is not a list. There is no directory
+of people to promote a row out of, so the seed is the **viewer** — `/api/me` ships the follow
+tallies precisely so `viewerProfile` (in the auth store, beside `viewerAuthor`) can project the
+viewer into the exact shape `/api/profiles/:handle` answers. Opening your own card therefore
+paints on the first frame and refreshes silently; opening anybody else's finds nothing and pays
+its skeleton. Two details make that seed actually invisible, and both were bugs first: the load
+runs in a **layout effect** (a `useEffect` fires after paint, so the skeleton is committed for a
+frame), and the skeleton is rendered **outside** the card's `<AnimatePresence mode="wait">` (which
+plays the exit of whatever child it mounted with, so a skeleton nobody saw still spends 200ms
+leaving). The seed is also guarded on the tallies being present, because the auth store persists
+the viewer and a session from before they existed rehydrates without them — zeros on screen for a
+round trip are worse than a skeleton.
+
+`profile` additionally owns **which card is open** (`openHandle`), on the same grounds the org
+store owns `creating`: a handle is tapped from a comment row, a feed byline and the account page,
+and those are three separate subtrees. One value in one store, one `<ProfileCard/>` mounted by
+the shell.
 
 ### Optimistic writes
 
@@ -765,7 +800,7 @@ return (
 | Registry (`lib/constants.js`) | Meaning |
 |---|---|
 | `NESTED_TRANSITION_ROUTES` | Route trees that collapse to one top-level key because a nested layout runs its own `<PageTransition/>` (currently `/settings`). |
-| `RUNTIME_ROUTES` | Routes whose dynamic segment is only knowable at runtime, so they have no page file (`/p`, `/notifications`, `/g`). Each declares how it presents — `slide: true` for an overlay, `slide: false` for an ordinary page. See **Runtime routes** below. |
+| `RUNTIME_ROUTES` | Routes whose dynamic segment is only knowable at runtime, so they have no page file (`/p`, `/u`, `/notifications`). Each declares how it presents — `slide: true` for an overlay, `slide: false` for an ordinary page. See **Runtime routes** below. |
 
 | Resolver (`lib/utils.js`) | Answers |
 |---|---|
@@ -774,7 +809,7 @@ return (
 | `pageTransitionKey(pathname)` | The key for the top-level `<PageTransition/>`. |
 | `isRouteActive(pathname, href)` | Whether a nav destination reads as current. |
 
-Page components do **not** add their own top-level `PageTransition` — the layout owns it. They may still use `components/Transition.jsx` internally for skeleton/content swaps (see the settings/users table).
+Page components do **not** add their own top-level `PageTransition` — the layout owns it. They may still use `components/Transition.jsx` internally for skeleton/content swaps (see the group/users table).
 
 > **`eslint`:** `FrozenRouter` reads a ref during render on purpose; `react-hooks/refs` is disabled for it in `eslint.config.js`. Don't re-enable it there.
 
@@ -799,7 +834,7 @@ Adding one is two lines — an entry in `RUNTIME_ROUTES` declaring how it presen
 
 Pick `slide: false` for anything that is a *place you go* rather than something you peek at and come back from.
 
-> **First ask whether it needs a URL at all.** Group settings went `page with a query param` → `slide route` → `page runtime route` → **dialog/sheet**, and the last move was the right one: nobody links to a settings form, so it is `<OrgEditor/>` opened from component state, shaped after the composer. A surface that is *acted in and dismissed* wants a dialog; a runtime route is for something that is genuinely addressable. Two lessons survive from the detour, both worth keeping:
+> **First ask whether it needs a URL at all, and then whether it needs a *runtime* one.** Group settings is a static tree at `/group` — an id in the URL would have forced `generateStaticParams`, so the switcher selects the group on the way in and all three pages resolve against the selection instead. Somebody's public profile went the other way and became a modal: it is glanced at from a byline and dismissed, which is component state. A runtime route earns its complexity only when an id genuinely has to be addressable, which so far is a post. Two lessons survive from the detour, both worth keeping:
 >
 > - **A page whose subject comes from the URL wants its id in the path, not a query parameter.** `/settings/groups/edit?org=<id>` flashed "Group not found" on every exit — leaving a page clears its search params while the outgoing surface is still cross-fading, so a screen deriving its subject from the param had one frame with no subject.
 > - **`<RuntimeRoute/>` resolves its route once, on mount.** `<FrozenRouter/>` pins `LayoutRouterContext` for an exiting subtree but *not* the pathname, so a live `usePathname()` read inside the outgoing page swaps its content to the incoming route before the fade-out plays — the surface appears at full opacity, fades out, then fades in. Two flashes for one navigation. Latching makes the exiting instance render what it was mounted for.
@@ -853,22 +888,24 @@ Two things follow, and both are load-bearing:
 
 #### Adding a new slide route
 
-Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declarative steps — **no route folder, and no build-time enumeration** — and **no existing route is affected**, because everything keys off the registry and non-registered paths fall through every resolver unchanged:
+Say you want `/e/:eventId` (a parish event) to slide over the feed. Four small, declarative steps — **no route folder, and no build-time enumeration** — and **no existing route is affected**, because everything keys off the registry and non-registered paths fall through every resolver unchanged:
 
 1. **Register the route** in `lib/constants.js`:
 
    ```javascript
-   export const ROUTES = { /* … */ USER: "/u" }
+   export const ROUTES = { /* … */ EVENT: "/e" }
 
    export const RUNTIME_ROUTES = [
-       { prefix: ROUTES.POST, slide: true, base: ROUTES.DEFAULT },
-       { prefix: ROUTES.USER, slide: true, base: ROUTES.DEFAULT },  // ← base = what it overlays
+       { prefix: ROUTES.POST,  slide: true,  base: ROUTES.DEFAULT },
+       { prefix: ROUTES.EVENT, slide: true,  base: ROUTES.DEFAULT },  // ← base = what it overlays
    ]
    ```
 
-   `slide: true` is what makes it an overlay: it alone stops the top-level `<PageTransition/>` cross-fading the base and keeps the base's nav tab highlighted while the surface is open. Declare `slide: false` instead — and omit `base`, which is meaningless without a surface underneath — and the same registration gives you an ordinary page at a runtime-resolved URL, rendered by `<RuntimeRoute/>` in the page slot. Steps 2 and 3 below are the slide-route path; a page route needs only the surface and the `RUNTIME_SURFACES` entry.
+   ...and an `eventPath(id)` beside `postPath(id)` in `lib/utils.js`, so no caller builds the URL by hand.
 
-2. **Build the surface** as a normal component (e.g. `components/UserView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param, and **compose it out of the three shared pieces rather than reimplementing them** — that is what keeps two slide routes moving identically instead of nearly so:
+   `slide: true` is what makes it an overlay: it alone stops the top-level `<PageTransition/>` cross-fading the base and keeps the base's nav tab highlighted while the surface is open. Declare `slide: false` instead — and omit `base`, which is meaningless without a surface underneath — and the same registration gives you an ordinary page at a runtime-resolved URL, rendered by `<RuntimeRoute/>` in the page slot. Steps 2 and 3 below are the slide-route path; see **Adding a page runtime route** after them for the shorter one.
+
+2. **Build the surface** as a normal component (e.g. `components/EventView.jsx`) taking a `variant` (`"modal"` | `"page"`) and its param, and **compose it out of the three shared pieces rather than reimplementing them** — that is what keeps two slide routes moving identically instead of nearly so:
 
    | Piece | From | What it gives you |
    |---|---|---|
@@ -878,12 +915,12 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
 
    A surface still owns everything above that — `components/PostView.jsx` branches to a dialog on desktop and a Reels-style sheet on mobile; `components/NotificationsView.jsx` is the small version of the same shape. Model a new one on the second.
 
-3. **Register the surface** in `components/SlideRouter.jsx`. One entry serves both presentations — the in-app overlay and the cold load:
+3. **Register the surface** in `RUNTIME_SURFACES` (`components/RuntimeRoute.jsx`). One entry serves both presentations — the in-app overlay and the cold load:
 
    ```jsx
-   const SURFACES = {
-       [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
-       [ROUTES.USER]: (param, variant) => <UserView variant={variant} handle={param} />,
+   export const RUNTIME_SURFACES = {
+       [ROUTES.POST]:  (param, variant) => <PostView variant={variant} postId={param} />,
+       [ROUTES.EVENT]: (param, variant) => <EventView variant={variant} eventId={param} />,
    }
    ```
 
@@ -893,8 +930,37 @@ Say you want `/u/:handle` (a profile) to slide over the feed. Four small, declar
 
 `<SlidePage/>` portals the `page` variant to `<body>` for you, so it escapes the shell's `z-1` page wrapper — which a slide route may itself be mid-transform on — and covers the viewport. A surface must **not** portal itself: the in-app `modal` is already rendered above the nav by `<SlideRouter/>`, and portaling it would trap its exit animation.
 
-**Do not add a route folder.** There is no step for `app/(protected)/u/[handle]/page.jsx`, and adding one is a regression: a dynamic segment forces `generateStaticParams` under the export, which puts you back to enumerating every handle at build time. `<SlidePage/>` in the catch-all already serves the cold load for any registered prefix, for any param value, resolved at runtime. Nothing in `app/(protected)/layout.jsx` changes either — it already renders `<SlideRouter/>` generically.
+**Do not add a route folder.** There is no `app/(protected)/e/[eventId]/page.jsx`, and adding one is a regression: a dynamic segment forces `generateStaticParams` under the export, which puts you back to enumerating every id at build time. `<SlidePage/>` in the catch-all already serves the cold load for any registered prefix, for any param value, resolved at runtime. Nothing in `app/(protected)/layout.jsx` changes either — it already renders `<SlideRouter/>` generically.
 
+#### Adding a *page* runtime route
+
+The shorter half of the above: **the registry entry and the surface, and nothing else.** No
+`<SlideSurface/>`, no `useSlideDismiss`, no `base` — `<RuntimeRoute/>` substitutes the surface
+into the shell's page slot and `<PageTransition/>` cross-fades it like any other route. Reach it
+with `pushRoute` (the same `history.pushState` primitive without the overlay bookkeeping), never
+`router.push`, which has no segment to resolve in the export.
+
+**Choosing between the two matters, and the wrong choice is visible rather than merely untidy.**
+`slide: true` is for something you peek at and come back from, where the surface behind must
+survive — a post over the live feed. `slide: false` is for a *place*: somewhere you go, reached
+from several other places, that may be navigated onward from.
+
+The tell that a place has been registered as an overlay is a **double transition when you arrive
+from anywhere other than its `base`.** `pageTransitionKey` collapses a slide route to that base,
+so arriving at one from `/settings` moves the top-level key from `/settings` to `/` — which
+cross-fades the settings page out and straight back in (the segment tree never changed, so it is
+still what `children` renders) *underneath* a sheet animating in over it. Two animations for one
+navigation. A page route keys on its own pathname, so there is one.
+
+> **First ask whether it needs to be a runtime route at all.** A runtime route earns its
+> complexity only when an id genuinely has to be addressable, and most surfaces that look like
+> they need one do not. Somebody's profile is the worked counter-example: the *public* half is a
+> card you glance at from a byline and dismiss, which wants component-state semantics — a handle
+> tapped inside an open post must not take the post down — and the *editable* half is eight
+> fields and a save, which is a place you go and is therefore a plain static page in the account
+> tree (`/settings/info`). Neither half carries an id in a URL.
+
+#### Rules
 #### Rules
 
 - **Never** re-derive slide-route behaviour inline (`pathname.startsWith("/p/")`) in a component. Use the resolvers, or add to the registry.
@@ -985,7 +1051,7 @@ Consequences worth knowing:
 - **`skeleton` covers both waits.** `resolvingOrg || !ready` — the moment before a group is selected is as much "nothing to show" as the fetch itself, and letting the first fall through flashes an empty surface.
 - **Anything scoped must be emptied on switch, not just refetched.** Leaving `items` in place shows one parish's rows under another's name for a round trip, and every row's actions would write to the wrong group if tapped.
 
-**Two surfaces hang off the switcher, and the store holds only which one is open.** Editing a group is `editingId`, creating one is the `creating` flag (a flag, not an id — there is no group yet to name it after), and both are drawn by a component the shell mounts once (`<OrgEditor/>`, `<OrgCreator/>`) rather than by either entrance, because the desktop dropdown and the mobile panel are separate subtrees that must not each own a copy. Neither is a route: nobody links to a settings form, and component state is what keeps Android's back gesture closing the surface rather than unwinding a history entry. Deleting a group is the danger zone inside the editor, gated on the server-composed `canDelete` rather than on any rule the client re-derives — see §11 of `backend-architecture.md`.
+**Two things hang off the switcher, and they resolve differently.** Creating a group is the `creating` flag in the org store (a flag, not an id — there is no group yet to name it after), drawn by `<OrgCreator/>`, which the shell mounts once because the desktop dropdown and the mobile panel are separate subtrees that must not each own a copy. Administering one is a *place*: the gear selects that row's group and navigates to `/group`, whose three pages all resolve against the selection — which is what keeps a cuid out of the URL and lets them be static routes. Deleting is the danger zone at the foot of `/group/info`, gated on the server-composed `canDelete` rather than on any rule the client re-derives — see §11 of `backend-architecture.md`.
 
 **A New group row sits at the foot of the switcher, drawn only for a platform `OWNER`** — `usePlatformOwner()`, which is deliberately *not* `usePrivileged`: that one walks `ROLE_LEVEL` and answers "may I act in this group", and OWNER is not a rank above ADMIN but a different question with no group in it. The entrance is here because this menu is already the answer to "which groups do I have", so "and make another" belongs at the bottom of that answer.
 
@@ -1155,11 +1221,36 @@ If the app is served under a base path (e.g. `/emc/ui`) rather than the host roo
 
 Use `<Button variant="..." size="...">` from `components/ui/button.jsx`. Variants: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`. Sizes: `default`, `xs`, `sm`, `lg`, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. Don't create alternate buttons.
 
-**Anything a reader is meant to press is `size="lg"`, with horizontal padding.** Not a preference: `default` is `h-9` with `px-2.5`, which is the size of a control *inside* something — a table row's action, a toolbar, a popover — and at the end of a paragraph on a phone it reads as a link that happens to have a border, sitting under body text it barely out-measures. `lg` is `h-12`, and because its padding is also `px-2.5` it needs the width added at the call site: `className="px-8"` for a pill sized to its label, `className="w-full sm:w-fit sm:px-10"` for one that fills the column on a phone and shrinks on a desktop. Every submit in the app already does one of the two — see `<Compose/>`, `<OrgCreator/>`, `<OrgEditor/>`.
+**Anything a reader is meant to press is `size="lg"`, with horizontal padding.** Not a preference: `default` is `h-9` with `px-2.5`, which is the size of a control *inside* something — a table row's action, a toolbar, a popover — and at the end of a paragraph on a phone it reads as a link that happens to have a border, sitting under body text it barely out-measures. `lg` is `h-12`, and because its padding is also `px-2.5` it needs the width added at the call site: `className="px-8"` for a pill sized to its label, `className="w-full sm:w-fit sm:px-10"` for one that fills the column on a phone and shrinks on a desktop. Every submit in the app already does one of the two — see `<Compose/>`, `<OrgCreator/>`, `<OrgSettings/>`.
 
 So: reach for `lg` first and justify anything smaller. `sm`/`xs` are for dense chrome where a full-size control would crowd its neighbours, and `default` — the variant's own default, which is what you get by writing no `size` at all — is almost never what a page-level action wants. Writing `<Button onClick={…}>Turn on notifications</Button>` and shipping it is the failure mode this rule exists to stop.
 
 The loading state is `<Ripple/>`, never a text placeholder — see **Action buttons during async work** below. `"Just a moment…"` in place of the label is the same mistake in a different dimension: it resizes the button mid-action and drops the name of the thing being done.
+
+### Hyperlinks — `<Hyperlink/>` (HARD RULE)
+
+**Never write `underline` or `hover:underline` by hand.** Anything that reads as a link — a real
+link, a handle that opens a card, a word in prose that goes somewhere — is `<Hyperlink/>`, which
+owns the one hover treatment the app has: a wipe that grows from the left on hover and retracts
+to the right on leave, plus (on the default variant) the link colour.
+
+It is a hard rule for the same reason `<Close/>` is. A hand-rolled `hover:underline` is a second
+affordance that *looks* like the first and animates differently, and two of them in one paragraph
+is two things a reader has to learn separately. It also drifts: the wipe's duration and thickness
+live in one file, and a bare `underline` cannot follow them.
+
+- **`soft`** keeps the inherited colour at rest and fades to the link blue on hover. That is the
+  variant for a link inside prose or a byline, where a permanently blue word pulls the eye off the
+  sentence it sits in. `<HandleLink/>` uses it.
+- **No `href`** renders a non-navigating span, so it can wrap the label of a `<button>` that opens
+  a surface rather than navigating — again `<HandleLink/>`.
+- It is built from spans, so it is valid **inside a `<p>`**, which is where most of the app's
+  links actually sit.
+
+The one case that cannot use it is text that must `truncate`: the wipe's box sizes to its content,
+so a constrained-width label would overflow rather than ellipse. Give that element no hover
+treatment at all rather than reaching for `underline` — see the author name in `<PostCard/>`, whose
+tap target is shared with the avatar beside it and which is therefore already legible as one.
 
 ### Close affordances — `<Close/>`
 
@@ -1206,7 +1297,7 @@ import { YayOrNay } from '@/components/Widgets'
 // nodes/page.jsx
 <YayOrNay value={node.isInstalled} enabledLabel="Installed" disabledLabel="Not installed" />
 
-// settings/users/page.jsx
+// group/users/page.jsx
 <YayOrNay value={user.is_enabled} />
 ```
 
@@ -1266,7 +1357,7 @@ The reason is not consistency for its own sake. Those wrappers carry things that
 
 Deviate only where a form is genuinely doing something the primitives cannot express, and say why in a comment. `<ComposeForm/>` is the one such case and is worth reading as the shape of a *justified* deviation: it still uses `<Form>`, `<FormField>` and `<FormControl>` throughout, and departs on exactly one point — validation is toasted rather than rendered through `<FormMessage>`, because its fields are borderless writing surfaces with no box to hang a message off and a line of red text under the caption shoves the photo strip down the moment someone taps Post. That is a deviation *inside* the system, argued from the layout. "This form is simple enough to do by hand" is not a reason; a simple form is exactly the one that costs nothing to do properly.
 
-See `components/OrgEditor.jsx` for a plain instance, or the login screen for one with a two-step flow:
+See `components/OrgSettings.jsx` for a plain instance, or the login screen for one with a two-step flow:
 
 ```jsx
 const schema = z.object({
@@ -1430,7 +1521,7 @@ import { TableSkeleton } from '@/components/Skeleton'
 
 ### Page transitions
 
-The **layout** owns the route cross-fade via `<PageTransition/>` (which wraps `AnimatePresence` + a keyed `motion.div` + `<FrozenRouter/>`) — see the Routing section. Page components do **not** add their own top-level transition. They may use `components/Transition.jsx` internally (as `settings/users/page.jsx` does between skeleton/content).
+The **layout** owns the route cross-fade via `<PageTransition/>` (which wraps `AnimatePresence` + a keyed `motion.div` + `<FrozenRouter/>`) — see the Routing section. Page components do **not** add their own top-level transition. They may use `components/Transition.jsx` internally (as `group/users/page.jsx` does between skeleton/content).
 
 ### Spinners
 

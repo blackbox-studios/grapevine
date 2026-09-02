@@ -256,10 +256,12 @@ Pointing `NEXT_PUBLIC_API_BASE_URL` at the Mac's LAN IP works for all three targ
 can reach).
 
 ```bash
-pkill -f "next dev"     # a build and next dev fight over .next — see the gotchas below
 npm run ios             # or: npm run android   (build:native + cap sync + open the IDE)
-npm run dev             # restart: the device needs the API served
 ```
+
+`next dev` can stay up throughout — it needs to, in fact, since the device is talking to it.
+Building both platforms is one sync and two opens: `npm run sync`, then `npm run open:ios`
+and `npm run open:android`, which skip the build.
 
 Android additionally needs three debug-scoped accommodations to reach an `http://` dev API,
 all of which live under `android/app/src/debug/` and in `MainActivity.onCreate` — cleartext
@@ -500,22 +502,18 @@ the inset.
 - **Verify the export, not just `next dev`.** The dev server serves per-route HTML and
   runs middleware if present, so it hides both of the constraints above. Serve `out/`
   with an `index.html` fallback for extensionless paths to reproduce native routing.
-- **Stop `next dev` before `npm run sync` / `ios` / `android`.** They all run
-  `next build`, which shares `.next` with the dev server *and* writes `out/` inside the
-  project the dev server is watching. Run them together and you get failures in both
-  directions, none of which are real code errors:
-  - the build dies with `Cannot find module for page: /inbox`, `Could not find files for
-    /_error in .next/build-manifest.json`, or `TypeError: a[d] is not a function` while
-    collecting page data or prerendering;
-  - the dev server recompiles in a tight loop (watching `out/`) and starts serving 500s,
-    with phantom `Cannot find module './992.js'` / `vendor-chunks/*.js` / `ENOENT` noise.
-
-  Stop dev, run the build, then restart dev. If it stays broken, delete `.next` first.
-- **Do not "fix" that with `distDir`.** Giving the native build its own build directory
-  looks like the clean answer and is a trap: with `output: "export"` Next writes the
-  exported site *into* `distDir`, so `out/` silently moves and `cap sync` fails with
-  `Could not find the web assets directory: ./out`. It also doesn't help, because the
-  dev-server thrashing comes from watching `out/`, not from sharing `.next`.
+- **`next dev` builds into `.next-dev`, and that is what keeps a build off its back.**
+  Every build target writes `.next` — the export uses it as scratch on the way to `out/` —
+  so a dev server sharing it gets its manifests overwritten mid-flight and both sides fail
+  in ways that look like code errors: the build dies with `Cannot find module for page:
+  /inbox` or `Could not find files for /_error in .next/build-manifest.json`, and the dev
+  server serves 500s with phantom `Cannot find module './992.js'` / `vendor-chunks/*.js`
+  noise. The dev server is the side that moves, because `distDir` cannot be used to move
+  the other one: under `output: "export"` Next reads `distDir` as the destination of the
+  *exported site* and resets the build directory to `.next`, so aiming the native build
+  elsewhere silently relocates `out/` and `cap sync` fails with `Could not find the web
+  assets directory: ./out`. See the phase-conditional export at the foot of
+  `next.config.mjs`. If a dev server does get into a bad state, delete `.next-dev`.
 - **Route-shape changes need a dev restart.** The dev server caches the compiled route
   tree, so adding or removing a segment can leave it serving the old shape and throwing
   errors that no longer match your source. Restart before believing an error.

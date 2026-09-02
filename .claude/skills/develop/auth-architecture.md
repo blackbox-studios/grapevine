@@ -528,7 +528,7 @@ today but lives in a schema Supabase owns and has been progressively locking dow
 | Login screen (email → code) | `src/app/(public)/login/page.jsx` |
 | Orientation + access-removed screens | `src/app/(gateway)/` |
 | Birthday drum picker | `src/components/DateWheel.jsx` |
-| Admin roster UI (invite, revoke, vocation) | `src/app/(protected)/settings/users/page.jsx` |
+| Admin roster UI (invite, revoke, vocation) | `src/app/(protected)/group/users/page.jsx` |
 | Bearer header + 401 sign-out | `src/lib/api.js` |
 | Endpoints | `src/app/api/me/`, `me/onboarding/`, `orgs/[orgId]/invites/`, `memberships/[membershipId]/` |
 | Dev sign-in without email | `scripts/dev-login.mjs` (`npm run dev:login`) |

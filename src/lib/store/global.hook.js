@@ -3,7 +3,9 @@ import { useMemo } from "react"
 import useAppStore from "@/lib/store/app/store"
 import useAuthStore from "@/lib/store/auth/store"
 import useFeedStore from "@/lib/store/feed/store"
+import useFollowsStore from "@/lib/store/follows/store"
 import usePostStore from "@/lib/store/post/store"
+import useProfileStore from "@/lib/store/profile/store"
 import useCommentsStore from "@/lib/store/comments/store"
 import useMembersStore from "@/lib/store/members/store"
 import useNotificationsStore from "@/lib/store/notifications/store"
@@ -21,6 +23,8 @@ export const useErrors = () => {
     const feedError = useFeedStore(state => state.error)
     const postError = usePostStore(state => state.error)
     const commentsError = useCommentsStore(state => state.error)
+    const profileError = useProfileStore(state => state.error)
+    const followsError = useFollowsStore(state => state.error)
     const membersError = useMembersStore(state => state.error)
     const notificationsError = useNotificationsStore(state => state.error)
     const orgError = useOrgStore(state => state.error)
@@ -36,6 +40,8 @@ export const useErrors = () => {
             feed: feedError,
             post: postError,
             comments: commentsError,
+            profile: profileError,
+            follows: followsError,
             members: membersError,
             notifications: notificationsError,
             push: pushError,
@@ -44,6 +50,7 @@ export const useErrors = () => {
         clearErrors,
     }), [
         appError, authError, orgError, feedError, postError, commentsError,
-        membersError, notificationsError, pushError, uploadsError, clearErrors,
+        profileError, followsError, membersError, notificationsError, pushError,
+        uploadsError, clearErrors,
     ])
 }

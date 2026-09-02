@@ -2,7 +2,13 @@ import "server-only"
 
 import { MembershipStatus, OrgRole, Prisma, Vocation } from "@prisma/client"
 
-import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN, UPLOAD_PURPOSES } from "@/lib/constants"
+import {
+    HANDLE_MAX,
+    HANDLE_MIN,
+    HANDLE_PATTERN,
+    MAX_CHRISTIAN_NAME_LENGTH,
+    UPLOAD_PURPOSES,
+} from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
@@ -50,13 +56,22 @@ const touchProfile = (profile) => {
         .catch(() => {})
 }
 
+/* The viewer's follow tallies, as an `_count` shaped for `projectViewer`.
+ *
+ * **Not folded into `requireViewer`.** That runs on every single request, and two tallies
+ * nothing in the request path reads would be a permanent tax to serve one screen. This is one
+ * extra statement on `/api/me` alone — a boot-and-resume call — and every *write* gets them
+ * free, because there the `_count` rides along with the `update` that was happening anyway. */
+const followCounts = { select: { _count: { select: { followers: true, following: true } } } }
+
 /* The signed-in viewer, with every group they belong to and why they may or may not be
  * here. */
 export const getViewer = async (viewer) => {
-    /* `requireViewer` already loaded these — every status, with its organization, in the
-     * order this needs — so the probe costs one statement rather than two. */
+    /* `requireViewer` already loaded the profile and its memberships — every status, with its
+     * organization, in the order this needs — so all that is left to ask for is the tallies. */
     touchProfile(viewer)
-    return projectViewer(viewer, viewer.memberships)
+    const counts = await prisma.profile.findUnique({ where: { id: viewer.id }, ...followCounts })
+    return projectViewer({ ...viewer, _count: counts?._count }, viewer.memberships)
 }
 
 /* A client string checked against a generated Prisma enum, or `undefined` if absent.
@@ -86,6 +101,15 @@ const readName = (value, field, label) => {
     }
     return name
 }
+
+/* The same rule, applied only if the caller mentioned the field.
+ *
+ * `undefined` passes straight through; an empty string does **not** — a name is not clearable
+ * the way a Christian name is, because every byline in the app falls back to the handle and a
+ * person who blanked their name would silently become "@j.smith" everywhere. So the partial
+ * update can leave a name alone but never erase one. */
+const readNameIfGiven = (value, field, label) =>
+    value === undefined ? undefined : readName(value, field, label)
 
 /* A handle as it would be stored, or a validation failure explaining why not.
  *
@@ -142,6 +166,115 @@ const readBirthday = (value) => {
     return date
 }
 
+/* An optional free-text field: the trimmed value, or `null` to clear it.
+ *
+ * `null` and "absent" are different answers here and both have to be expressible — Settings
+ * lets somebody who typed the wrong saint's name empty the box again, and an empty string is
+ * how a form says that. `undefined` means the caller did not mention the field, which is what
+ * keeps a partial update from wiping what it did not send. */
+const readOptionalText = (value, field, label, max = MAX_CHRISTIAN_NAME_LENGTH) => {
+    if (value === undefined) return undefined
+    const text = String(value ?? "").trim().replace(/\s+/g, " ")
+    if (!text) return null
+    if (text.length > max) throw invalid(`That ${label} is too long.`, { [field]: "Too long" })
+    return text
+}
+
+/* A name day as the pair of columns it is stored in, or a validation failure.
+ *
+ * **`MM-DD` on the wire, two integers in the database, and no year anywhere.** A name day is a
+ * feast that recurs, so a year would be a value invented here for the column's benefit and
+ * then ignored by every reader — see the `nameDayMonth` note in `prisma/schema.prisma`.
+ *
+ * The day is bounded by the length of the month it is in, with February taken as 29: a name
+ * day is not anchored to a year, so there is no leap year to consult, and St Cassian's feast
+ * on the 29th is a real one that a 28-day ceiling would refuse.
+ *
+ * Answers `{ nameDayMonth, nameDayDay }` so it drops straight into a Prisma `data`, and both
+ * are null together when cleared — nothing represents half a date. */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+const readNameDay = (value) => {
+    if (value === undefined) return undefined
+    const text = String(value ?? "").trim()
+    if (!text) return { nameDayMonth: null, nameDayDay: null }
+
+    const match = /^(\d{2})-(\d{2})$/.exec(text)
+    if (!match) throw invalid("Enter a name day.", { nameDay: "Invalid" })
+
+    const month = Number(match[1])
+    const day = Number(match[2])
+    if (month < 1 || month > 12 || day < 1 || day > DAYS_IN_MONTH[month - 1]) {
+        throw invalid("That is not a date in the calendar.", { nameDay: "Invalid" })
+    }
+
+    return { nameDayMonth: month, nameDayDay: day }
+}
+
+/* An ordination date as a `@db.Date`, or null to clear it.
+ *
+ * Bounded the same way a birthday is and for the same reasons — the failures worth catching
+ * are a typo'd year and a future date. There is no check that the person holds a rank that can
+ * be ordained: `CLERGY_VOCATIONS` decides who is *asked*, and a reader ordained a deacon next
+ * month must be able to record it without waiting for that list to be consulted again. */
+const readOrdinationDate = (value) => {
+    if (value === undefined) return undefined
+    const text = String(value ?? "").trim()
+    if (!text) return null
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+        throw invalid("Enter an ordination date.", { ordinationDate: "Invalid" })
+    }
+
+    /* UTC midnight, matching `@db.Date` — see `readBirthday` for why local parsing shifts the
+     * day west of Greenwich. */
+    const date = new Date(`${text}T00:00:00.000Z`)
+    if (Number.isNaN(date.getTime())) {
+        throw invalid("That date does not look right.", { ordinationDate: "Invalid" })
+    }
+    if (date > new Date()) {
+        throw invalid("An ordination date cannot be in the future.", {
+            ordinationDate: "Invalid",
+        })
+    }
+    if (date.getUTCFullYear() < 1900) {
+        throw invalid("That date does not look right.", { ordinationDate: "Invalid" })
+    }
+    return date
+}
+
+/* A profile picture's URL, proven to be an object this viewer was granted permission to upload.
+ *
+ * **The URL is checked, not trusted, and this is the whole security of it.** It arrives from the
+ * client and is written verbatim, so unchecked a picture could point anywhere: at an off-site
+ * image the feed would render as a parishioner's face, at a tracking pixel reporting every
+ * reader who scrolls past a post they commented on, or at another person's object.
+ * `POST /api/uploads` authorized this viewer for the `avatars/<their own id>/` folder before it
+ * minted a path there — so the folder an object sits in *is* the record that the upload was
+ * earned, and checking it carries that authorization forward to the write it was granted for.
+ * The same rule `createPost` applies to a post's media.
+ *
+ * A replaced picture is left in storage on purpose: deleting it would add a second failure mode
+ * to a write whose whole job is to be instant, and one that succeeded against the wrong key
+ * would destroy a picture still in use. A sweep belongs in a job.
+ *
+ * Unlike the other optional readers this one refuses to clear: there is no "remove my picture"
+ * affordance, and an empty string reaching here means a picker that failed rather than a
+ * deliberate erasure. */
+const readAvatarUrl = (viewer, value) => {
+    if (value === undefined) return undefined
+
+    const url = String(value ?? "").trim()
+    if (!url) throw invalid("A picture is required.", { avatar: "Required" })
+
+    if (!isOwnedUrl(url, { prefix: uploadPrefix(UPLOAD_PURPOSES.AVATAR), ownerId: viewer.id })) {
+        throw invalid("A profile picture must be uploaded through Grapevine.", {
+            avatar: "Unrecognized file",
+        })
+    }
+    return url
+}
+
 /* Is this @handle free?
  *
  * Answers the live check on the handle step. The viewer's *own* current handle counts as
@@ -177,8 +310,9 @@ export const checkHandle = async (viewer, value) => {
     }
 }
 
-/* Completes first-run orientation: the viewer's name, the @handle they chose, and their
- * birthday.
+/* Completes first-run orientation: the viewer's name, the @handle they chose, their
+ * birthday, and — for the people it applies to — their Christian name, name day, and
+ * ordination date.
  *
  * **One write, or none.** Stamping `onboardedAt` is what lets the viewer past the welcome
  * gate, so it is written *with* the answers — a name saved without the stamp would ask
@@ -187,21 +321,39 @@ export const checkHandle = async (viewer, value) => {
  * before anything is written, for the same reason.
  *
  * This is also where the handle stops being the provisional one derived from an email
- * address at admission and becomes one the person actually chose. */
-export const completeOnboarding = async (viewer, { firstName, lastName, handle, birthday }) => {
+ * address at admission and becomes one the person actually chose.
+ *
+ * **The four required fields are required; the last three are not, and that asymmetry is the
+ * point.** Which of them the form even asks depends on a vocation the admin set — a catechumen
+ * has no Christian name yet, and a layman has no ordination — so the server cannot demand what
+ * it cannot know was offered. Anything omitted stays null and is answerable later from
+ * Settings → General, which is the same write with `updateProfile` behind it. */
+export const completeOnboarding = async (
+    viewer,
+    { firstName, lastName, handle, birthday, christianName, nameDay, ordinationDate },
+) => {
     const first = readName(firstName, "firstName", "first name")
     const last = readName(lastName, "lastName", "last name")
     const chosen = readHandle(handle)
     const date = readBirthday(birthday)
+    const christian = readOptionalText(christianName, "christianName", "Christian name")
+    const feast = readNameDay(nameDay)
+    const ordained = readOrdinationDate(ordinationDate)
 
     try {
         const profile = await prisma.profile.update({
             where: { id: viewer.id },
+            /* The tallies come back with the row so the response is the same shape `/api/me`
+             * ships — an updated viewer the client can swap in whole. Free: same statement. */
+            include: followCounts.select,
             data: {
                 firstName: first,
                 lastName: last,
                 handle: chosen,
                 birthday: date,
+                ...(christian !== undefined ? { christianName: christian } : {}),
+                ...(feast ?? {}),
+                ...(ordained !== undefined ? { ordinationDate: ordained } : {}),
                 onboardedAt: new Date(),
             },
         })
@@ -227,50 +379,81 @@ export const completeOnboarding = async (viewer, { firstName, lastName, handle, 
     }
 }
 
-/* Replaces the viewer's profile picture, and answers the updated viewer.
+/* Edits the viewer's own profile — everything on it that is theirs to change: their picture,
+ * their name, their @handle, their birthday, and the three parish facts orientation may not
+ * have asked them for.
  *
- * **The URL is checked, not trusted, and this is the whole security of it.** `avatar` arrives
- * from the client and is written verbatim, so without this a profile picture could point
- * anywhere: at an off-site image the feed would render as a parishioner's face, at a tracking
- * pixel that reports every reader who scrolls past a post they commented on, or at another
- * person's object. `POST /api/uploads` already authorized this viewer for the `avatars/<their
- * own id>/` folder before it minted a path there — so the folder an object sits in *is* the
- * record that the upload was earned, and checking it here carries that authorization forward
- * to the write it was granted for. Exactly the rule `createPost` applies to a post's media.
+ * **Everything except `vocation`, and that exception is the whole shape of the rule.** A
+ * vocation is what the admin check and the roster's sort order are derived from, so it is the
+ * admin's to set and nobody may promote themselves to Priest. Everything else here is a fact
+ * about the person that only the person can supply, so it belongs to them — including the
+ * handle, which people do outgrow, and which the unique constraint below still arbitrates.
  *
- * Only the picture. A general profile editor would be a different function with a different
- * shape — this one exists because the account surface has a single control on it, and keeping
- * it to that keeps the check above simple enough to be obviously right.
+ * `email` is not here either: it is the credential Supabase owns, and changing it is an
+ * account operation with a verification step rather than a profile edit.
  *
- * The previous object is deliberately left in storage. It costs a few kilobytes, and deleting
- * it would mean a second failure mode on a write whose whole job is to be instant — a delete
- * that fails leaves an orphan, and one that succeeds against the wrong key destroys a picture
- * still in use. A sweep belongs in a job, not in this request.
+ * **A partial update, keyed on `undefined` versus `null`.** A field the caller did not mention
+ * is left alone; one sent empty is cleared. That distinction is what lets a clergy form that
+ * never renders a Christian-name box coexist with a layman's that never renders an ordination
+ * date, and it is what lets the avatar picker send one field without touching the rest.
  *
- * Changing your own picture cannot change which groups you are in, so `requireViewer`'s
- * membership snapshot is still accurate and re-reading it would be a round trip to learn
- * nothing — the same reasoning as `completeOnboarding`. */
-export const updateAvatar = async (viewer, avatar) => {
-    const url = String(avatar ?? "").trim()
-    if (!url) throw invalid("A picture is required.", { avatar: "Required" })
+ * Answers the whole viewer, so the auth store swaps in one object and the nav's avatar, the
+ * settings form, and the face on every one of the viewer's own comments move together. Editing
+ * your own details cannot change which groups you are in, so `requireViewer`'s membership
+ * snapshot is still accurate and re-reading it would be a round trip to learn nothing — the
+ * same reasoning as `completeOnboarding`. */
+export const updateProfile = async (viewer, input) => {
+    const first = readNameIfGiven(input.firstName, "firstName", "first name")
+    const last = readNameIfGiven(input.lastName, "lastName", "last name")
+    const chosen = input.handle === undefined ? undefined : readHandle(input.handle)
+    const born = input.birthday === undefined ? undefined : readBirthday(input.birthday)
+    const christian = readOptionalText(input.christianName, "christianName", "Christian name")
+    const feast = readNameDay(input.nameDay)
+    const ordained = readOrdinationDate(input.ordinationDate)
+    const picture = readAvatarUrl(viewer, input.avatar)
 
-    if (
-        !isOwnedUrl(url, {
-            prefix: uploadPrefix(UPLOAD_PURPOSES.AVATAR),
-            ownerId: viewer.id,
-        })
-    ) {
-        throw invalid("A profile picture must be uploaded through Grapevine.", {
-            avatar: "Unrecognized file",
-        })
+    const data = {
+        ...(first !== undefined ? { firstName: first } : {}),
+        ...(last !== undefined ? { lastName: last } : {}),
+        ...(chosen !== undefined ? { handle: chosen } : {}),
+        ...(born !== undefined ? { birthday: born } : {}),
+        ...(picture !== undefined ? { avatarUrl: picture } : {}),
+        ...(christian !== undefined ? { christianName: christian } : {}),
+        ...(feast ?? {}),
+        ...(ordained !== undefined ? { ordinationDate: ordained } : {}),
     }
 
-    const profile = await prisma.profile.update({
-        where: { id: viewer.id },
-        data: { avatarUrl: url },
-    })
+    /* Nothing to write is not an error — a form submitted unchanged should answer the viewer
+     * it already had. It still costs the tallies, because the answer has to be a *whole*
+     * viewer: the client swaps this in wholesale, and one without them would blank the counts
+     * on the profile they were just looking at. */
+    if (Object.keys(data).length === 0) {
+        const counts = await prisma.profile.findUnique({
+            where: { id: viewer.id },
+            ...followCounts,
+        })
+        return projectViewer({ ...viewer, _count: counts?._count }, viewer.memberships)
+    }
 
-    return projectViewer(profile, viewer.memberships)
+    try {
+        const profile = await prisma.profile.update({
+            where: { id: viewer.id },
+            data,
+            include: followCounts.select,
+        })
+        return projectViewer(profile, viewer.memberships)
+    } catch (error) {
+        /* The unique constraint is the real arbiter of a handle, exactly as it is during
+         * orientation — two people can pick the same one in the seconds between a form loading
+         * and being saved. Reported as a field error so the form can mark the input rather
+         * than failing the whole submission as something unexplained. */
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            throw invalid("That handle is already taken. Please choose another.", {
+                handle: "Taken",
+            })
+        }
+        throw error
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -293,6 +476,7 @@ const projectMember = (membership) => ({
     handle: membership.profile.handle,
     firstName: membership.profile.firstName,
     lastName: membership.profile.lastName,
+    christianName: membership.profile.christianName,
     avatar: membership.profile.avatarUrl,
     vocation: membership.profile.vocation,
     role: membership.role,

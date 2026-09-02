@@ -33,19 +33,25 @@ export const decodeCursor = (cursor) => {
  * The key is the pair `(createdAt, id)`, never `createdAt` alone: two posts can share a
  * timestamp, and a non-unique key silently drops or repeats rows at a page boundary. `id`
  * is the tiebreaker that makes the ordering total.
+ *
+ * `tiebreaker` names the column playing that part, and defaults to `id` because every model
+ * with a surrogate key uses it. It exists for `Follow`, which is keyed by the *pair*
+ * `(followerId, followingId)` and has no `id` at all — so a page of followers breaks its ties
+ * on `followerId`, which is unique within that page's `followingId`. All three helpers take
+ * it and all three must be given the same one.
  * ------------------------------------------------------------------------- */
 
 /* The `where` fragment that resumes after a cursor, or `{}` for the first page.
  *
  * Read it as the lexicographic comparison it is: strictly past the cursor's timestamp, or
- * on the same timestamp and strictly past its id. Postgres can satisfy that from an index
- * on `(createdAt, id)` in the matching sort order, which is why the models carry exactly
- * those indexes.
+ * on the same timestamp and strictly past its tiebreaker. Postgres can satisfy that from an
+ * index on `(createdAt, <tiebreaker>)` in the matching sort order, which is why the models
+ * carry exactly those indexes.
  *
  * `direction` must match the query's `orderBy` — "desc" for newest-first (the feed),
  * "asc" for oldest-first (a comment thread). Mismatch them and the second page silently
  * repeats the first. */
-export const keysetWhere = (cursor, direction = "desc") => {
+export const keysetWhere = (cursor, direction = "desc", tiebreaker = "id") => {
     const key = decodeCursor(cursor)
     if (!key) return {}
 
@@ -60,12 +66,18 @@ export const keysetWhere = (cursor, direction = "desc") => {
     const past = direction === "asc" ? "gt" : "lt"
 
     return {
-        OR: [{ createdAt: { [past]: at } }, { createdAt: at, id: { [past]: id } }],
+        OR: [
+            { createdAt: { [past]: at } },
+            { createdAt: at, [tiebreaker]: { [past]: id } },
+        ],
     }
 }
 
 /* The `orderBy` that pairs with `keysetWhere`. Always both columns, always same direction. */
-export const keysetOrder = (direction = "desc") => [{ createdAt: direction }, { id: direction }]
+export const keysetOrder = (direction = "desc", tiebreaker = "id") => [
+    { createdAt: direction },
+    { [tiebreaker]: direction },
+]
 
 /* Turns an over-fetched row set into the wire's `{ items, nextCursor }`.
  *
@@ -74,10 +86,10 @@ export const keysetOrder = (direction = "desc") => [{ createdAt: direction }, { 
  * if it didn't there isn't. A count would make the database touch every matching row on
  * every request to produce a number the contract does not even carry.
  *
- * `map` projects a database row onto its wire shape. The cursor is built from the raw row
- * (which still has a `Date` and an `id`), not the projection, so a projection is free to
- * rename or drop either field. */
-export const keysetPage = (rows, limit, map = (row) => row) => {
+ * `map` projects a database row onto its wire shape. The cursor is built from the raw row —
+ * which still has a `Date` and the tiebreaker column — not the projection, so a projection is
+ * free to rename or drop either field. */
+export const keysetPage = (rows, limit, map = (row) => row, tiebreaker = "id") => {
     const hasMore = rows.length > limit
     const page = hasMore ? rows.slice(0, limit) : rows
     const last = page[page.length - 1]
@@ -86,7 +98,10 @@ export const keysetPage = (rows, limit, map = (row) => row) => {
         items: page.map(map),
         nextCursor:
             hasMore && last
-                ? encodeCursor({ createdAt: last.createdAt.toISOString(), id: last.id })
+                ? encodeCursor({
+                      createdAt: last.createdAt.toISOString(),
+                      id: last[tiebreaker],
+                  })
                 : null,
     }
 }

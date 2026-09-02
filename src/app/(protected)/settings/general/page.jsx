@@ -23,19 +23,15 @@ const SettingsGeneralPage = () => {
      * the switcher lights up the current choice. */
     const mounted = useMounted()
 
-    /* The same centered column `/settings` uses, and for the same reason: this page holds one
-     * small control, and left-aligning it against the full width of a desktop shell put the
-     * heading and three thumbnails in the top-left corner of an otherwise empty screen. The
-     * roster next door genuinely needs the width — it is a table that scrolls sideways inside
-     * itself — so the constraint belongs on this page rather than on the settings layout.
-     *
-     * `max-w-[470px]` and the `md:pt-0` are lifted verbatim from the index, so arriving here
-     * from that list does not change the shape of the page under the reader. */
+    /* The same centered column `/settings` uses, and the same width: this page holds a few small
+     * controls, and left-aligned against the full width of a desktop shell they sit in the
+     * top-left corner of an otherwise empty screen. Matching the index is what keeps arriving
+     * here from that list from changing the shape of the page under the reader. */
     return (
         <>
             {/* Titled "General" after the row on `/settings` that leads here, which is also
-                where the arrow goes back to. The theme switcher below is the first of what will
-                be several sections under it, which is why it keeps a heading of its own. */}
+                where the arrow goes back to. Device settings only — anything about the person
+                is edited on their own profile, which is the surface that shows it. */}
             <BackHeader title="General" back={ROUTES.SETTINGS} bleed />
 
             <section className="mx-auto flex w-full max-w-[470px] flex-col gap-6 pb-10 md:pt-0">

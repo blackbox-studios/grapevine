@@ -236,6 +236,7 @@ const useStore = create(immer((set, get) => ({
                            * the server's reply will be. */
                           firstName: user.firstName,
                           lastName: user.lastName,
+                          christianName: user.christianName,
                           vocation: user.vocation,
                           avatar: user.avatar,
                           /* Publishing requires ADMIN of this org, so the check is not a

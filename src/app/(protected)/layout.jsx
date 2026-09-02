@@ -20,7 +20,7 @@ import NotificationsMenu from "@/components/Notifications";
 import { ProfileTrigger } from "@/components/Profile";
 import PageTransition from "@/components/PageTransition";
 import OrgCreator from "@/components/OrgCreator";
-import OrgEditor from "@/components/OrgEditor";
+import ProfileCard from "@/components/ProfileCard";
 import RuntimeRoute from "@/components/RuntimeRoute";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
@@ -276,13 +276,17 @@ const ProtectedShell = ({ children }) => {
             {/* The slide-route surface. Last child so it stacks above the nav. */}
             <SlideRouter />
 
-            {/* Group settings and the create-a-group form, both opened from the switcher in
-                either rail. Mounted here rather than beside either trigger because the desktop
-                dropdown and the mobile panel are separate subtrees that must not each own a
-                copy — what is open lives in the org store, and these are the one thing that
-                draws it. */}
-            <OrgEditor />
+            {/* The create-a-group form, opened from the switcher in either rail. Mounted here
+                rather than beside either trigger because the desktop dropdown and the mobile
+                panel are separate subtrees that must not each own a copy — whether it is open
+                lives in the org store, and this is the one thing that draws it. */}
             <OrgCreator />
+
+            {/* Somebody's public card. Mounted here for the same reason, and more so: a handle
+                is tapped from a comment row, a feed byline and the account page, and a card
+                owned by any of those would die with the surface that opened it. Whose card is
+                open lives in the profile store. */}
+            <ProfileCard />
         </>
     )
 }

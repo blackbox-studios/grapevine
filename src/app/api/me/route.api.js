@@ -1,7 +1,7 @@
 import { requireViewer } from "@/lib/server/auth"
 import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
-import { getViewer, updateAvatar } from "@/lib/server/profile.service"
+import { getViewer, updateProfile } from "@/lib/server/profile.service"
 
 /* GET /api/me — the signed-in viewer's profile and group memberships.
  *
@@ -19,20 +19,19 @@ export const GET = route(async (request) => {
     return sendResource(await getViewer(viewer))
 })
 
-/* PATCH /api/me — replaces the viewer's profile picture.
+/* PATCH /api/me — edits the viewer's own profile.
  *
- * A PATCH of the viewer rather than a `/me/avatar` sub-resource, because the picture is a
- * field of this resource and the response is the whole updated viewer — which is what the
+ * A PATCH of the viewer rather than a tree of `/me/avatar`-style sub-resources, because these
+ * are fields of this resource and the response is the whole updated viewer — which is what the
  * auth store swaps in, so the name in the nav and the face on every one of the viewer's own
  * comments move together with one round trip.
  *
- * Deliberately narrow: only `avatar`. Everything else about a profile is set during
- * orientation, and a general editor is a different endpoint with different validation rather
- * than more branches in this one. */
+ * Genuinely partial: the body is forwarded as it arrived, and `updateProfile` writes only the
+ * keys it was given. That is what lets the avatar picker send one field and the settings form
+ * send three without either clearing the other's. */
 export const PATCH = route(async (request) => {
     const viewer = await requireViewer(request)
-    const { avatar } = await request.json()
-    return sendResource(await updateAvatar(viewer, avatar))
+    return sendResource(await updateProfile(viewer, await request.json()))
 })
 
 export const OPTIONS = preflight

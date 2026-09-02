@@ -196,6 +196,41 @@ export function CommentsSkeleton({ count = 8 }) {
     )
 }
 
+/* The tab bar's box, for a surface whose skeleton has to stand in for one.
+ *
+ * **It cannot borrow `<TabsList/>`**: that reads its height from a `group-data-horizontal/tabs`
+ * variant, which only resolves inside a mounted `<Tabs/>` — so a placeholder rendered outside
+ * one collapses to nothing. The height is therefore restated here, and it is the one number
+ * that has to stay in step with the real bar; everything else about it is a grey pill.
+ *
+ * `bg-muted/50` rather than the primitive's `bg-muted`, matching the bar it stands in for, which
+ * is a track rather than a solid block. */
+export function TabsSkeleton({ className }) {
+    return <Skeleton className={cn("h-9 w-full rounded-full bg-muted/50", className)} />
+}
+
+/* Skeleton for a list of people — a follow list, and anything else that draws <PersonRow/>.
+ *
+ * The two text lines are the name over the handle, and the block on the right stands in for the
+ * follow button, which most rows carry: leaving it out shrinks the row's text column between
+ * the skeleton and the list, so the names visibly shift left as it resolves. */
+export function PeopleSkeleton({ count = 8 }) {
+    return (
+        <div className="flex flex-col">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2">
+                    <Skeleton className="size-11 shrink-0 rounded-full" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <Skeleton className="h-3.5 w-32" />
+                        <Skeleton className="h-3 w-20" />
+                    </div>
+                    <Skeleton className="h-8 w-24 shrink-0 rounded-full" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
 /* The geometry of one notification row — the box, not the look.
  *
  * **Exported so <NotificationRow/> and the skeleton below are the same string rather than two

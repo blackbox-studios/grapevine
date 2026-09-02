@@ -9,7 +9,7 @@ import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, useReflowMotion } from "@/components/Reflow"
 import Transition from "@/components/Transition"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
-import { Attachment, Avatar, ConfirmDialog } from "@/components/Widgets"
+import { Attachment, Avatar, ConfirmDialog, HandleLink } from "@/components/Widgets"
 import { CommentsSkeleton } from "@/components/Skeleton"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -76,7 +76,7 @@ const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
             <Avatar person={author} className="size-9" />
             <div className="min-w-0 flex flex-col gap-1 flex-1">
                 <p className="text-xs leading-snug">
-                    <span className="font-semibold">{author.handle}</span>{" "}
+                    <HandleLink person={author} className="font-semibold" />{" "}
                     <span className="text-muted-foreground">
                         · {timeAgoCompact(now, new Date(createdAt).getTime())}
                     </span>
@@ -405,7 +405,7 @@ export const CommentsPanel = ({ post, dismiss, caption, className }) => {
                     {/* `whitespace-pre-line` keeps the author's line breaks — see <Caption/>
                       * in components/Feed.jsx for why every body surface carries it. */}
                     <p className="whitespace-pre-line text-sm leading-snug">
-                        <span className="font-semibold">{author.handle}</span> {post.body}
+                        <HandleLink person={author} className="font-semibold" /> {post.body}
                     </p>
                 </div>
             )}
@@ -419,7 +419,7 @@ export const CommentsPanel = ({ post, dismiss, caption, className }) => {
         <div className={cn("flex min-h-0 flex-col", className)}>
             <header className="flex shrink-0 items-center gap-3 px-4 py-3">
                 <Avatar person={author} className="size-8" />
-                <span className="text-sm font-semibold">{author.handle}</span>
+                <HandleLink person={author} className="text-sm font-semibold" />
                 {author.verified && (
                     <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
                         verified
@@ -525,7 +525,7 @@ export const PostCommentsThread = ({ post }) => {
                       * in components/Feed.jsx for why every body surface carries it. */}
                     {post.body && (
                         <p className="whitespace-pre-line text-sm leading-snug">
-                            <span className="font-semibold">{author.handle}</span> {post.body}
+                            <HandleLink person={author} className="font-semibold" /> {post.body}
                         </p>
                     )}
                     <span className="text-xs text-muted-foreground">

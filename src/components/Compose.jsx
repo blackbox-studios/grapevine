@@ -13,6 +13,7 @@ import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Reflow, ReflowItem } from "@/components/Reflow"
 import Skeleton from "@/components/Skeleton"
+import WheelSelect from "@/components/WheelSelect"
 import { Attachment, Avatar, OrgAvatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,6 +39,7 @@ import {
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
     SelectTrigger,
     SelectValue,
@@ -317,6 +319,80 @@ const TitleField = ({ control }) => (
     />
 )
 
+/* Which group the post is published into.
+ *
+ * **A listbox on a pointer, a drum on a phone**, the same split <DatePicker/> makes and for
+ * the same reason: the drum is right for a thumb and wrong for a mouse. Here it is also the
+ * only thing that works — the composer is a Vaul drawer on a phone, and inside one iOS never
+ * delivers the click Radix's Select needs to commit a choice, so the panel opens and no row
+ * can be picked. See the header of <WheelSelect/>.
+ *
+ * No visible label on either: the field shows the group's mark and name, which says what it
+ * is more directly than a word above it would. Announced for a screen reader, where the
+ * control's value is not self-describing in the same way. */
+const GroupField = ({ control, orgs }) => {
+    const isDesktop = useIsDesktop()
+
+    /* A choice of one is not a choice. The value is still set and still submitted — the
+     * control simply stops pretending there is a decision to make. */
+    const disabled = orgs.length <= 1
+
+    return (
+        <FormField
+            control={control}
+            name="orgId"
+            render={({ field }) => (
+                <FormItem>
+                    <FormLabel className="sr-only">Group</FormLabel>
+                    {isDesktop ? (
+                        <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            disabled={disabled}
+                        >
+                            <FormControl>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Choose a group" />
+                                </SelectTrigger>
+                            </FormControl>
+                            {/* Anchored under the trigger, not item-aligned: alignment slides
+                                the panel until the chosen row's mark sits under the trigger's,
+                                which on a full-width trigger offsets it by the difference in
+                                their insets. */}
+                            <SelectContent position="popper">
+                                <SelectGroup>
+                                    {orgs.map((org) => (
+                                        <SelectItem key={org.id} value={org.id}>
+                                            <OrgAvatar org={org} className="size-5" />
+                                            {org.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectGroup>
+                            </SelectContent>
+                        </Select>
+                    ) : (
+                        <FormControl>
+                            <WheelSelect
+                                nested
+                                label="Group"
+                                placeholder="Choose a group"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={disabled}
+                                options={orgs.map((org) => ({
+                                    value: org.id,
+                                    label: org.name,
+                                    icon: <OrgAvatar org={org} className="size-5" />,
+                                }))}
+                            />
+                        </FormControl>
+                    )}
+                </FormItem>
+            )}
+        />
+    )
+}
+
 /* The composer's fields and its submit, shared verbatim by both presentations.
  *
  * `footer` is where the submit button lands, because that is the one thing the two surfaces
@@ -492,41 +568,7 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
                 <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-4">
                     {!heading && <TitleField control={form.control} />}
 
-                    <FormField
-                        control={form.control}
-                        name="orgId"
-                        render={({ field }) => (
-                            <FormItem>
-                                {/* No visible label: the trigger shows the group's mark and
-                                    name, which says what it is more directly than a word
-                                    above it would. Announced for a screen reader, where the
-                                    control's value is not self-describing in the same way. */}
-                                <FormLabel className="sr-only">Group</FormLabel>
-                                <Select
-                                    value={field.value}
-                                    onValueChange={field.onChange}
-                                    /* A choice of one is not a choice. The value is still
-                                      * set and still submitted — the control simply stops
-                                      * pretending there is a decision to make. */
-                                    disabled={orgs.length <= 1}
-                                >
-                                    <FormControl>
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Choose a group" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {orgs.map((org) => (
-                                            <SelectItem key={org.id} value={org.id}>
-                                                <OrgAvatar org={org} className="size-5" />
-                                                {org.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </FormItem>
-                        )}
-                    />
+                    <GroupField control={form.control} orgs={orgs} />
 
                     {/* Photos come before the writing, and after the group: what a post is
                       * about is usually the picture, and the caption is written to it. It

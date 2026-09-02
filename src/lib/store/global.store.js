@@ -5,7 +5,9 @@ import { create } from 'zustand'
 import useAppStore from '@/lib/store/app/store'
 import useAuthStore from '@/lib/store/auth/store'
 import useFeedStore from '@/lib/store/feed/store'
+import useFollowsStore from '@/lib/store/follows/store'
 import usePostStore from '@/lib/store/post/store'
+import useProfileStore from '@/lib/store/profile/store'
 import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
 import useNotificationsStore from '@/lib/store/notifications/store'
@@ -16,12 +18,13 @@ import useUploadsStore from '@/lib/store/uploads/store'
 /* `uploads` holds no remote state — it is a write path with a loading flag — so it has
  * nothing to boot and nothing for readiness to wait on. It still resets and reports errors.
  *
- * `post`, `comments`, and `members` are lazy, transient stores — loaded when a post (or its comment
- * thread) opens and cleared on close — so they are intentionally left out of
- * initAuthorizedStores / useReady: they have no boot fetch, and global readiness must not
- * wait on a surface that may never open. `members` is additionally admin-only, so booting
- * it eagerly would fire a 403 for every ordinary member on every sign-in. All three still
- * participate in reset/clearErrors and error aggregation.
+ * `post`, `comments`, `profile`, `follows` and `members` are lazy, transient stores — loaded
+ * when a post, its comment thread, a profile or one of that profile's follow lists opens, and
+ * cleared on close — so they are intentionally left out of initAuthorizedStores / useReady:
+ * they have no boot fetch, and global readiness must not wait on a surface that may never
+ * open. `members` is additionally admin-only, so booting it eagerly would fire a 403 for every
+ * ordinary member on every sign-in. All five still participate in reset/clearErrors and error
+ * aggregation.
  *
  * `feed` is out of it too, for a different reason: it is scoped to the selected group, so
  * it has no request to make until one is resolved. That resolution happens in
@@ -54,6 +57,8 @@ const useStore = create(() => ({
         useFeedStore.getState().reset()
         usePostStore.getState().reset()
         useCommentsStore.getState().reset()
+        useProfileStore.getState().reset()
+        useFollowsStore.getState().reset()
         useMembersStore.getState().reset()
         useNotificationsStore.getState().reset()
         usePushStore.getState().reset()
@@ -66,6 +71,8 @@ const useStore = create(() => ({
         useFeedStore.getState().clearErrors()
         usePostStore.getState().clearErrors()
         useCommentsStore.getState().clearErrors()
+        useProfileStore.getState().clearErrors()
+        useFollowsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
         useNotificationsStore.getState().clearErrors()
         usePushStore.getState().clearErrors()

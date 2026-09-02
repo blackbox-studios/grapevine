@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
+import { useRouter } from "next/navigation"
+
 import { ROLES } from "@/lib/constants"
 import {
     useCreateOrg,
@@ -82,86 +84,87 @@ export const useCurrentOrg = () => {
     }), [current, orgs, isAdmin, select, ready])
 }
 
-/* Opening the group-settings surface — for the switcher, which is the only entrance.
+/* Opening group settings — for the switcher, which is the only entrance.
  *
- * Split from `useOrgEditor` below because the callers are different subtrees with different
- * needs: the switcher only ever needs "open it for this group", and subscribing it to the
- * editor's loading and error state would re-render the whole menu on every keystroke saved
- * inside the dialog. */
+ * **Selecting the group is half the action, not a side effect.** The whole tree at `/group` is
+ * scoped to the *selected* parish rather than to an id in the URL, which is what keeps three
+ * pages from each having to carry one; so the gear on a row has to make that row the selection
+ * before it navigates, or the reader lands in a different parish's settings. It closes the
+ * switcher for the same reason it always did: the panel is what they just acted from.
+ *
+ * Split from `useOrgSettings` below because the callers are different subtrees with different
+ * needs — the switcher only ever needs "take me there", and subscribing a menu to the form's
+ * saving state would re-render it on every keystroke saved inside the page. */
 export const useEditOrg = () => {
-    const editOrg = useOrgStore(state => state.editOrg)
+    const openGroupSettings = useOrgStore(state => state.openGroupSettings)
+    const router = useRouter()
+
+    /* The router is handed to the store action, which selects and navigates together — see
+     * `openGroupSettings` in the org store, and `useLogin` for the same shape. */
+    const editOrg = useCallback(
+        (orgId) => openGroupSettings(orgId, router),
+        [openGroupSettings, router],
+    )
+
     return useMemo(() => ({ editOrg }), [editOrg])
 }
 
-/* The group being edited, and everything the surface needs to edit it.
+/* The selected group, and everything the group-settings pages need to act on it.
  *
- * **Reads the group out of the viewer rather than fetching it**, for the reason the org
- * store's header gives: `user.orgs` is the single copy, and a second fetch would be a second
- * thing to go stale. `save` PATCHes and the auth store swaps the row back in, so the name in
- * the switcher and the heading of the dialog move on the same frame.
+ * **Reads the group out of the viewer rather than fetching it**, for the reason the org store's
+ * header gives: `user.orgs` is the single copy, and a second fetch would be a second thing to
+ * go stale. `save` PATCHes and the auth store swaps the row back in, so the name in the
+ * switcher and the heading of the page move on the same frame.
  *
- * `open` is derived from `editingId` rather than stored separately — one source for "is the
- * editor up", so it cannot disagree with which group it is up for. A viewer whose membership
- * is revoked mid-edit stops resolving an `org`, which the surface renders as a dead end. */
-export const useOrgEditor = () => {
-    const [editingId, closeEditor] = useOrgStore(
-        useShallow(state => ([state.editingId, state.closeEditor])),
-    )
-    const { orgs } = useOrgs()
+ * It is the *selection* rather than an id in the URL, which is what lets `/group`, `/group/info`
+ * and `/group/users` all be static routes: a group id is a cuid from a live database, so a
+ * `/group/[orgId]` segment would need `generateStaticParams` under the export. The switcher is
+ * the only entrance and it selects on the way in — see `useEditOrg`. */
+export const useOrgSettings = () => {
+    const { current: org } = useCurrentOrg()
     const { updateOrg, saving } = useUpdateOrg()
     const { deleteOrg, deleting } = useDeleteOrg()
 
-    const org = useMemo(
-        () => orgs.find(entry => entry.id === editingId) ?? null,
-        [orgs, editingId],
-    )
-
     const save = useCallback(
-        (changes) => updateOrg(editingId, changes),
-        [updateOrg, editingId],
+        (changes) => updateOrg(org?.id, changes),
+        [updateOrg, org?.id],
     )
 
-    /* Destroying the group the editor is open on.
+    /* Destroying the group these pages are about.
      *
-     * Closes on success and only on success — a failed delete leaves the dialog standing on a
-     * group that still exists, which is the honest thing to show. The selection needs no help:
-     * removing the row from `user.orgs` re-runs `resolve` through `useCurrentOrg`, which moves
-     * the reader to another group, or to none.
+     * The selection needs no help afterwards: removing the row from `user.orgs` re-runs
+     * `resolve` through `useCurrentOrg`, which moves the reader to another group, or to none.
      *
      * The confirmation the API wants is the slug; the surface asks the human for the name. See
      * the store action for why those are two different strings. */
     const remove = useCallback(
         async () => {
             if (!org) return false
-            const done = await deleteOrg(org.id, org.slug)
-            if (done) closeEditor()
-            return done
+            return deleteOrg(org.id, org.slug)
         },
-        [deleteOrg, org, closeEditor],
+        [deleteOrg, org],
     )
 
     return useMemo(() => ({
-        open: Boolean(editingId),
-        close: closeEditor,
         org,
         save,
         saving,
         remove,
         deleting,
-        /* The surface is reached only from a menu that offers it on admin rows, but a role can
-         * be revoked while the dialog is open — so it checks rather than trusting the entrance. */
+        /* The tree is gated on this in its layout, but a role can be revoked while a page is
+         * open — so the form checks rather than trusting the entrance. */
         canEdit: org?.role === ROLES.ADMIN,
         /* Composed by the server (`canDeleteOrg`) rather than re-derived here — it is narrower
          * than `role` and depends on who created the group, which the client is not told. */
         canDelete: Boolean(org?.canDelete),
-    }), [editingId, closeEditor, org, save, saving, remove, deleting])
+    }), [org, save, saving, remove, deleting])
 }
 
 /* Opening the create-a-group surface, and whether this viewer may — for the switcher, which
  * is the only entrance, exactly as it is for the editor.
  *
  * Split from `useOrgCreator` below on the same grounds `useEditOrg` is split from
- * `useOrgEditor`: the two entrances only need "open it" and "should I be drawn at all", and
+ * `useOrgSettings`: the two entrances only need "open it" and "should I be drawn at all", and
  * subscribing a menu to the form's saving state would re-render it on every keystroke. */
 export const useCreateOrgEntrance = () => {
     const openCreator = useOrgStore(state => state.openCreator)

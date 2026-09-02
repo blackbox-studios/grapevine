@@ -1,4 +1,9 @@
-import { HANDLE_MAX, VOCATION_HANDLE_PREFIX, VOCATION_TITLE } from "@/lib/constants"
+import {
+    CHRISTIAN_NAME_VOCATIONS,
+    HANDLE_MAX,
+    VOCATION_HANDLE_PREFIX,
+    VOCATION_TITLE,
+} from "@/lib/constants"
 
 /* How a person is written, everywhere.
  *
@@ -14,9 +19,30 @@ import { HANDLE_MAX, VOCATION_HANDLE_PREFIX, VOCATION_TITLE } from "@/lib/consta
  * searched and sorted on by the roster; they are simply not part of how a ranked person is
  * addressed. `fullName()` exists for the places that genuinely want both parts.
  *
+ * **And for a reader and above the given name is the Christian one, not the legal one** —
+ * see `givenName()` below, which every function here goes through.
+ *
  * Every function here tolerates a missing name, because a Profile exists from the moment an
  * admin admits an email address and has no name until that person completes orientation.
  * The handle is the fallback throughout — it is the one identifier that always exists. */
+
+/* The name a person is called by.
+ *
+ * For a **reader and above** that is `christianName`, the name conferred with the rank: a
+ * priest whose legal name is Robert and whose Christian name is Alexander is Fr. Alexander to
+ * everyone in the parish, and "Priest Robert" names a man nobody knows. It can be conferred
+ * more than once — again at tonsure, again at consecration — which is why the column holds
+ * the current one rather than a baptismal record. For everyone else it is `firstName`; a
+ * layman is called what he is called.
+ *
+ * Falls back to `firstName` whenever the Christian name is missing — a deacon admitted last
+ * week may not have finished orientation, and "Dn." with nothing after it is worse than his
+ * legal name. */
+const givenName = (person) => {
+    const first = person.firstName?.trim() ?? ""
+    if (!CHRISTIAN_NAME_VOCATIONS.includes(person.vocation)) return first
+    return person.christianName?.trim() || first
+}
 
 /* The name to show: "Dn. Paul", "Jordan Rivera", or "@handle" for someone who has not
  * finished orientation.
@@ -26,7 +52,7 @@ import { HANDLE_MAX, VOCATION_HANDLE_PREFIX, VOCATION_TITLE } from "@/lib/consta
 export const displayName = (person) => {
     if (!person) return ""
 
-    const first = person.firstName?.trim() ?? ""
+    const first = givenName(person)
     const last = person.lastName?.trim() ?? ""
     const title = VOCATION_TITLE[person.vocation]
 
@@ -44,10 +70,14 @@ export const displayName = (person) => {
 
 /* Given and family name, with no title — for the roster, search, and anywhere sorting by
  * surname has to agree with what is on screen. Falls back to the handle for the same reason
- * `displayName` does. */
+ * `displayName` does.
+ *
+ * The given half is `givenName()`, so a priest reads as "Alexander Petrov" here and "Priest
+ * Alexander" in a byline. Two lists that named the same man differently would be worse than
+ * either choice — which is the whole reason this module exists. */
 export const fullName = (person) => {
     if (!person) return ""
-    const parts = [person.firstName?.trim(), person.lastName?.trim()].filter(Boolean)
+    const parts = [givenName(person), person.lastName?.trim()].filter(Boolean)
     if (parts.length === 0) return person.handle ? `@${person.handle}` : ""
     return parts.join(" ")
 }
@@ -59,7 +89,7 @@ export const fullName = (person) => {
  * neither of his names. Falls back to the handle's first letter. */
 export const initials = (person) => {
     if (!person) return ""
-    const letters = [person.firstName?.trim()?.[0], person.lastName?.trim()?.[0]].filter(Boolean)
+    const letters = [givenName(person)[0], person.lastName?.trim()?.[0]].filter(Boolean)
     if (letters.length > 0) return letters.join("").toUpperCase()
     return person.handle?.[0]?.toUpperCase() ?? ""
 }
@@ -89,6 +119,11 @@ export const normalizeHandleInput = (value) =>
  * so proposing `justinian.cross` would hand him an identity nobody uses — while a layman
  * addressed as "Robert Paul" would find `robert` alone both presumptuous and likely taken.
  * The suggestion follows how each person is actually named.
+ *
+ * `firstName` and not `givenName()`, so a priest is offered `fr.robert` where his byline will
+ * read "Priest Alexander". That is the ordering of orientation rather than an oversight: the
+ * handle step runs before the one that asks for a Christian name, so there is nothing better
+ * to propose — and the field is his to overwrite on the screen he is looking at.
  *
  * Only a starting point: the field it fills is editable, the availability check decides
  * whether it survives, and nothing re-derives it if the person is later ordained — their

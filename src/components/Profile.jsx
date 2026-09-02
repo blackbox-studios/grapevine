@@ -23,11 +23,10 @@ import { cn, isRouteActive } from "@/lib/utils"
  *
  * The ring marks it as the current tab, resolved through `isRouteActive` like every other nav
  * destination rather than a `pathname ===` of its own — and that is what keeps it lit on the
- * sub-pages too. `isRouteActive` is a **segment-safe prefix** test, so `/settings/general` and
- * `/settings/users` light the same trigger `/settings` does: the whole tree is one destination
- * as far as the nav is concerned, which is the truth now that the account surface is its index.
- * A `pathname === ROUTES.SETTINGS` here would drop the ring the moment a row was tapped, and
- * leave the reader on a screen no tab claims. */
+ * sub-pages too. `isRouteActive` is a **segment-safe prefix** test, so every route under
+ * `/settings` lights the same trigger the index does: the whole tree is one destination as far
+ * as the nav is concerned. A `pathname === ROUTES.SETTINGS` here would drop the ring the moment
+ * a row was tapped, and leave the reader on a screen no tab claims. */
 export const ProfileTrigger = ({ pathname: pathnameProp, className }) => {
     const user = useUser()
     const livePathname = usePathname()

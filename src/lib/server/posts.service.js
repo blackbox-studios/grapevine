@@ -56,6 +56,7 @@ const authorSelect = {
     handle: true,
     firstName: true,
     lastName: true,
+    christianName: true,
     vocation: true,
     avatarUrl: true,
     memberships: {
@@ -113,8 +114,8 @@ const commentInclude = (viewerId) => ({
  * that its `@map` still matches — the Prisma-side camelCase name is not what Postgres
  * knows it as.
  *
- * Returns a Map of postId → `{ handle, firstName, lastName, vocation }`. Posts liked only
- * by the viewer are simply absent. */
+ * Returns a Map of postId → the same name parts `projectAuthor` sends, because the card
+ * writes this with `displayName()` too. Posts liked only by the viewer are simply absent. */
 const likedByNames = async (postIds, viewerId) => {
     if (postIds.length === 0) return new Map()
 
@@ -124,6 +125,7 @@ const likedByNames = async (postIds, viewerId) => {
             p.handle AS "handle",
             p.first_name AS "firstName",
             p.last_name AS "lastName",
+            p.christian_name AS "christianName",
             p.vocation AS "vocation"
         FROM post_like l
         JOIN profile p ON p.id = l.profile_id
@@ -139,6 +141,7 @@ const likedByNames = async (postIds, viewerId) => {
                 handle: row.handle,
                 firstName: row.firstName,
                 lastName: row.lastName,
+                christianName: row.christianName,
                 vocation: row.vocation,
             },
         ]),

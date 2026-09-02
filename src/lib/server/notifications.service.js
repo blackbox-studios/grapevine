@@ -91,6 +91,7 @@ const notificationInclude = {
             handle: true,
             firstName: true,
             lastName: true,
+            christianName: true,
             vocation: true,
             avatarUrl: true,
             memberships: {

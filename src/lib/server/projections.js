@@ -18,12 +18,17 @@ import { documentType, formatBytes } from "@/lib/utils"
 
 /* The author block every post and comment carries.
  *
- * **The name is sent in parts, never as a composed string.** `firstName`, `lastName` and
- * `vocation` go over the wire and `displayName()` in `lib/name.js` assembles them on the
- * client. That is not indirection for its own sake: the same author is written two ways
- * depending on where they appear — "Dn. Paul" in a byline, "Paul Ivanov" in a roster that
- * sorts by surname — and a server that picked one would make the other impossible without a
- * second endpoint. Sending the parts lets each surface ask for the form it needs.
+ * **The name is sent in parts, never as a composed string.** `firstName`, `lastName`,
+ * `christianName` and `vocation` go over the wire and `displayName()` in `lib/name.js`
+ * assembles them on the client. That is not indirection for its own sake: the same author is
+ * written two ways depending on where they appear — "Dn. Paul" in a byline, "Paul Ivanov" in
+ * a roster that sorts by surname — and a server that picked one would make the other
+ * impossible without a second endpoint. Sending the parts lets each surface ask for the form
+ * it needs.
+ *
+ * `christianName` is one of those parts rather than profile detail, because for clergy it *is*
+ * the given name — a byline that arrives without it addresses a priest by a legal name nobody
+ * in the parish uses. Every block below that a name is composed from carries it.
  *
  * `verified` is the blue check, and it is **computed, not stored**: it means "this person
  * administers the organization this post belongs to". `orgId` is therefore required to
@@ -38,6 +43,7 @@ export const projectAuthor = (profile, orgId = null) => ({
     handle: profile.handle,
     firstName: profile.firstName,
     lastName: profile.lastName,
+    christianName: profile.christianName,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
     verified: Boolean(
@@ -223,6 +229,7 @@ export const projectPerson = (profile, { following = false, isSelf = false } = {
     handle: profile.handle,
     firstName: profile.firstName,
     lastName: profile.lastName,
+    christianName: profile.christianName,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
     following,
@@ -256,9 +263,9 @@ export const projectProfile = (profile, { following = false, isSelf = false } = 
     handle: profile.handle,
     firstName: profile.firstName,
     lastName: profile.lastName,
+    christianName: profile.christianName,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
-    baptismName: profile.baptismName,
     /* One value or null, never half a date — the two columns are written together. Sent as
      * `MM-DD` because that is what a name day is: a month and a day with no year. */
     nameDay:
@@ -335,7 +342,7 @@ export const projectViewer = (profile, memberships = []) => {
          * General can seed its form from the viewer rather than fetching a second copy of
          * them. `nameDay` takes the same `MM-DD` shape `projectProfile` sends, so one control
          * reads both. */
-        baptismName: profile.baptismName,
+        christianName: profile.christianName,
         nameDay:
             profile.nameDayMonth && profile.nameDayDay
                 ? `${String(profile.nameDayMonth).padStart(2, "0")}-${String(profile.nameDayDay).padStart(2, "0")}`

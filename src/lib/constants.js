@@ -470,6 +470,28 @@ export const VOCATION_OPTIONS = [
  * other vocation constant. */
 export const CLERGY_VOCATIONS = [VOCATIONS.DEACON, VOCATIONS.PRIEST, VOCATIONS.BISHOP]
 
+/* Who is addressed by their **Christian name** rather than their given one — see
+ * `givenName()` in `lib/name.js`, which is the only thing that reads this.
+ *
+ * The ranks a name is conferred with. A reader is tonsured to one, a deacon and a priest are
+ * ordained, a monk is tonsured again and a bishop consecrated again — and each of those hands
+ * the man the name he is thereafter called by, which is why "Priest Robert" names somebody
+ * nobody in the parish knows.
+ *
+ * **A separate list from `CLERGY_VOCATIONS`, not a superset to fold into it.** That one
+ * answers "who was ordained", which decides whether orientation asks for a date and which
+ * deliberately excludes a reader. This answers "whose name changed", which includes him. The
+ * two happen to differ by one entry today; merging them would make the next divergence a bug.
+ *
+ * MATUSHKA is absent: her title comes from her husband's ordination rather than from anything
+ * conferred on her, so nothing has renamed her. */
+export const CHRISTIAN_NAME_VOCATIONS = [
+    VOCATIONS.READER,
+    VOCATIONS.DEACON,
+    VOCATIONS.PRIEST,
+    VOCATIONS.BISHOP,
+]
+
 /* Month names, spelled out, for the name-day control and anything else that prints a month.
  *
  * Not `toLocaleDateString`: the app prerenders to static HTML, and a locale-formatted month is
@@ -480,9 +502,9 @@ export const MONTHS = [
     "July", "August", "September", "October", "November", "December",
 ]
 
-/* How long a baptism name may be. The same ceiling a name part gets in `readName`, for the
+/* How long a Christian name may be. The same ceiling a name part gets in `readName`, for the
  * same reason: the only failures worth catching are empty and absurd. */
-export const MAX_BAPTISM_NAME_LENGTH = 80
+export const MAX_CHRISTIAN_NAME_LENGTH = 80
 
 /* Whether a signed-in viewer may use the app, and if not, why.
  *

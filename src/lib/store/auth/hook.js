@@ -189,7 +189,7 @@ export const useAvatarUpload = () => {
  * across hooks would only give the page several ways to be half-saved.
  *
  * `catechumen` and `clergy` are answered here rather than in the page because they are facts
- * about the viewer, not about the layout: a catechumen has not been given a baptism name yet
+ * about the viewer, not about the layout: a catechumen has not been given a Christian name yet
  * and a layman has no ordination. They shape the form only — `updateProfile` accepts every
  * field from anybody, so a reader ordained a deacon needs a vocation change and nothing else.
  *
@@ -215,7 +215,7 @@ export const useProfileEditor = () => {
                 lastName: user?.lastName ?? "",
                 handle: user?.handle ?? "",
                 birthday: user?.birthday ?? "",
-                baptismName: user?.baptismName ?? "",
+                christianName: user?.christianName ?? "",
                 nameDay: user?.nameDay ?? "",
                 ordinationDate: user?.ordinationDate ?? "",
             },

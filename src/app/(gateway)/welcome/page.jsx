@@ -24,7 +24,7 @@ import {
     HANDLE_MAX,
     HANDLE_MIN,
     HANDLE_PATTERN,
-    MAX_BAPTISM_NAME_LENGTH,
+    MAX_CHRISTIAN_NAME_LENGTH,
     VOCATIONS,
 } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
@@ -57,7 +57,7 @@ import { cn } from "@/lib/utils"
  * screen, and this should read as the next beat of it rather than a new place. */
 
 /* **The sequence is not fixed, and every step that can be skipped is skipped for a reason the
- * viewer would recognise.** A catechumen has not been given a baptism name yet, and a layman
+ * viewer would recognise.** A catechumen has not been given a Christian name yet, and a layman
  * has no ordination — asking either is asking a question with no true answer, and a form that
  * does it is a form that has not been read. The vocation those branch on is the *admin's*,
  * set at admission, so it is known before this screen renders.
@@ -95,7 +95,7 @@ const STEP_FOR_FIELD = {
     lastName: "name",
     handle: "handle",
     birthday: "birthday",
-    baptismName: "patron",
+    christianName: "patron",
     nameDay: "patron",
     ordinationDate: "ordination",
 }
@@ -143,15 +143,15 @@ const birthdaySchema = z.object({
 
 /* The patron step's two answers. Both required, and that is a considered position rather than
  * an oversight: this pair exists so a priest can be told whose feast falls this week, and a
- * baptism name with no date attached answers half of that question and serves neither half.
+ * Christian name with no date attached answers half of that question and serves neither half.
  * Everyone this step is shown to has a patron saint and therefore a feast; someone who wants to
  * correct either later does it in Settings → General. */
 const patronSchema = z.object({
-    baptismName: z
+    christianName: z
         .string()
         .trim()
-        .min(1, "Enter your baptism name")
-        .max(MAX_BAPTISM_NAME_LENGTH, "That is too long"),
+        .min(1, "Enter your Christian name")
+        .max(MAX_CHRISTIAN_NAME_LENGTH, "That is too long"),
     /* `MM-DD` — a month and a day, with no year. See the Precision note in <DatePicker/>. */
     nameDay: z.string().trim().regex(/^\d{2}-\d{2}$/, "Choose the day of the feast"),
 })
@@ -401,7 +401,7 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
 const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
     const form = useForm({
         resolver: zodResolver(patronSchema),
-        defaultValues: { baptismName: values.baptismName, nameDay: values.nameDay },
+        defaultValues: { christianName: values.christianName, nameDay: values.nameDay },
     })
 
     const valid = useStepValid(form, patronSchema)
@@ -424,15 +424,15 @@ const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
         >
             <FormField
                 control={form.control}
-                name="baptismName"
+                name="christianName"
                 render={({ field }) => (
                     <FormItem className="w-full">
                         <FormControl>
                             <Input
                                 autoComplete="off"
                                 autoCapitalize="words"
-                                placeholder="Baptism name"
-                                aria-label="Baptism name"
+                                placeholder="Christian name"
+                                aria-label="Christian name"
                                 autoFocus
                                 disabled={loading}
                                 {...field}
@@ -660,7 +660,7 @@ const COPY = {
     },
     patron: {
         heading: "Who is your patron saint?",
-        subheading: "Your baptism name, and the day your parish celebrates it with you.",
+        subheading: "Your Christian name, and the day your parish celebrates it with you.",
     },
     ordination: {
         heading: "When were you ordained?",
@@ -707,7 +707,7 @@ const WelcomePage = () => {
              * something derived from the name they actually gave. */
             handle: "",
             birthday: user?.birthday ?? defaultBirthday,
-            baptismName: user?.baptismName ?? "",
+            christianName: user?.christianName ?? "",
             /* Empty rather than a default: the name day is picked from a popover, which shows
              * a placeholder until it is answered — so there is nothing on screen for a default
              * to agree with, and a fabricated feast is worse than an unanswered one. */
@@ -755,7 +755,7 @@ const WelcomePage = () => {
         async (payload) => {
             const answers = { ...payload }
             if (!steps.includes("patron")) {
-                delete answers.baptismName
+                delete answers.christianName
                 delete answers.nameDay
             }
             if (!steps.includes("ordination")) delete answers.ordinationDate

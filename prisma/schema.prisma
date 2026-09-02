@@ -145,7 +145,8 @@ model Profile {
   /// The title is **not** stored here either. It is derived from `vocation` at render
   /// time by `displayName()` in `lib/name.js`, so ordaining a reader as a deacon is a
   /// vocation change rather than a name edit — and so nobody can be addressed as a rank
-  /// they do not hold.
+  /// they do not hold. For a ranked person the given name it attaches to is `christianName`
+  /// rather than `firstName`; see that column.
   ///
   /// Nullable because admission provisions a Profile from an email address alone; both are
   /// non-null from the moment orientation completes. A profile with no name yet renders as
@@ -157,15 +158,27 @@ model Profile {
   /// Who the person is, not what they may do. See the header note.
   vocation  Vocation @default(FAITHFUL)
 
-  /// The name given at baptism or chrismation — the saint whose name this person bears.
+  /// The name this person bears in the Church — the saint they are named for.
   ///
-  /// Held apart from `firstName` because for many people the two differ: someone baptised
-  /// Nicholas may go by Nick, or by a legal name with no saint behind it at all. It is also
-  /// not a title, so it never reaches `displayName()`; it is a fact shown on a profile.
+  /// **Not "baptism name", and the difference is not wording.** It is given at baptism or
+  /// chrismation, but it is given *again* at tonsure and at consecration: a man baptised
+  /// David may be tonsured Frank's monastic name and consecrated Bishop Daniel, and each new
+  /// name replaces the last. One column holds the current one, because the current one is
+  /// the only one anybody is addressed by.
+  ///
+  /// Held apart from `firstName` because for most people the two differ — someone baptised
+  /// Nicholas may go by Nick, or by a legal name with no saint behind it at all.
+  ///
+  /// **For anyone conferred a rank it is the name they are addressed by**, and
+  /// `displayName()` in `lib/name.js` reads it: a priest whose legal name is Robert and whose
+  /// Christian name is Alexander is "Priest Alexander" and never "Priest Robert". Reader and
+  /// above — `CHRISTIAN_NAME_VOCATIONS` in `lib/constants.js`, which is a separate list from
+  /// the ordained ranks and says so. Everyone else is still written from `firstName`.
   ///
   /// Null for a catechumen, who has not been given one yet, and orientation does not ask
-  /// them for one. Null afterwards means only "not supplied".
-  baptismName String? @map("baptism_name")
+  /// them for one. Null afterwards means only "not supplied", which is why the display falls
+  /// back to `firstName` rather than to the handle.
+  christianName String? @map("christian_name")
 
   /// The patronal feast this person keeps — a **month and a day, with no year**, because
   /// that is what a name day is. Split into two small integers rather than stored as a date

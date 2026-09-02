@@ -145,9 +145,10 @@ const DIOCESE_POSTS = [
  * back onto their authors below.
  *
  * **Names are given and family, never an addressed form.** Nobody is seeded as "Dn. Paul"
- * — he is Paul Ivanov with `vocation: DEACON`, and the title is composed at render time by
- * `displayName()`. Seeding the addressed form is what the old `fullName` column encouraged,
- * and it left every deacon and matushka in the corpus with no surname at all.
+ * — he is Grigore Ivanov with `vocation: DEACON` and `christianName: "Paul"`, and both the
+ * title and the name it attaches to are composed at render time by `displayName()`. Seeding
+ * the addressed form is what the old `fullName` column encouraged, and it left every deacon
+ * and matushka in the corpus with no surname at all.
  *
  * There is no `verified` either. The blue check is derived from an ADMIN membership, so the
  * `role` below is already what grants it. */
@@ -165,7 +166,7 @@ const PEOPLE = [
          * the person, and the groups he owns are only the ones he creates from the app. */
         platformRole: "OWNER",
         avatarUrl: "/img/mock/priest-alexander.png",
-        baptismName: "Alexander",
+        christianName: "Alexander",
         nameDay: "08-30",
         ordinationDate: "2011-06-12",
         signIn: true,
@@ -177,25 +178,29 @@ const PEOPLE = [
         email: MEMBER_EMAIL,
         vocation: "FAITHFUL",
         role: "MEMBER",
-        baptismName: "George",
+        christianName: "George",
         nameDay: "04-23",
         signIn: true,
     },
-    { handle: "deacon.paul", firstName: "Paul", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER", baptismName: "Paul", nameDay: "06-29", ordinationDate: "2019-10-06" },
-    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER", baptismName: "Katherine", nameDay: "11-25" },
-    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER", baptismName: "Anna", nameDay: "07-25" },
-    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER", baptismName: "Michael", nameDay: "11-08" },
-    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Helen", nameDay: "05-21" },
-    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Gregory", nameDay: "01-25" },
-    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Theodora", nameDay: "02-11" },
-    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Cassian", nameDay: "02-29" },
-    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Mary", nameDay: "08-15" },
-    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Samuel", nameDay: "08-20" },
-    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Tabitha", nameDay: "10-25" },
+    /* The one fixture whose legal and Christian names differ, because `displayName()`
+     * addresses a ranked person by the second and nothing here would demonstrate that if
+     * every pair agreed. His handle stays on the first, which is what really happens: a
+     * handle is chosen before the rank and is never re-derived. */
+    { handle: "deacon.paul", firstName: "Grigore", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER", christianName: "Paul", nameDay: "06-29", ordinationDate: "2019-10-06" },
+    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER", christianName: "Katherine", nameDay: "11-25" },
+    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER", christianName: "Anna", nameDay: "07-25" },
+    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER", christianName: "Michael", nameDay: "11-08" },
+    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER", christianName: "Helen", nameDay: "05-21" },
+    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER", christianName: "Gregory", nameDay: "01-25" },
+    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER", christianName: "Theodora", nameDay: "02-11" },
+    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER", christianName: "Cassian", nameDay: "02-29" },
+    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER", christianName: "Mary", nameDay: "08-15" },
+    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER", christianName: "Samuel", nameDay: "08-20" },
+    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER", christianName: "Tabitha", nameDay: "10-25" },
     /* One person removed, so the roster shows both statuses and the Restore action has
      * something to act on. REVOKED is the only alternative there is — see the admission
      * note in schema.prisma's header. */
-    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED", baptismName: "Irene", nameDay: "05-05" },
+    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED", christianName: "Irene", nameDay: "05-05" },
 ]
 
 /* ── Mapping the fixture corpus onto rows ────────────────────────────────── */
@@ -306,7 +311,7 @@ const main = async () => {
             avatarUrl: person.avatarUrl ?? null,
             vocation: person.vocation,
             platformRole: person.platformRole ?? "NONE",
-            baptismName: person.baptismName ?? null,
+            christianName: person.christianName ?? null,
             /* `MM-DD` in the fixture, two integers in the column — a name day has no year.
              * See the `nameDayMonth` note in schema.prisma. */
             nameDayMonth: person.nameDay ? Number(person.nameDay.slice(0, 2)) : null,

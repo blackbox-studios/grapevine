@@ -76,7 +76,7 @@ const Stat = ({ label, value }) => (
  * joined gets the empty state below rather than a rule across nothing. */
 const InfoTab = ({ profile }) => {
     const columns = [
-        profile.baptismName && { label: "Patron", value: profile.baptismName },
+        profile.christianName && { label: "Patron", value: profile.christianName },
         profile.nameDay && {
             label: "Name day",
             value: formatNameDay(profile.nameDay, { short: true }),

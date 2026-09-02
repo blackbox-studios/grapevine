@@ -27,7 +27,7 @@ import {
     HANDLE_MAX,
     HANDLE_MIN,
     HANDLE_PATTERN,
-    MAX_BAPTISM_NAME_LENGTH,
+    MAX_CHRISTIAN_NAME_LENGTH,
     ROUTES,
 } from "@/lib/constants"
 import { useProfileEditor } from "@/lib/store/auth/hook"
@@ -51,7 +51,7 @@ import { useProfileEditor } from "@/lib/store/auth/hook"
  * beside it.
  *
  * Which fields exist follows the vocation, exactly as orientation's steps do: a catechumen has
- * no baptism name yet, a layman no ordination. `submit` drops the ones that were never drawn,
+ * no Christian name yet, a layman no ordination. `submit` drops the ones that were never drawn,
  * so a form that does not ask cannot answer. */
 
 const schema = z.object({
@@ -75,7 +75,7 @@ const schema = z.object({
             "That date is in the future",
         )
         .refine((value) => Number(value.slice(0, 4)) >= 1900, "Check the year"),
-    baptismName: z.string().trim().max(MAX_BAPTISM_NAME_LENGTH, "That is too long"),
+    christianName: z.string().trim().max(MAX_CHRISTIAN_NAME_LENGTH, "That is too long"),
     /* `MM-DD`, or empty — a name day is a month and a day with no year. See the Precision note
      * in <DatePicker/>. */
     nameDay: z.union([z.literal(""), z.string().regex(/^\d{2}-\d{2}$/, "Choose a day")]),
@@ -131,7 +131,7 @@ const SettingsInfoPage = () => {
     const submit = async (next) => {
         const changes = { ...next }
         if (catechumen) {
-            delete changes.baptismName
+            delete changes.christianName
             delete changes.nameDay
         }
         if (!clergy) delete changes.ordinationDate
@@ -234,10 +234,10 @@ const SettingsInfoPage = () => {
                         <>
                             <FormField
                                 control={form.control}
-                                name="baptismName"
+                                name="christianName"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Baptism name</FormLabel>
+                                        <FormLabel>Christian name</FormLabel>
                                         <FormControl>
                                             <Input
                                                 autoComplete="off"

@@ -178,7 +178,7 @@ completed (offline, DNS, CORS, aborted connection).
 | Method | Path | Auth | Returns |
 |---|---|---|---|
 | `GET` | `/api/me` | viewer | the viewer: profile, vocation, role, groups |
-| `PATCH` | `/api/me` | viewer | the updated viewer — picture, name, @handle, birthday, baptism name, name day, ordination date |
+| `PATCH` | `/api/me` | viewer | the updated viewer — picture, name, @handle, birthday, Christian name, name day, ordination date |
 | `POST` | `/api/me/onboarding` | viewer | the updated viewer — first-run orientation, all fields at once |
 | `GET` | `/api/me/onboarding/handle?value=` | viewer | `{ handle, available, reason }` — advisory @handle check |
 | `GET` | `/api/profiles/:handle` | a viewer who shares a group with them | the person's profile, with follow tallies |

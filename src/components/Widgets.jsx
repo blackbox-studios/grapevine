@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { initials } from "@/lib/name"
 import { useOpenProfile } from "@/lib/store/profile/hook"
-import { appPath, cn, gradientFor, orgInitials } from "@/lib/utils"
+import { appPath, cn, formatCompact, gradientFor, orgInitials } from "@/lib/utils"
 
 /* User/author avatar. Uses the profile image when one is provided; otherwise falls back to
  * a deterministic gradient (via gradientFor()) with the person's initials. Size it with a
@@ -286,3 +286,19 @@ export const YayOrNay = ({ value }) =>
     ) : (
         <Icon size="md" className="text-destructive" aria-label="x">close</Icon>
     )
+
+/* One tally — a follower or following count that opens the profile card behind it. A button
+ * rather than a link, because it opens a card and a card is not a place. Generic and
+ * prop-driven rather than specific to the account page that uses it today, which is what a
+ * small misc widget in this file is for. */
+export const Count = ({ value, label, onClick }) => (
+    <button
+        type="button"
+        onClick={onClick}
+        className="flex cursor-pointer flex-col items-center rounded-2xl px-4 py-1 transition-colors hover:bg-accent"
+    >
+        <span className="text-lg font-semibold tabular-nums">{formatCompact(value)}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
+    </button>
+)
+

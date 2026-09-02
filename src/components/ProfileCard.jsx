@@ -314,11 +314,16 @@ const CardSkeleton = () => (
 
 /* Everything inside the sheet or the dialog. Both presentations render exactly this, which is
  * what keeps a person from meaning something slightly different on a phone. */
-const CardBody = ({ profile, skeleton, missing, onOpen, onEdit }) => {
+const CardBody = ({ handle, profile, skeleton, missing, onOpen, onEdit }) => {
     const [tab, setTab] = useState("info")
     /* Both lists, loaded the moment the card opens rather than on the tab that shows them —
-     * see `lib/store/follows/store.js`. Mounted here, once, so the panels below are pure. */
-    const follows = useFollows(profile?.handle)
+     * see `lib/store/follows/store.js`. Mounted here, once, so the panels below are pure.
+     *
+     * Keyed on the handle the card was *opened at*, not on the loaded profile's: for anybody
+     * but the viewer, `profile` is null until `GET /api/profiles/:handle` answers, so keying on
+     * it would hold both lists behind that request and make the pair sequential — the one thing
+     * loading them here instead of per tab exists to avoid. */
+    const follows = useFollows(handle)
 
     /* Back to Info whenever the subject changes — a reader who walked into this person from
      * somebody's follower list is looking at a new person, not at the same list again.
@@ -433,7 +438,7 @@ const CardBody = ({ profile, skeleton, missing, onOpen, onEdit }) => {
 }
 
 const ProfileCard = () => {
-    const { open, profile, skeleton, missing, close, edit } = useProfileCard()
+    const { handle, open, profile, skeleton, missing, close, edit } = useProfileCard()
     const { openProfile } = useOpenProfile()
     const isDesktop = useIsDesktop()
     const mounted = useMounted()
@@ -462,6 +467,7 @@ const ProfileCard = () => {
 
     const body = (
         <CardBody
+            handle={handle}
             profile={profile}
             skeleton={skeleton}
             missing={missing}

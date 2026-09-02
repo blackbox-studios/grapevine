@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { useRouter } from "next/navigation"
 
-import { ROLES, ROUTES } from "@/lib/constants"
+import { ROLES } from "@/lib/constants"
 import {
     useCreateOrg,
     useDeleteOrg,
@@ -96,19 +96,14 @@ export const useCurrentOrg = () => {
  * needs — the switcher only ever needs "take me there", and subscribing a menu to the form's
  * saving state would re-render it on every keystroke saved inside the page. */
 export const useEditOrg = () => {
-    const [select, setOpen] = useOrgStore(
-        useShallow(state => ([state.select, state.setOpen])),
-    )
+    const openGroupSettings = useOrgStore(state => state.openGroupSettings)
     const router = useRouter()
 
+    /* The router is handed to the store action, which selects and navigates together — see
+     * `openGroupSettings` in the org store, and `useLogin` for the same shape. */
     const editOrg = useCallback(
-        (orgId) => {
-            if (!orgId) return
-            select(orgId)
-            setOpen(false)
-            router.push(ROUTES.GROUP, { scroll: false })
-        },
-        [select, setOpen, router],
+        (orgId) => openGroupSettings(orgId, router),
+        [openGroupSettings, router],
     )
 
     return useMemo(() => ({ editOrg }), [editOrg])

@@ -6,12 +6,12 @@ import UsersIcon from "@/assets/svg/icons/users.svg"
 import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
 import { SettingsRow } from "@/components/Settings"
-import { Avatar } from "@/components/Widgets"
+import { Avatar, Count } from "@/components/Widgets"
 import { ROUTES } from "@/lib/constants"
 import { displayName } from "@/lib/name"
 import { useLogout, useUser } from "@/lib/store/auth/hook"
 import { useOpenProfile } from "@/lib/store/profile/hook"
-import { formatCompact, roleLabel } from "@/lib/utils"
+import { roleLabel } from "@/lib/utils"
 
 /* The account surface: who the viewer is, and everything that hangs off them. It is also
  * `/settings` itself — the index of the account tree rather than a sibling of it, so the list
@@ -56,13 +56,13 @@ const SettingsPage = () => {
                 >
                     <Avatar person={user} className="size-24 text-2xl" />
 
-                    {/* A picture is not obviously pressable, so it wears a badge in the corner
-                        the avatar picker's pencil used to occupy — same size, same ring. The
-                        glyph points up and out because what it opens is not another page in
-                        this list: it is the card the rest of the parish sees, over the top of
-                        wherever you are. A span rather than a button: it is inside the one that
-                        already handles the tap, and a nested button would be both invalid and a
-                        second target for the same action. */}
+                    {/* A picture is not obviously pressable, so it wears a badge in the same
+                        corner and at the same size as `<AvatarPicker/>`'s edit pencil on
+                        `/settings/info`. The glyph points up and out because what it opens is
+                        not another page in this list: it is the card the rest of the parish
+                        sees, over the top of wherever you are. A span rather than a button: it
+                        is inside the one that already handles the tap, and a nested button
+                        would be both invalid and a second target for the same action. */}
                     <span
                         aria-hidden="true"
                         className="absolute -right-2 -top-0.5 grid size-8 place-items-center rounded-full bg-background text-foreground ring-3 ring-background"
@@ -117,17 +117,5 @@ const SettingsPage = () => {
         </div>
     )
 }
-
-/* One tally. A button rather than a link because it opens a card, and a card is not a place. */
-const Count = ({ value, label, onClick }) => (
-    <button
-        type="button"
-        onClick={onClick}
-        className="flex cursor-pointer flex-col items-center rounded-2xl px-4 py-1 transition-colors hover:bg-accent"
-    >
-        <span className="text-lg font-semibold tabular-nums">{formatCompact(value)}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
-    </button>
-)
 
 export default SettingsPage

@@ -128,7 +128,7 @@ export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
         const url = String(avatar ?? "").trim()
         if (!url) throw invalid("A picture is required.", { avatar: "Required" })
 
-        /* The same check `updateAvatar` makes, with the group as the owner. Without it this
+        /* The same check `readAvatarUrl` makes, with the group as the owner. Without it this
          * endpoint would take any string as a picture, and a crafted request could point a
          * parish's avatar at an off-site image the switcher would then render as parish
          * identity — or at another group's object, whose path is unguessable and reachable
@@ -395,7 +395,7 @@ export const createOrg = async (viewer, { name, slug, kind, parentId, bio } = {}
  *
  * Child groups survive, orphaned to the top level (`parent` is `SetNull`) — a diocese being
  * deleted must not take its parishes with it. Uploaded files stay in storage, for the same
- * reason `updateAvatar` leaves the previous picture: a sweep belongs in a job, where a
+ * reason `readAvatarUrl` leaves the previous picture: a sweep belongs in a job, where a
  * failure is retried, not in a request where it would half-delete. Profiles are untouched;
  * losing your group is not losing your account.
  */

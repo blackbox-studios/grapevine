@@ -1,8 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDownIcon } from "lucide-react"
 
+import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Wheel, WheelColumn } from "@/components/Wheel"
 import { Button } from "@/components/ui/button"
@@ -96,7 +96,7 @@ const WheelSelect = ({
                         {selected?.label ?? placeholder}
                     </span>
                 </span>
-                <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                <Icon size="sm" className="shrink-0 text-muted-foreground">expand_more</Icon>
             </button>
 
             {/* repositionInputs is off for the same reason as every other drawer here:

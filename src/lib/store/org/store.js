@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
+import { ROUTES } from '@/lib/constants'
 import { haptic } from '@/lib/native'
 
 /* Which group the app is currently looking at, and whether the switcher is open.
@@ -103,6 +104,20 @@ const useStore = create(
                     if (!orgId) return
                     set(state => { state.currentId = orgId })
                     get().setOpen(false)
+                },
+
+                /* The switcher's gear: select the row it belongs to, dismiss the panel, and go
+                 * to `/group` — three things one tap does. Selecting first is what keeps the
+                 * tree's pages scoped correctly (they read the selection, not an id in the
+                 * URL), and it has to happen before the navigation rather than after, since the
+                 * pages resolve against `currentId` the moment they render.
+                 *
+                 * The router is handed in and used here, alongside the state change it follows,
+                 * rather than in the hook — see the auth store's `verifyCode` for the same shape. */
+                openGroupSettings: (orgId, router) => {
+                    if (!orgId) return
+                    get().select(orgId)
+                    router.push(ROUTES.GROUP, { scroll: false })
                 },
 
                 /* The switcher's open state. Every transition is confirmed by a tap, on the

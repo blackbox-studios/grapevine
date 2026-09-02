@@ -4,7 +4,6 @@ import { useCallback, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 import { useRouter } from "next/navigation"
 
-import { ROUTES } from "@/lib/constants"
 import useIsomorphicLayoutEffect from "@/lib/hooks/useIsomorphicLayoutEffect.hook"
 import useProfileStore from "./store"
 
@@ -31,13 +30,14 @@ export const useOpenProfile = () => {
  * card — one whose handle changed under a mounted surface — starts its fetch before paint rather
  * than a frame after it. Same call `usePost` makes. */
 export const useProfileCard = () => {
-    const [openHandle, current, ready, load, close] = useProfileStore(
+    const [openHandle, current, ready, load, close, editAction] = useProfileStore(
         useShallow((state) => [
             state.openHandle,
             state.current,
             state.ready,
             state.load,
             state.close,
+            state.edit,
         ]),
     )
     const router = useRouter()
@@ -47,13 +47,9 @@ export const useProfileCard = () => {
     }, [openHandle, load])
 
     /* Editing your own card is a *place*, not a mode — the form is long enough to be a page and
-     * it belongs to the account tree. So the card gets out of the way first: leaving it up
-     * behind a settings page would be a surface about somebody the reader has navigated away
-     * from. */
-    const edit = useCallback(() => {
-        close()
-        router.push(ROUTES.SETTINGS_INFO)
-    }, [close, router])
+     * it belongs to the account tree. The router is handed to the store action, which closes
+     * the card and navigates together — see `edit` in the profile store. */
+    const edit = useCallback(() => editAction(router), [editAction, router])
 
     return useMemo(
         () => ({

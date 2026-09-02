@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { immer } from "zustand/middleware/immer"
 
 import api from "@/lib/api"
-import { API_ENDPOINTS } from "@/lib/constants"
+import { API_ENDPOINTS, ROUTES } from "@/lib/constants"
 import { haptic } from "@/lib/native"
 import useAuthStore, { viewerProfile } from "@/lib/store/auth/store"
 import useFollowsStore from "@/lib/store/follows/store"
@@ -106,6 +106,16 @@ const useStore = create(
         },
 
         close: () => set((state) => ({ ...state, ...INIT })),
+
+        /* Closing the card and going to the form that edits it — one gesture, so it lives
+         * here rather than being two calls a component has to sequence. The card closes
+         * first: leaving it up behind `/settings/info` would be a surface about somebody
+         * the reader has just navigated away from. The router is handed in and used
+         * alongside the state change it follows — see the auth store's `verifyCode`. */
+        edit: (router) => {
+            set((state) => ({ ...state, ...INIT }))
+            router.push(ROUTES.SETTINGS_INFO)
+        },
 
         load: async (handle) => {
             if (!handle) return

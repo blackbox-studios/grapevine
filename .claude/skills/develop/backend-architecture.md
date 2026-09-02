@@ -178,8 +178,13 @@ completed (offline, DNS, CORS, aborted connection).
 | Method | Path | Auth | Returns |
 |---|---|---|---|
 | `GET` | `/api/me` | viewer | the viewer: profile, vocation, role, groups |
+| `PATCH` | `/api/me` | viewer | the updated viewer — picture, name, @handle, birthday, baptism name, name day, ordination date |
 | `POST` | `/api/me/onboarding` | viewer | the updated viewer — first-run orientation, all fields at once |
 | `GET` | `/api/me/onboarding/handle?value=` | viewer | `{ handle, available, reason }` — advisory @handle check |
+| `GET` | `/api/profiles/:handle` | a viewer who shares a group with them | the person's profile, with follow tallies |
+| `POST` | `/api/profiles/:handle/follow` | same | `{ following, followers }` — toggles the viewer's follow |
+| `GET` | `/api/profiles/:handle/followers?limit=&cursor=` | same | `{ items, nextCursor }` — who follows them, newest first |
+| `GET` | `/api/profiles/:handle/following?limit=&cursor=` | same | `{ items, nextCursor }` — who they follow |
 | `GET` | `/api/orgs` | viewer | `{ items, nextCursor }` — the viewer's groups |
 | `POST` | `/api/orgs` | **platform owner** | `201` + the created group, `Location` set. The creator is written an ADMIN membership in the same transaction |
 | `PATCH` | `/api/orgs/:orgId` | **group admin** | the updated group — name, bio, picture |
@@ -245,6 +250,39 @@ requires the group's `slug` echoed in the request body — not a security contro
 guard against being right about the permission and wrong about the group, on an action that
 cascades to every post, comment, like, invite and membership it ever held.
 
+**A profile is scoped by a *shared membership*, and that rule has to be stated because it
+cannot be inherited.** Every other read narrows to the viewer's groups; a person is not content
+and belongs to no single group, so `visibleProfile` in `follows.service.js` intersects the
+subject's APPROVED memberships with the viewer's and answers **404** when they are disjoint —
+404 rather than 403, for the reason `requireMembership` does it, because otherwise the endpoint
+confirms which handles exist, and handle enumeration across a diocese is real information about
+real people. That one predicate gates all four profile endpoints.
+
+**`PATCH /api/me` is a genuine partial update, and that is what lets one endpoint serve two
+callers.** `updateProfile` writes only the keys it was given, keyed on `undefined` versus
+`null`: the avatar picker sends one field and the profile form sends seven, and neither clears
+the other's. It accepts everything about a person *except* `vocation` — which the admin check
+and the roster's sort order derive from, so it is an admin's to set — and `email`, which is
+Supabase's credential rather than a profile field. A handle taken between a form loading and
+being saved surfaces as `P2002` and is reported as a `fields.handle` validation failure, so the
+client can mark the input rather than failing the whole submission as something unexplained.
+
+**`birthday` and `email` are collected but never published.** They are absent from
+`projectProfile` entirely rather than filtered at the edge — orientation promises the birthday
+is never shown publicly, and the way to keep that promise is for it not to leave the server.
+
+**The profile resource carries no groups and no check.** Naming a parish to somebody with no
+membership in it is the leak a join-request feature would have to be designed around first (see
+the admission note in `prisma/schema.prisma`), and the check means "administers the group you
+are reading this in" — which a profile is not read inside. What stands in its place is the
+person's `vocation`, which is global. The follower tallies come from a `_count` on the read that
+was already being made rather than from columns on `Profile`; unlike `likeCount`, which every
+card in a page renders, a follower count is rendered on one profile at a time.
+
+**Following grants nothing.** `readableOrgIds` does not consult `Follow` and must not start —
+that would put one parish's posts in front of somebody with no membership in it, which is the
+one invariant this app has. It is a list, kept for direct messaging.
+
 **Notifications are addressed to a person, not scoped to a group, and that is the one place
 this app's scoping rule does not apply.** Every other read narrows to the viewer's
 memberships or to the selected group; `listNotifications` filters on `recipientId` and
@@ -298,13 +336,18 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   storage.js               # the bucket, object paths, and signed upload URLs
   projections.js           # database rows → wire shapes
   posts.service.js         # posts, comments, likes
-  profile.service.js       # the viewer, a group's roster, admission
+  profile.service.js       # the viewer, their own edits, a group's roster, admission
+  follows.service.js       # somebody else's profile, and the follow graph
   orgs.service.js          # a viewer's groups; creating, editing and deleting one
   notifications.service.js # the panel behind the bell, and the writes that fill it
   uploads.service.js       # purpose → permission + destination
 
 src/app/api/
-  me/route.api.js
+  me/route.api.js                           # GET — the viewer; PATCH — their own details
+  profiles/[handle]/route.api.js
+  profiles/[handle]/follow/route.api.js
+  profiles/[handle]/followers/route.api.js
+  profiles/[handle]/following/route.api.js
   uploads/route.api.js
   orgs/route.api.js                         # GET — the viewer's groups; POST — create one
   orgs/[orgId]/route.api.js                 # PATCH — edit; DELETE — destroy
@@ -489,7 +532,8 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Bucket provisioning (`npm run storage:setup`) | `scripts/setup-storage.mjs` |
 | Rows → wire shapes | `src/lib/server/projections.js` |
 | Posts, comments, likes | `src/lib/server/posts.service.js` |
-| Viewer, roster, admission | `src/lib/server/profile.service.js` |
+| Viewer, their own edits, roster, admission | `src/lib/server/profile.service.js` |
+| Profiles and the follow graph | `src/lib/server/follows.service.js` |
 | Groups: list, create, edit, delete | `src/lib/server/orgs.service.js` |
 | Granting platform ownership (`npm run owner`) | `scripts/grant-owner.mjs` |
 | Notifications, the builders that write them, and the pushes that deliver them | `src/lib/server/notifications.service.js` |
@@ -564,6 +608,10 @@ Three things about it are load-bearing:
   that makes the ordering total.
 - **`direction` must match the query's `orderBy`** — `"desc"` for the feed. Mismatch them
   and the second page silently repeats the first rather than failing.
+- **`tiebreaker` names the unique column, and defaults to `id`.** It exists for `Follow`,
+  which is keyed by the pair `(followerId, followingId)` and has no surrogate id at all — a
+  page of followers breaks its ties on `followerId`, which is unique within one person's
+  followers. All three helpers take it and all three must be given the same one.
 - **End-of-collection is detected by over-fetching one row** (`take: limit + 1`), never by
   `COUNT(*)`. A count makes the database touch every matching row on every request to
   produce a number the contract does not even carry.
@@ -843,7 +891,7 @@ No deploy, no seed edit. Step 2 has a surface: `<OrgCreator/>`, opened from a **
 at the foot of the group switcher, which is drawn only for an owner. `projectViewer` ships
 `platformRole` for that gate. See the Groups section of `frontend-architecture.md`.
 
-`DELETE` is the danger zone at the foot of `<OrgEditor/>`, collapsed until asked for and armed
+`DELETE` is the danger zone at the foot of `/group/info`, collapsed until asked for and armed
 only once the group's name has been typed. It is drawn off `canDelete`, which `projectOrg`
 composes from `canDeleteOrg` — the same predicate `deleteOrg` enforces, so the button cannot be
 offered for an action that would then 403. `createdById` itself is deliberately *not* shipped:

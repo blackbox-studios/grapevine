@@ -7,6 +7,7 @@ import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
+import { FIELD_BOX } from "@/components/ui/input"
 import {
     Drawer,
     DrawerContent,
@@ -14,6 +15,7 @@ import {
     DrawerTitle,
 } from "@/components/ui/drawer"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { MONTHS } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { cn } from "@/lib/utils"
@@ -43,11 +45,6 @@ import { cn } from "@/lib/utils"
  *   `variant="popover"`  a button showing the current date that opens the surface — for a
  *                        field among other fields. Default.
  */
-
-const MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-]
 
 const ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 
@@ -80,17 +77,53 @@ const toISO = (date) => {
  * that reliably differs between the build machine and the reader's browser — which is a
  * hydration mismatch on a control that has not been touched yet. This is deterministic, and
  * it matches the month names the drum already shows. */
-const formatDate = (iso) => {
+const formatDate = (iso, precision) => {
     const match = ISO_PATTERN.exec(iso ?? "")
     if (!match) return ""
-    return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1]} ${match[1]}`
+    const day = `${Number(match[3])} ${MONTHS[Number(match[2]) - 1]}`
+    return precision === MONTH_DAY ? day : `${day} ${match[1]}`
+}
+
+/* ---------------------------------------------------------------------------
+ * Precision
+ *
+ * A birthday and an ordination are dates; a **name day is not**. It is a month and a day that
+ * recurs, so there is no year to pick and none is stored — see the `nameDayMonth` note in
+ * `prisma/schema.prisma`.
+ *
+ * It is a mode here rather than a second control because the difference between them is one
+ * column of a drum, and two pickers standing in one column of fields are two things to keep
+ * looking identical. So `precision` selects it, the wire carries `MM-DD`, and the year is pinned
+ * out of sight.
+ *
+ * The pinned year is a **leap** year, and that is the one detail worth stating: St Cassian's
+ * feast falls on 29 February, and any non-leap reference would quietly make it unpickable.
+ * ------------------------------------------------------------------------- */
+
+const MONTH_DAY = "month-day"
+const REFERENCE_YEAR = 2024
+
+const MONTH_DAY_PATTERN = /^(\d{2})-(\d{2})$/
+
+/* The caller's value → the full ISO string the surfaces work in. */
+const toFull = (value, precision) => {
+    if (precision !== MONTH_DAY) return value
+    const match = MONTH_DAY_PATTERN.exec(value ?? "")
+    return match ? `${REFERENCE_YEAR}-${match[1]}-${match[2]}` : ""
+}
+
+/* ...and back, dropping the year the reader never saw. */
+const fromFull = (iso, precision) => {
+    if (precision !== MONTH_DAY) return iso
+    const match = ISO_PATTERN.exec(iso ?? "")
+    return match ? `${match[2]}-${match[3]}` : ""
 }
 
 /* The desktop surface. `captionLayout="dropdown"` is not decoration — it is what makes a
  * calendar usable for a birthday at all, since the alternative is clicking the previous-month
  * arrow four hundred times. The dropdowns are bounded by the same years the drum offers, so
  * the two controls cannot disagree about what is selectable. */
-const CalendarSurface = ({ value, onChange, minYear, maxYear, disabled, className }) => {
+const CalendarSurface = ({ value, onChange, minYear, maxYear, disabled, monthDay, className }) => {
     const selected = useMemo(() => toDate(value), [value])
 
     const [startMonth, endMonth] = useMemo(
@@ -106,7 +139,21 @@ const CalendarSurface = ({ value, onChange, minYear, maxYear, disabled, classNam
              * requiring the reader to navigate back to their own answer. */
             defaultMonth={selected ?? endMonth}
             onSelect={(date) => date && onChange(toISO(date))}
-            captionLayout="dropdown"
+            /* The year dropdown is the whole reason a calendar is usable for a birthday, and
+             * the whole reason it must not appear for a name day — there is no year to choose,
+             * and offering one would ask a question the value cannot hold.
+             *
+             * The plain caption has to be overridden with it: react-day-picker's default
+             * renders "March 2024", which would put the pinned reference year on screen — the
+             * one place in this control where the year the reader is not choosing could still
+             * be seen. The nav arrows cannot leave it either, because `startMonth`/`endMonth`
+             * are both bounded to that year. */
+            captionLayout={monthDay ? "label" : "dropdown"}
+            formatters={
+                monthDay
+                    ? { formatCaption: (date) => MONTHS[date.getMonth()] }
+                    : undefined
+            }
             startMonth={startMonth}
             endMonth={endMonth}
             disabled={disabled ? () => true : undefined}
@@ -119,6 +166,8 @@ const DatePicker = ({
     value,
     onChange,
     variant = "popover",
+    /* "date" (`YYYY-MM-DD`) or "month-day" (`MM-DD`) — see the Precision note above. */
+    precision = "date",
     minYear = 1900,
     maxYear,
     disabled,
@@ -129,7 +178,11 @@ const DatePicker = ({
     const isDesktop = useIsDesktop()
     const [open, setOpen] = useState(false)
 
-    const ceilingYear = maxYear ?? new Date().getFullYear()
+    const monthDay = precision === MONTH_DAY
+    /* A recurring date is pinned to one reference year at both ends, so neither surface offers
+     * a year to move to and the drum's day column still clamps against a real month length. */
+    const floorYear = monthDay ? REFERENCE_YEAR : minYear
+    const ceilingYear = monthDay ? REFERENCE_YEAR : (maxYear ?? new Date().getFullYear())
 
     /* Open/closed React state, not a URL, so Android's back gesture has nothing of its own
      * to unwind and would close the app from on top of the sheet. */
@@ -137,29 +190,34 @@ const DatePicker = ({
 
     const handleChange = useCallback(
         (next) => {
-            onChange?.(next)
+            onChange?.(fromFull(next, precision))
             /* The calendar answers the question in one click, so it closes itself. The drum
              * does not — every scrubbed column would slam the sheet shut mid-choice — so it
              * waits for Done. */
             if (isDesktop) setOpen(false)
         },
-        [onChange, isDesktop],
+        [onChange, isDesktop, precision],
     )
+
+    /* Both surfaces work in full ISO throughout; only the edges translate. */
+    const full = toFull(value, precision)
 
     const surface = isDesktop ? (
         <CalendarSurface
-            value={value}
+            value={full}
             onChange={handleChange}
-            minYear={minYear}
+            minYear={floorYear}
             maxYear={ceilingYear}
+            monthDay={monthDay}
             disabled={disabled}
         />
     ) : (
         <DateWheel
-            value={value}
+            value={full}
             onChange={handleChange}
-            minYear={minYear}
+            minYear={floorYear}
             maxYear={ceilingYear}
+            hideYear={monthDay}
             disabled={disabled}
         />
     )
@@ -180,6 +238,10 @@ const DatePicker = ({
         )
     }
 
+    /* Shaped as a field, not as a button. It stands in a column of `<Input>`s, so it wears
+     * `FIELD_BOX` — the same height, radius, fill and text indent — and only the chevron says
+     * it opens something. `border-none` because <Button/>'s outline variant brings one and the
+     * inputs beside it have none. */
     const trigger = (
         <Button
             type="button"
@@ -188,12 +250,13 @@ const DatePicker = ({
             aria-label={label}
             onClick={isDesktop ? undefined : () => setOpen(true)}
             className={cn(
-                "justify-between font-normal",
+                FIELD_BOX,
+                "justify-between border-none pr-4 font-normal",
                 !value && "text-muted-foreground",
                 className,
             )}
         >
-            {value ? formatDate(value) : placeholder}
+            {full ? formatDate(full, precision) : placeholder}
             <Icon size="md" className="text-muted-foreground">
                 calendar_month
             </Icon>

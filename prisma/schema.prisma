@@ -48,6 +48,17 @@
 // Putting it back here is what produced a roster with an Approve button that nothing
 // could ever populate.
 //
+// The shape that would want it is already visible: a member reads somebody's profile,
+// sees a group they are not in, and asks to be let in. Note what that is and is not.
+// It is *not* the stranger the invite-only gate exists to keep out — the asker is
+// already provisioned, already signed in, and can act on the answer — so it does not
+// reopen `shouldCreateUser: false`. And it is still not a membership state: the request
+// is a row that resolves into a Membership or into nothing, so `admitOne` remains the
+// one thing that grants access and every read path keeps asking the one question it
+// asks today. Which is why the profile surface deliberately does **not** list a
+// person's groups: naming a group to somebody with no membership in it is the leak that
+// would have to be designed for first, and there is nothing to gain by shipping it early.
+//
 // ── Naming ──────────────────────────────────────────────────────────────────
 //
 // Models and fields are camelCase in the Prisma client (which is what app code
@@ -146,6 +157,42 @@ model Profile {
   /// Who the person is, not what they may do. See the header note.
   vocation  Vocation @default(FAITHFUL)
 
+  /// The name given at baptism or chrismation — the saint whose name this person bears.
+  ///
+  /// Held apart from `firstName` because for many people the two differ: someone baptised
+  /// Nicholas may go by Nick, or by a legal name with no saint behind it at all. It is also
+  /// not a title, so it never reaches `displayName()`; it is a fact shown on a profile.
+  ///
+  /// Null for a catechumen, who has not been given one yet, and orientation does not ask
+  /// them for one. Null afterwards means only "not supplied".
+  baptismName String? @map("baptism_name")
+
+  /// The patronal feast this person keeps — a **month and a day, with no year**, because
+  /// that is what a name day is. Split into two small integers rather than stored as a date
+  /// for exactly that reason: a `@db.Date` would force a meaningless year onto the column,
+  /// which then has to be ignored by every reader and is one timezone slip from moving the
+  /// feast.
+  ///
+  /// **The shape is chosen for the query it exists to serve**: "whose name day falls this
+  /// week", which the parish's priest will want as a weekly digest. A seven-day window is
+  /// seven `(month, day)` pairs, so that read is an `IN` over the index below — exact, and
+  /// with no special case at a year boundary, which a single ordinal column would need.
+  ///
+  /// Both are null or both are set; nothing represents half a date. `readNameDay` is the
+  /// only thing that writes them.
+  nameDayMonth Int? @map("name_day_month")
+  nameDayDay   Int? @map("name_day_day")
+
+  /// When this person was ordained, for the ranks that are.
+  ///
+  /// Asked for at orientation only of DEACON, PRIEST and BISHOP — see `CLERGY_VOCATIONS` in
+  /// `lib/constants.js`. A READER is *tonsured* rather than ordained and a MATUSHKA is not
+  /// clergy at all, so neither is asked; the column stays open to them because a vocation can
+  /// change and nothing here should have to be migrated when it does.
+  ///
+  /// `@db.Date` for the same reason a birthday is one: it is a calendar date, not an instant.
+  ordinationDate DateTime? @map("ordination_date") @db.Date
+
   /// Authority over the platform, held by a person rather than granted inside a group.
   /// The subscriber's axis: see the `PlatformRole` note below.
   platformRole PlatformRole @default(NONE) @map("platform_role")
@@ -200,6 +247,9 @@ model Profile {
   participations   ConversationParticipant[]
   messages         Message[]
 
+  /// Serves the name-day digest — "whose feast falls in this window" — which is the only
+  /// reason the two name-day columns are split the way they are. Nothing else reads them.
+  @@index([nameDayMonth, nameDayDay])
   @@map("profile")
 }
 
@@ -731,20 +781,26 @@ model DeviceToken {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Modeled now, no endpoints yet
-//
-// The following tables have no service or route behind them. They are here because
-// both features were specified up front, and settling their shape now is what keeps
-// the tables above honest — `Follow` is the reason the feed's organization scoping is
-// a set of ids rather than a single column, and the conversation/participant split is
-// the reason messaging will not need a schema rewrite to go from 1:1 to group.
+// The social graph
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An asymmetric follow between two people (Twitter-style, not a friendship).
 ///
-/// When this ships, the feed becomes "posts from my APPROVED organizations, plus
-/// posts from people I follow" — which is why `listFeed` builds an id set instead of
-/// filtering on one organization.
+/// **It grants nothing, and that is deliberate.** Following somebody does not widen what you
+/// may read: `readableOrgIds` is still the union of your APPROVED memberships and nothing
+/// consults this table to build a feed. What it is, today, is a list — the one a person keeps
+/// of the people they want to stay in touch with — and what it is *for* is direct messaging,
+/// where "who can I start a conversation with" needs an answer that is not "everyone in the
+/// diocese". Until that ships this is a list and should stay one; making the feed read it
+/// would put another person's parish's posts in front of somebody with no membership in it,
+/// which is the one invariant this app has.
+///
+/// Who may follow whom is `visibleProfile` in `follows.service.js`: you can follow a person
+/// you share an APPROVED group with, because that is the boundary of who you can see at all.
+///
+/// **No denormalized tallies.** `Post.likeCount` is a column because every card in a page
+/// renders it; a follower count is rendered on one profile at a time, so it is a `_count` on
+/// the read that was already being made rather than two more columns to keep in step.
 model Follow {
   followerId  String   @map("follower_id") @db.Uuid
   followingId String   @map("following_id") @db.Uuid
@@ -753,11 +809,28 @@ model Follow {
   follower  Profile @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
   following Profile @relation("FollowFollowing", fields: [followingId], references: [id], onDelete: Cascade)
 
+  /// The pair is the identity: one row per direction, and a double-tap is idempotent at the
+  /// database level rather than in application code. Same argument as `PostLike`.
   @@id([followerId, followingId])
-  /// Serves "who follows me"; the primary key already serves "who do I follow".
-  @@index([followingId])
+  /// The two list reads, each in the order its keyset cursor compares — so a page of
+  /// followers or of following is an index range scan.
+  ///
+  /// The tiebreaker is the *other* person's id rather than a surrogate `id`, because this
+  /// table has none: the pair is the key. That is what `keysetWhere`'s `tiebreaker` argument
+  /// exists for; see `lib/server/cursor.js`.
+  @@index([followingId, createdAt(sort: Desc), followerId(sort: Desc)])
+  @@index([followerId, createdAt(sort: Desc), followingId(sort: Desc)])
   @@map("follow")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modeled now, no endpoints yet
+//
+// The following tables have no service or route behind them. They are here because the
+// feature was specified up front, and settling its shape now is what keeps the tables
+// above honest: the conversation/participant split is the reason messaging will not need
+// a schema rewrite to go from 1:1 to group.
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// A message thread. Participants live in a join table rather than as `userAId` /
 /// `userBId`, so the same model serves a direct message and an N-way group thread

@@ -58,26 +58,15 @@ const INIT = {
      * threading a setter through the layout. */
     open: false,
 
-    /* The group whose settings are being edited, or null. **Not a route** — the editor is a
-     * dialog on desktop and a sheet on a phone, exactly like the composer, so what is open is
-     * component state rather than a URL.
+    /* Whether the create-a-group surface is open. A flag rather than an id, because there is
+     * no group yet to name it after. It sits here rather than in the surface because the
+     * entrances (the desktop dropdown, the mobile panel) and <OrgCreator/>, mounted by the
+     * shell, are three separate subtrees, and a flag they all read beats lifting state through
+     * the layout to a common ancestor whose only job is to hold it. It is the same argument as
+     * `open` above, which is why it sits beside it.
      *
-     * It lives here rather than in the surface because the two things that open it and the
-     * thing that draws it are three different subtrees: the desktop dropdown, the mobile
-     * panel's hold menu, and <OrgEditor/> mounted once by the shell. A flag they all read
-     * beats lifting state through the layout to a common ancestor that only exists to hold
-     * it. It is the same argument as `open` above, which is why it sits beside it.
-     *
-     * Deliberately outside `partialize`, so it never persists: reopening the app into a
-     * settings dialog nobody asked for would be a bug, not a restored session. */
-    editingId: null,
-
-    /* Whether the create-a-group surface is open. A flag rather than an id, which is the
-     * whole difference between it and `editingId` above: there is no group yet to name it
-     * after. It sits here for the same reason that one does — the entrances (the desktop
-     * dropdown, the mobile panel) and <OrgCreator/>, mounted by the shell, are three separate
-     * subtrees, and a flag they all read beats lifting state to a common ancestor whose only
-     * job is to hold it. Not persisted, for the same reason either. */
+     * Deliberately outside `partialize`, so it never persists: reopening the app into a form
+     * nobody asked for would be a bug, not a restored session. */
     creating: false,
 }
 
@@ -127,26 +116,11 @@ const useStore = create(
 
                 toggle: () => get().setOpen(!get().open),
 
-                /* Opens the group-settings surface for one group, and closes the switcher
-                 * that asked for it — the panel is what the reader just acted from, so
-                 * leaving it standing behind the dialog would be two open surfaces for one
-                 * decision. `select` is what does that, and it also makes the app's scope
-                 * agree with the group being edited: editing a parish from inside a different
-                 * one's feed and landing back in that other feed is disorienting in a way one
-                 * extra state change avoids. */
-                editOrg: (orgId) => {
-                    if (!orgId) return
-                    get().select(orgId)
-                    set(state => { state.editingId = orgId })
-                },
-
-                closeEditor: () => set(state => { state.editingId = null }),
-
                 /* Opens the create-a-group surface, closing the switcher that asked for it —
-                 * the same courtesy `editOrg` pays, and for the same reason: the panel is what
-                 * the reader just acted from, so leaving it standing behind the sheet would be
-                 * two open surfaces for one decision. There is no `select` here because there
-                 * is nothing to select yet; the new group is selected once it exists, by
+                 * the panel is what the reader just acted from, so leaving it standing behind
+                 * the sheet would be two open surfaces for one decision. There is no `select`
+                 * here because there is nothing to select yet; the new group is selected once
+                 * it exists, by
                  * `useOrgCreator`. Named for the surface it opens, not for the write —
                  * that is the auth store's `createOrg`, because the row lands in the viewer's
                  * groups. */
@@ -176,9 +150,6 @@ const useStore = create(
                 reset: () => set(state => {
                     state.ready = false
                     state.open = false
-                    /* Sign-out with the editor open would otherwise leave it mounted over the
-                     * login screen, holding the previous viewer's group. */
-                    state.editingId = null
                     state.creating = false
                     state.error = ERROR_INIT
                 }),

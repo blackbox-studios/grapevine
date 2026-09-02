@@ -1,7 +1,7 @@
 import { clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
-import { NESTED_TRANSITION_ROUTES, ROUTES, RUNTIME_ROUTES } from "@/lib/constants"
+import { MONTHS, NESTED_TRANSITION_ROUTES, ROUTES, RUNTIME_ROUTES } from "@/lib/constants"
 
 /* Custom classes */
 const twMerge = extendTailwindMerge({
@@ -150,6 +150,27 @@ export const appPath = (route) =>
 /* The deep-link route for a single post's detail page (`/p/:id`). Built off
  * ROUTES.POST so the path prefix lives in one place. */
 export const postPath = (id) => `${ROUTES.POST}/${id}`
+
+/* "03-09" → "9 March". A name day has no year, so nothing here invents one.
+ *
+ * Spelled out from `MONTHS` rather than through `toLocaleDateString`, for the reason
+ * `DatePicker` formats its own dates that way: the app prerenders to static HTML, and a
+ * locale-formatted date is one of the few things that reliably differs between the build
+ * machine and the reader's browser. */
+export const formatNameDay = (value, { short = false } = {}) => {
+    const match = /^(\d{2})-(\d{2})$/.exec(value ?? "")
+    if (!match) return ""
+    const month = MONTHS[Number(match[1]) - 1]
+    return `${Number(match[2])} ${short ? month.slice(0, 3) : month}`
+}
+
+/* "2011-06-12" → "12 Jun 2011". The short form, for a place that has one line to say a whole
+ * date in — a column of the profile's metadata strip. `formatDate` is the long one, for prose. */
+export const formatDateCompact = (iso) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
+    if (!match) return ""
+    return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1].slice(0, 3)} ${match[1]}`
+}
 
 /* A post's photos, as one array whatever the wire shape.
  *

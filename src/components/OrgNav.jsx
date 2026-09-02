@@ -52,10 +52,10 @@ import { SLIDE_TRANSITION, cn, roleLabel } from "@/lib/utils"
  * that <HoldMenu/> exists for; see that component's header, which names precisely this case
  * (a control a pointer reveals on hover needing a second way in on a phone).
  *
- * Both entrances set `editingId` in the org store; <OrgEditor/>, mounted once by the shell,
- * draws it as a dialog or a sheet. It is **not** a route — nobody needs to link to a settings
- * form, and component state is what keeps Android's back gesture closing the surface rather
- * than unwinding a history entry out from under it. */
+ * Both entrances **select** the group before navigating to `/group`. That is half the action,
+ * not a side effect: the whole settings tree there is scoped to the selection rather than to an
+ * id in the URL, so a gear pressed on a row the app is not currently reading would otherwise
+ * open a different parish's settings. */
 const canEdit = (org) => org?.role === ROLES.ADMIN
 
 /* Creating a group is offered from the same menu, as a row at the foot of the list, and only

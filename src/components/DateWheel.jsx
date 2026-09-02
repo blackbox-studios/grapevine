@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react"
 
+import { MONTHS } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 
 /* An iOS-style drum picker for a date: day, month, year as three snapping columns with the
@@ -22,11 +23,6 @@ const ITEM_HEIGHT = 40
 /* Odd, so there is a true centre row to align the pill to. */
 const VISIBLE = 5
 const PAD = ((VISIBLE - 1) / 2) * ITEM_HEIGHT
-
-const MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-]
 
 /* Last day of a given month, which is the whole reason day is clamped on every change:
  * scrolling from 31 March to February must not leave you on 31 February. */
@@ -112,8 +108,12 @@ const WheelColumn = ({ items, index, onIndex, label, itemClassName }) => {
 }
 
 /* `value` / `onChange` speak ISO `YYYY-MM-DD`, so the control drops straight into a form
- * that already stores dates that way and nothing above it has to know about drums. */
-const DateWheel = ({ value, onChange, minYear = 1900, maxYear, disabled }) => {
+ * that already stores dates that way and nothing above it has to know about drums.
+ *
+ * `hideYear` drops the year column and nothing else — the value still carries a year, which the
+ * caller supplies and strips. That is what lets a name day (a month and a day, recurring) use
+ * this control rather than a second one: see the `precision` note in <DatePicker/>. */
+const DateWheel = ({ value, onChange, minYear = 1900, maxYear, disabled, hideYear = false }) => {
     const ceilingYear = maxYear ?? new Date().getFullYear()
 
     /* Parsed from the ISO string rather than held as separate state, so there is one
@@ -198,12 +198,14 @@ const DateWheel = ({ value, onChange, minYear = 1900, maxYear, disabled }) => {
                     onIndex={(index) => emit({ month: index })}
                     itemClassName="text-base"
                 />
-                <WheelColumn
-                    label="Year"
-                    items={years}
-                    index={Math.max(0, year - minYear)}
-                    onIndex={(index) => emit({ year: minYear + index })}
-                />
+                {!hideYear && (
+                    <WheelColumn
+                        label="Year"
+                        items={years}
+                        index={Math.max(0, year - minYear)}
+                        onIndex={(index) => emit({ year: minYear + index })}
+                    />
+                )}
             </div>
         </div>
     )

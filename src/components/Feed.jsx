@@ -11,7 +11,7 @@ import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, ReflowItem } from "@/components/Reflow"
-import { Attachment, Avatar } from "@/components/Widgets"
+import { Attachment, Avatar, HandleLink } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
@@ -24,6 +24,7 @@ import { useInfiniteScroll } from "@/lib/hooks/useScroll.hook"
 import { displayName } from "@/lib/name"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
+import { useOpenProfile } from "@/lib/store/profile/hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import {
     CARD_SPRING,
@@ -133,7 +134,7 @@ const PostCard = ({ post }) => {
     const { toggleLike } = usePostLike()
     const { liked } = post
 
-    const { handle, verified } = post.author
+    const { verified } = post.author
     /* Composed here, not sent composed: the API ships name parts and a vocation, and this
      * is what turns them into "Dn. Paul". See lib/name.js. */
     const name = displayName(post.author)
@@ -146,7 +147,9 @@ const PostCard = ({ post }) => {
         textOnly ? (
             <Caption text={post.body} limit={TEXT_LIMIT} className="mb-1 text-base leading-normal" />
         ) : (
-            <Caption label={handle} text={post.body} />
+            /* The handle in front of a caption is the author's, so it is the way to them —
+             * `label` takes a node for exactly this. */
+            <Caption label={<HandleLink person={post.author} />} text={post.body} />
         )
     )
 
@@ -160,6 +163,13 @@ const PostCard = ({ post }) => {
         if (!img) return null
         return { src: img.currentSrc || img.src, rect: img.getBoundingClientRect() }
     })
+
+    /* The author's card, from the avatar and the name — both, because a header is one subject
+     * and Instagram has trained a reader that either half of it opens the person. */
+    const { openProfile } = useOpenProfile()
+    const openAuthor = useCallback(() => {
+        if (post.author.handle) openProfile(post.author.handle)
+    }, [post.author.handle, openProfile])
 
     /* Opening a post always goes to `/p/:id` — a shareable URL — but via openSlide rather
      * than router.push: the surface overlays the *live* feed (<PostView/>, which picks its own
@@ -180,18 +190,36 @@ const PostCard = ({ post }) => {
     return (
         <article className="flex flex-col">
             <header className="flex items-center gap-3 pb-3">
-                <Avatar person={post.author} className="size-9" />
+                <button
+                    type="button"
+                    onClick={openAuthor}
+                    aria-label={`Open ${name}'s profile`}
+                    className="cursor-pointer"
+                >
+                    <Avatar person={post.author} className="size-9" />
+                </button>
                 <div className="flex min-w-0 flex-col leading-tight">
                     <div className="flex items-center gap-1">
-                        <span className="truncate text-sm font-semibold">
+                        {/* `truncate`: a long name must not push the check and the timestamp
+                            off the card. */}
+                        <HandleLink
+                            person={post.author}
+                            truncate
+                            className="text-sm font-semibold"
+                        >
                             {name}
-                        </span>
+                        </HandleLink>
                         {verified && (
-                            <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
+                            /* `shrink-0`: the name beside it truncates, and without this the
+                               check is squeezed away before the name ever ellipses. */
+                            <Icon
+                                size="xs"
+                                className="shrink-0 text-brand [font-variation-settings:'FILL'_1]"
+                            >
                                 verified
                             </Icon>
                         )}
-                        <span className="whitespace-nowrap text-sm text-muted-foreground">
+                        <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
                             • {timeAgoCompact(now, new Date(post.createdAt).getTime())}
                         </span>
                     </div>
@@ -306,7 +334,9 @@ const PostCard = ({ post }) => {
                     <Avatar person={post.likedBy} className="size-5" />
                     <span>
                         Liked by{" "}
-                        <span className="font-semibold">{displayName(post.likedBy)}</span>
+                        <HandleLink person={post.likedBy} className="font-semibold">
+                            {displayName(post.likedBy)}
+                        </HandleLink>
                         {/* "and 1 others" was reachable the moment like counts became real
                           * rather than seeded prose — a post with exactly two likes hits it. */}
                         {post.likes > 1 && (
@@ -377,7 +407,7 @@ const FeedEmpty = () => {
                 {isAdmin ? (
                     <>
                         Create a post with the compose button, and{" "}
-                        <Hyperlink href={ROUTES.SETTINGS_USERS} className="font-medium">
+                        <Hyperlink href={ROUTES.GROUP_USERS} className="font-medium">
                             add members
                         </Hyperlink>{" "}
                         so there is somebody to read it.

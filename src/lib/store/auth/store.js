@@ -53,6 +53,7 @@ const ERROR_INIT = {
     logout: false,
     onboarding: false,
     avatar: false,
+    details: false,
     org: false,
 }
 
@@ -62,6 +63,7 @@ const LOADING_INIT = {
     logout: false,
     onboarding: false,
     avatar: false,
+    details: false,
     org: false,
 }
 
@@ -128,6 +130,38 @@ export const viewerAuthor = (user) =>
               vocation: user.vocation,
               avatar: user.avatar,
               verified: user.role === ROLES.ADMIN,
+          }
+        : null
+
+/* The viewer, in the shape `/api/profiles/:handle` answers — the seed for their own profile
+ * page.
+ *
+ * **The same trick the feed plays for an opened post**, and for the same reason: the surface
+ * paints complete on the first frame from a copy the app already holds, and the fetch that
+ * follows is invisible. `/api/me` runs on boot, and it carries the two follow tallies precisely
+ * so this projection is whole — without them the counts would arrive a beat after everything
+ * else, which reads worse than a skeleton.
+ *
+ * Defined here rather than in the profile store for the reason `viewerAuthor` is: this is the
+ * viewer, and the auth store owns the viewer. `following` is false and `isSelf` is true by
+ * construction — nobody follows themselves, and this is only ever the viewer's own row. */
+export const viewerProfile = (user) =>
+    user
+        ? {
+              id: user.id,
+              handle: user.handle,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              vocation: user.vocation,
+              avatar: user.avatar,
+              baptismName: user.baptismName ?? null,
+              nameDay: user.nameDay ?? null,
+              ordinationDate: user.ordinationDate ?? null,
+              joinedAt: user.createdAt,
+              followers: user.followers ?? 0,
+              followingCount: user.followingCount ?? 0,
+              following: false,
+              isSelf: true,
           }
         : null
 
@@ -607,6 +641,49 @@ const useStore = create(
                         return false
                     } finally {
                         set(state => { state.loading.avatar = false })
+                    }
+                },
+
+                /* PATCH /api/me → the viewer's own profile: name, handle, birthday, and
+                 * the three parish facts.
+                 *
+                 * The same endpoint and the same shape as `setAvatar`, and for the same
+                 * reason it is here rather than anywhere else: the response *is* the new
+                 * viewer, and `state.user` is the single copy every surface reads. A partial
+                 * body, so this cannot disturb the picture and the picker cannot disturb
+                 * these — see `updateProfile` on the server.
+                 *
+                 * Not optimistic. These are typed into a form and saved on purpose, so there
+                 * is no gesture to acknowledge on the current frame, and a field that
+                 * appeared to save and then reverted would be worse than a moment's spinner.
+                 *
+                 * **Hands `fields` back rather than only toasting**, exactly as
+                 * `completeOnboarding` does and for the same reason: the one failure a person
+                 * can act on is a handle taken between the form loading and the save, and a
+                 * toast alone leaves them looking at a form with no idea which input to fix.
+                 *
+                 * Its own loading and error keys rather than `avatar`'s, so the form's Save
+                 * button and the picture's spinner cannot light up for each other's work. */
+                saveProfile: async (changes) => {
+                    set(state => {
+                        state.loading.details = true
+                        state.error.details = false
+                    })
+                    try {
+                        const user = await api.patch(API_ENDPOINTS.ME, changes)
+                        set(state => { state.user = user })
+                        toast.success('Profile saved.')
+                        return { ok: true }
+                    } catch (error) {
+                        set(state => {
+                            state.error.details = toErrorList(
+                                error,
+                                'Could not save your profile.',
+                            )
+                        })
+                        return { ok: false, fields: error?.fields ?? null }
+                    } finally {
+                        set(state => { state.loading.details = false })
                     }
                 },
 

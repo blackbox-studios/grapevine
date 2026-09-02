@@ -207,6 +207,74 @@ export const projectOrg = (org, membership, { canDelete = false } = {}) => ({
     canDelete,
 })
 
+/* One person, as a row in a follower or following list.
+ *
+ * The name in parts and nothing else — this is the smallest shape that can draw an avatar, a
+ * line of text, and a follow button, and a list of two hundred people should carry nothing
+ * more. There is no `verified` here and no vocation title: a row names somebody so the reader
+ * can recognise them and tap through, and the profile it opens is where the detail lives.
+ *
+ * `following` is per-viewer, so it cannot come off the row; the caller resolves the whole
+ * page's answer in one query and passes it in. `isSelf` is what tells a row to draw no button
+ * at all, and it is composed here for the same reason `canDelete` is — a rule the client
+ * re-derives is a rule that can disagree with the one the server enforces. */
+export const projectPerson = (profile, { following = false, isSelf = false } = {}) => ({
+    id: profile.id,
+    handle: profile.handle,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    vocation: profile.vocation,
+    avatar: profile.avatarUrl,
+    following,
+    isSelf,
+})
+
+/* Somebody else's profile, as `/u/:handle` reads it.
+ *
+ * **It carries no groups, and that is the deliberate part.** Naming a parish to a reader who
+ * has no membership in it is the leak that a join-request feature would have to be designed
+ * around first — see the admission note in `prisma/schema.prisma`. The whole reason this
+ * resource can be read at all is a shared membership, and saying which one would be saying
+ * more than the read was granted for.
+ *
+ * **There is no `verified` either.** The check means "administers the group you are reading
+ * this in", and a profile is not read *in* a group — so the honest answer here is the person's
+ * vocation, which is global and is what the reader actually came to know. Inventing a
+ * profile-wide check would recreate the flag the schema removed.
+ *
+ * The counts come from a `_count` on the read that was already being made rather than from two
+ * columns kept in step by hand; see the `Follow` model. They are `followers` and
+ * **`followingCount`** — the awkward second name is deliberate, because `following` is the
+ * per-viewer boolean "do *you* follow them", and two fields one letter apart would be read
+ * wrong exactly once and then trusted.
+ *
+ * `birthday` is **not** shipped: orientation promises it is never shown publicly, and the way
+ * to keep that promise is for it not to leave the server. A name day is the opposite — a feast
+ * the parish keeps together — so it does. */
+export const projectProfile = (profile, { following = false, isSelf = false } = {}) => ({
+    id: profile.id,
+    handle: profile.handle,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    vocation: profile.vocation,
+    avatar: profile.avatarUrl,
+    baptismName: profile.baptismName,
+    /* One value or null, never half a date — the two columns are written together. Sent as
+     * `MM-DD` because that is what a name day is: a month and a day with no year. */
+    nameDay:
+        profile.nameDayMonth && profile.nameDayDay
+            ? `${String(profile.nameDayMonth).padStart(2, "0")}-${String(profile.nameDayDay).padStart(2, "0")}`
+            : null,
+    ordinationDate: profile.ordinationDate
+        ? profile.ordinationDate.toISOString().slice(0, 10)
+        : null,
+    joinedAt: profile.createdAt.toISOString(),
+    followers: profile._count?.followers ?? 0,
+    followingCount: profile._count?.following ?? 0,
+    following,
+    isSelf,
+})
+
 /* Whether this viewer may use the app, and if not, why.
  *
  * Derived here rather than left to the client, so the gate branches on one value that
@@ -263,10 +331,35 @@ export const projectViewer = (profile, memberships = []) => {
         /* Date only — `@db.Date`, so there is no time to strip and no timezone to shift it
          * across. Sent as YYYY-MM-DD, which is what a date input expects. */
         birthday: profile.birthday ? profile.birthday.toISOString().slice(0, 10) : null,
+        /* The three facts orientation collects beyond a name, shipped back so Settings →
+         * General can seed its form from the viewer rather than fetching a second copy of
+         * them. `nameDay` takes the same `MM-DD` shape `projectProfile` sends, so one control
+         * reads both. */
+        baptismName: profile.baptismName,
+        nameDay:
+            profile.nameDayMonth && profile.nameDayDay
+                ? `${String(profile.nameDayMonth).padStart(2, "0")}-${String(profile.nameDayDay).padStart(2, "0")}`
+                : null,
+        ordinationDate: profile.ordinationDate
+            ? profile.ordinationDate.toISOString().slice(0, 10)
+            : null,
         onboardedAt: profile.onboardedAt?.toISOString() ?? null,
         createdAt: profile.createdAt.toISOString(),
         access: accessFor(memberships, profile.platformRole),
         role: primary?.role ?? null,
+        /* The viewer's own follow tallies, under the names `projectProfile` uses — see that
+         * projection for why the second one is `followingCount` and not `following`.
+         *
+         * **They are here so the viewer's own profile page can paint without a fetch.** The
+         * client seeds `/u/<own handle>` from this viewer (`viewerProfile` in the auth store)
+         * exactly as an opened post is seeded from the feed's cached row, then refreshes in the
+         * background — so the one profile a person opens most never shows a skeleton.
+         *
+         * Zero when the caller did not ask for the counts. Every caller that hands this a fresh
+         * row does ask, because the `_count` rides along with a read it was already making;
+         * only `getViewer` pays a statement for them, and that is a boot-time call. */
+        followers: profile._count?.followers ?? 0,
+        followingCount: profile._count?.following ?? 0,
         /* Only groups the viewer is actually in. A revoked membership informs `access`
          * above but must not appear as one of their groups. */
         orgs: memberships

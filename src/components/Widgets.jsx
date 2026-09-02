@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react"
 
+import Hyperlink from "@/components/Hyperlink"
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,6 +14,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { initials } from "@/lib/name"
+import { useOpenProfile } from "@/lib/store/profile/hook"
 import { appPath, cn, gradientFor, orgInitials } from "@/lib/utils"
 
 /* User/author avatar. Uses the profile image when one is provided; otherwise falls back to
@@ -45,6 +47,47 @@ export const Avatar = ({ person, className }) =>
             {initials(person)}
         </span>
     )
+
+/* A person, as the way to their card.
+ *
+ * **One component because a person is named in every byline the app draws** — over a comment,
+ * in front of a caption, at the head of a post, in "Liked by …" — and every one of them has to
+ * open the same way and hover the same way.
+ *
+ * It opens `<ProfileCard/>` rather than navigating, which is what lets a name inside an open
+ * post do something useful: a real navigation would take the post down with it, and the reader
+ * wanted to glance at whoever wrote the comment and carry on reading. A `<button>` for that
+ * reason, with `<Hyperlink soft>` supplying the hover — the app's one link treatment, so a name
+ * and an actual link in the same paragraph behave identically under the cursor.
+ *
+ * `children` is the label. It defaults to the @handle, which is what a byline under a comment
+ * shows; pass `displayName(person)` where the surface addresses them by name instead. The
+ * *behaviour* is the same either way, which is the point of it being one component.
+ *
+ * `truncate` is for a label in a row that can run out of room — see `<Hyperlink/>`. It also
+ * puts `min-w-0` on the button, without which a flex parent refuses to shrink it.
+ *
+ * Renders nothing at all without a handle: it is the id the card is opened by, so a person
+ * without one has nothing to link to. */
+export const HandleLink = ({ person, children, truncate, className }) => {
+    const { openProfile } = useOpenProfile()
+
+    return person?.handle ? (
+        <button
+            type="button"
+            onClick={() => openProfile(person.handle)}
+            className={cn(
+                "cursor-pointer bg-transparent p-0 text-left",
+                truncate && "min-w-0",
+                className,
+            )}
+        >
+            <Hyperlink soft truncate={truncate}>
+                {children ?? person.handle}
+            </Hyperlink>
+        </button>
+    ) : null
+}
 
 /* A group's mark, for the switcher and anywhere else a parish is listed.
  *

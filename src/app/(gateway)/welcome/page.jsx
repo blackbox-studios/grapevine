@@ -1,16 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { AnimatePresence, motion } from "motion/react"
 import useMeasure from "react-use-measure"
 import { z } from "zod"
 
-import Ripple from "@/assets/svg/ripple.svg"
 import DatePicker from "@/components/DatePicker"
 import GatewayShell, { GatewayButton } from "@/components/GatewayShell"
-import Icon from "@/components/Icon"
+import { HandleField, useHandleCheck } from "@/components/HandleField"
 import Transition from "@/components/Transition"
 import {
     Form,
@@ -20,24 +19,32 @@ import {
     FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { HANDLE_MAX, HANDLE_MIN, HANDLE_PATTERN } from "@/lib/constants"
+import {
+    CLERGY_VOCATIONS,
+    HANDLE_MAX,
+    HANDLE_MIN,
+    HANDLE_PATTERN,
+    MAX_BAPTISM_NAME_LENGTH,
+    VOCATIONS,
+} from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { normalizeHandleInput, suggestHandle } from "@/lib/name"
+import { suggestHandle } from "@/lib/name"
 import { useOnboarding } from "@/lib/store/auth/hook"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { cn } from "@/lib/utils"
 
-/* First-run orientation, in three steps: name, @handle, birthday.
+/* First-run orientation: name, @handle, birthday, and then whichever of the remaining
+ * questions apply to this person.
  *
  * **Why this screen exists at all.** Admission provisions a person from an email address
  * and nothing else — an admin adds an address, not a biography — so a profile arrives here
  * with no name and a placeholder handle derived from the local part of that address. These
  * are the facts only the person can supply, and this is the one place they are asked.
  *
- * **Why steps rather than one form.** Three questions on one screen is a form; one question
+ * **Why steps rather than one form.** Several questions on one screen is a form; one question
  * at a time is a conversation, and this is the viewer's first minute in the app. It also
- * lets each question have the surface it deserves — the birthday keeps the full-height
- * picker it had when it was the only question, which a three-field form could not afford.
+ * lets each question have the surface it deserves — the birthday gets a full-height picker,
+ * which a crowded form could not afford.
  * The cost is that "which field failed" becomes "which step to return to"; `STEP_FOR_FIELD`
  * below is what makes a server-side rejection land on the step that caused it.
  *
@@ -49,7 +56,11 @@ import { cn } from "@/lib/utils"
  * It wears the same shell as sign-in on purpose: the viewer has just come through that
  * screen, and this should read as the next beat of it rather than a new place. */
 
-/* Three questions, then — on a phone that has never been asked — the notification prompt.
+/* **The sequence is not fixed, and every step that can be skipped is skipped for a reason the
+ * viewer would recognise.** A catechumen has not been given a baptism name yet, and a layman
+ * has no ordination — asking either is asking a question with no true answer, and a form that
+ * does it is a form that has not been read. The vocation those branch on is the *admin's*,
+ * set at admission, so it is known before this screen renders.
  *
  * **The push step comes *before* the write, not after it, and that is forced rather than
  * chosen.** `GatewayRedirect` sends a viewer out of the gateway the moment they have nowhere
@@ -59,19 +70,34 @@ import { cn } from "@/lib/utils"
  * written until the end" rule above intact rather than making the write happen two screens
  * from the end.
  *
- * It is a step and not a dialog for the same reason the other three are steps: this is the
+ * It is a step and not a dialog for the same reason the others are steps: this is the
  * viewer's first minute, and one thing at a time reads as a conversation. */
-const STEPS = ["name", "handle", "birthday", "notifications"]
+const FIRST_STEP = "name"
+
+/* The order the applicable steps are asked in. `patron` and `ordination` sit after the
+ * birthday because they are the parish's questions rather than the account's, and the
+ * notification prompt is always last so the OS's dialog is the final thing before the feed. */
+const stepSequence = ({ patron, ordination, push }) => [
+    FIRST_STEP,
+    "handle",
+    "birthday",
+    ...(patron ? ["patron"] : []),
+    ...(ordination ? ["ordination"] : []),
+    ...(push ? ["notifications"] : []),
+]
 
 /* Which step owns which field, for routing a server-side validation failure back to the
  * question that produced it. The submit happens on the last step, so without this a handle
- * taken in the seconds since the availability check would surface as a toast on the
- * birthday screen with nothing to act on. */
+ * taken in the seconds since the availability check would surface as a toast several screens
+ * later with nothing to act on. */
 const STEP_FOR_FIELD = {
     firstName: "name",
     lastName: "name",
     handle: "handle",
     birthday: "birthday",
+    baptismName: "patron",
+    nameDay: "patron",
+    ordinationDate: "ordination",
 }
 
 /* The wrapper each step fades in through. A column rather than a row so the step's form can
@@ -108,6 +134,34 @@ const birthdaySchema = z.object({
         .trim()
         .min(1, "Enter your date of birth")
         .refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "Enter your date of birth")
+        .refine((value) => {
+            const date = new Date(`${value}T00:00:00.000Z`)
+            return !Number.isNaN(date.getTime()) && date <= new Date()
+        }, "That date is in the future")
+        .refine((value) => Number(value.slice(0, 4)) >= 1900, "Check the year"),
+})
+
+/* The patron step's two answers. Both required, and that is a considered position rather than
+ * an oversight: this pair exists so a priest can be told whose feast falls this week, and a
+ * baptism name with no date attached answers half of that question and serves neither half.
+ * Everyone this step is shown to has a patron saint and therefore a feast; someone who wants to
+ * correct either later does it in Settings → General. */
+const patronSchema = z.object({
+    baptismName: z
+        .string()
+        .trim()
+        .min(1, "Enter your baptism name")
+        .max(MAX_BAPTISM_NAME_LENGTH, "That is too long"),
+    /* `MM-DD` — a month and a day, with no year. See the Precision note in <DatePicker/>. */
+    nameDay: z.string().trim().regex(/^\d{2}-\d{2}$/, "Choose the day of the feast"),
+})
+
+const ordinationSchema = z.object({
+    ordinationDate: z
+        .string()
+        .trim()
+        .min(1, "Enter your ordination date")
+        .refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "Enter your ordination date")
         .refine((value) => {
             const date = new Date(`${value}T00:00:00.000Z`)
             return !Number.isNaN(date.getTime()) && date <= new Date()
@@ -274,11 +328,6 @@ const NameStep = ({ values, onNext, loading, fill }) => {
     )
 }
 
-/* How long a handle sits unchanged before it is checked. Long enough that typing a
- * fourteen-character handle is one request rather than fourteen, short enough that the
- * answer is there before a reader who paused has reached for the button. */
-const HANDLE_CHECK_DELAY_MS = 400
-
 const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
     const form = useForm({
         resolver: zodResolver(handleSchema),
@@ -290,43 +339,7 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
      * around — `useWatch` is the subscription form and re-renders only this field's
      * dependents. */
     const handle = useWatch({ control: form.control, name: "handle" })
-
-    /* Only the *answer* is state, and it carries the handle it is an answer about.
-     *
-     * "Checking" is then derived rather than stored — it is simply the gap between what the
-     * field holds and what the last reply was about — which keeps this effect free of a
-     * synchronous setState and the cascading render that comes with one. It also makes a
-     * stale reply harmless: a slow check that lands after the reader has typed on no longer
-     * matches `handle`, so it renders as nothing instead of reporting "taken" against a
-     * value that is no longer on screen. */
-    const [answer, setAnswer] = useState(null)
-
-    /* Nothing to ask about until it could plausibly be valid. Checking a two-character
-     * fragment mid-typing spends a request to be told what the local schema already knows,
-     * and flashes an error at someone who simply has not finished typing. */
-    const value = String(handle ?? "").trim()
-    const checkable = HANDLE_PATTERN.test(value)
-
-    useEffect(() => {
-        if (!checkable) return
-
-        let live = true
-        const timer = setTimeout(async () => {
-            const result = await checkHandle(value)
-            if (live) setAnswer(result)
-        }, HANDLE_CHECK_DELAY_MS)
-
-        return () => {
-            live = false
-            clearTimeout(timer)
-        }
-    }, [value, checkable, checkHandle])
-
-    const status = !checkable
-        ? null
-        : answer?.handle === value
-          ? { state: answer.available ? "available" : "taken", reason: answer.reason }
-          : { state: "checking" }
+    const status = useHandleCheck(handle, checkHandle)
 
     const submit = (next) => {
         /* Belt and braces. The button below is disabled unless the handle has come back
@@ -334,8 +347,8 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
          * pressing Enter in the field, and the answer can go stale between the check and the
          * keystroke. Catching it here keeps the failure on this step rather than at the end
          * of the flow. */
-        if (status?.state !== "available") {
-            form.setError("handle", { message: status?.reason ?? "That handle is taken." })
+        if (status.state !== "available") {
+            form.setError("handle", { message: status.reason ?? "That handle is taken." })
             return
         }
         onNext(next)
@@ -351,7 +364,7 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
      *
      * A failed check resolves as available (see `checkHandle` in the auth store), so a
      * network blip cannot strand anyone on a permanently disabled button. */
-    const valid = useStepValid(form, handleSchema) && status?.state === "available"
+    const valid = useStepValid(form, handleSchema) && status.state === "available"
 
     return (
         <Step
@@ -372,72 +385,129 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
                 </p>
             }
         >
+            {/* No label: the step's own heading is the question, and a second one over the
+              * only field on screen would be repeating it. */}
+            <HandleField form={form} status={status} disabled={loading} autoFocus />
+        </Step>
+    )
+}
+
+/* The patron step: the saint whose name the viewer bears, and the day the parish keeps it.
+ *
+ * Two fields on one screen, which is the only place this flow departs from one-question-per-
+ * step — and it is not really a departure. They are one question asked twice ("who is your
+ * patron" and "when is his feast"), the second is a two-tap picker rather than a surface, and
+ * splitting them would put a screen between a name and its own date. */
+const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
+    const form = useForm({
+        resolver: zodResolver(patronSchema),
+        defaultValues: { baptismName: values.baptismName, nameDay: values.nameDay },
+    })
+
+    const valid = useStepValid(form, patronSchema)
+
+    return (
+        <Step
+            form={form}
+            onSubmit={onNext}
+            onBack={onBack}
+            submitLabel={submitLabel}
+            loading={loading}
+            busyLabel="Saving your details"
+            fill={fill}
+            disabled={!valid}
+            note={
+                <p className="w-full text-xs leading-relaxed text-muted-foreground">
+                    Your parish uses this to remember your name day.
+                </p>
+            }
+        >
             <FormField
                 control={form.control}
-                name="handle"
+                name="baptismName"
                 render={({ field }) => (
                     <FormItem className="w-full">
                         <FormControl>
-                            <div className="relative">
-                                {/* The @ is chrome, not content — it sits in the field so
-                                  * the handle reads the way it will appear on a comment,
-                                  * without ever becoming part of the value. Typing one is
-                                  * still tolerated; `normalizeHandleInput` strips it. */}
-                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                    @
-                                </span>
-                                <Input
-                                    autoComplete="off"
-                                    autoCapitalize="none"
-                                    autoCorrect="off"
-                                    spellCheck={false}
-                                    placeholder="handle"
-                                    aria-label="Your handle"
-                                    autoFocus
-                                    disabled={loading}
-                                    className="pl-7 pr-10"
-                                    {...field}
-                                    /* Normalized as they type rather than at submit, so the
-                                     * field always shows the value that will be saved
-                                     * instead of silently changing it afterwards. */
-                                    onChange={(event) =>
-                                        field.onChange(normalizeHandleInput(event.target.value))
-                                    }
-                                />
-                                {/* Three states, and the spinner is the one that earns its
-                                  * keep: while it turns, the action below is deliberately
-                                  * disabled, and without it that pause reads as a dead
-                                  * button rather than as the app checking. */}
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                                    {status?.state === "checking" && (
-                                        <Ripple
-                                            aria-label="Checking that handle"
-                                            className="size-5 text-muted-foreground [&_circle]:stroke-current"
-                                        />
-                                    )}
-                                    {status?.state === "available" && (
-                                        <Icon size="sm" className="text-success">
-                                            check_circle
-                                        </Icon>
-                                    )}
-                                    {status?.state === "taken" && (
-                                        <Icon size="sm" className="text-destructive">
-                                            cancel
-                                        </Icon>
-                                    )}
-                                </span>
-                            </div>
+                            <Input
+                                autoComplete="off"
+                                autoCapitalize="words"
+                                placeholder="Baptism name"
+                                aria-label="Baptism name"
+                                autoFocus
+                                disabled={loading}
+                                {...field}
+                            />
                         </FormControl>
-                        {/* The availability answer and the format error share one line, and
-                          * the format error wins — a handle that is not a handle cannot be
-                          * meaningfully "taken". */}
-                        {status?.state === "taken" && !form.formState.errors.handle ? (
-                            <p className="px-5 text-sm text-destructive">
-                                {status.reason ?? "That handle is already taken."}
-                            </p>
-                        ) : (
-                            <FormMessage className="px-5" />
-                        )}
+                        <FormMessage className="px-5" />
+                    </FormItem>
+                )}
+            />
+
+            <FormField
+                control={form.control}
+                name="nameDay"
+                render={({ field }) => (
+                    <FormItem className="w-full">
+                        <FormControl>
+                            {/* The same control the birthday step uses, in the mode that
+                              * drops the year — a feast recurs, so there is none to pick. */}
+                            <DatePicker
+                                precision="month-day"
+                                value={field.value}
+                                onChange={field.onChange}
+                                disabled={loading}
+                                label="Name day"
+                                placeholder="Pick a day"
+                            />
+                        </FormControl>
+                        <FormMessage className="px-5" />
+                    </FormItem>
+                )}
+            />
+        </Step>
+    )
+}
+
+/* The ordination step, shown only to the three ordained ranks — see `CLERGY_VOCATIONS`.
+ *
+ * The same inline picker the birthday uses, and for the same reason: this step asks one
+ * question, so the surface is the screen rather than something behind a button. */
+const OrdinationStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
+    const form = useForm({
+        resolver: zodResolver(ordinationSchema),
+        defaultValues: { ordinationDate: values.ordinationDate },
+    })
+
+    const thisYear = useMemo(() => new Date().getFullYear(), [])
+    const valid = useStepValid(form, ordinationSchema)
+
+    return (
+        <Step
+            form={form}
+            onSubmit={onNext}
+            onBack={onBack}
+            submitLabel={submitLabel}
+            loading={loading}
+            busyLabel="Saving your details"
+            fill={fill}
+            disabled={!valid}
+        >
+            <FormField
+                control={form.control}
+                name="ordinationDate"
+                render={({ field }) => (
+                    <FormItem className="w-full">
+                        <FormControl>
+                            <DatePicker
+                                variant="inline"
+                                value={field.value}
+                                onChange={field.onChange}
+                                maxYear={thisYear}
+                                disabled={loading}
+                                label="Ordination date"
+                            />
+                        </FormControl>
+                        <FormMessage className="px-5 text-center" />
                     </FormItem>
                 )}
             />
@@ -586,7 +656,15 @@ const COPY = {
     },
     birthday: {
         heading: "When's your birthday?",
-        subheading: "Your parish uses it for name days. It is never shown publicly.",
+        subheading: "It is never shown publicly.",
+    },
+    patron: {
+        heading: "Who is your patron saint?",
+        subheading: "Your baptism name, and the day your parish celebrates it with you.",
+    },
+    ordination: {
+        heading: "When were you ordained?",
+        subheading: "Your parish will see this on your profile.",
     },
     notifications: {
         heading: "One last thing",
@@ -598,7 +676,7 @@ const COPY = {
 const WelcomePage = () => {
     const { user, submit, checkHandle, loading, clearError } = useOnboarding()
 
-    const [step, setStep] = useState(STEPS[0])
+    const [step, setStep] = useState(FIRST_STEP)
     /* Drives the height animation across a step change. */
     const [measureRef, bounds] = useMeasure()
 
@@ -614,7 +692,8 @@ const WelcomePage = () => {
      * calendar a month to open on. */
     const [values, setValues] = useState(() => {
         const now = new Date()
-        const defaultBirthday = `${now.getFullYear() - 30}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+        const defaultBirthday = `${now.getFullYear() - 30}${today.slice(4)}`
         return {
             firstName: user?.firstName ?? "",
             lastName: user?.lastName ?? "",
@@ -628,63 +707,60 @@ const WelcomePage = () => {
              * something derived from the name they actually gave. */
             handle: "",
             birthday: user?.birthday ?? defaultBirthday,
+            baptismName: user?.baptismName ?? "",
+            /* Empty rather than a default: the name day is picked from a popover, which shows
+             * a placeholder until it is answered — so there is nothing on screen for a default
+             * to agree with, and a fabricated feast is worse than an unanswered one. */
+            nameDay: user?.nameDay ?? "",
+            /* The ordination picker is the birthday's, so it needs the same concrete default
+             * for the same reason: the drum always displays something. Today, because an
+             * ordination is a recent event far more often than a birth is. */
+            ordinationDate: user?.ordinationDate ?? today,
         }
     })
 
-    /* Store failures surface as toasts through useErrorListener, so each attempt clears the
-     * previous one first — otherwise a stale error sits under a fresh try. */
-    const advance = useCallback(
-        (next) => {
-            clearError()
-            setValues((current) => ({ ...current, ...next }))
-        },
-        [clearError],
-    )
-
-    const onName = useCallback(
-        (next) => {
-            advance(next)
-            /* Suggest a handle from the name they just gave, but never overwrite one they
-             * have already typed — walking back to change a surname must not silently
-             * rewrite a handle they deliberately chose.
-             *
-             * The vocation comes from the viewer, not from this form: it is the admin's to
-             * set at admission and is never asked for here, and it is what decides whether
-             * the suggestion is `rdr.justinian` or `robert.paul`. */
-            setValues((current) => ({
-                ...current,
-                handle: current.handle || suggestHandle({ ...next, vocation: user?.vocation }),
-            }))
-            setStep("handle")
-        },
-        [advance, user?.vocation],
-    )
-
-    const onHandle = useCallback(
-        (next) => {
-            advance(next)
-            setStep("birthday")
-        },
-        [advance],
-    )
-
-    /* Everything is written in one go, by whichever step turns out to be last.
+    /* Which steps this person is asked, and in what order.
      *
-     * On a phone that has never been asked about notifications that is the push step; on the
-     * web, or on a device that has already answered, there is nothing left to ask and the
-     * birthday step submits directly. `permission === null` is precisely "the OS has never
-     * been asked", which is the only state in which prompting shows a prompt — see
+     * The vocation is the *admin's* answer, set at admission, so both branches are known
+     * before this screen renders and the sequence never changes underneath the reader. The
+     * push step is the exception and resolves asynchronously — but `permission === null` is
+     * precisely "the OS has never been asked", which is the only state in which prompting
+     * shows a prompt, and it is settled long before anyone reaches the end. See
      * `pushPermission` in lib/push.js. */
     const {
         supported: pushSupported,
         permission: pushPermission,
         enable: enablePush,
     } = usePushPermission()
-    const askPush = pushSupported && pushPermission === null
 
+    const steps = useMemo(
+        () =>
+            stepSequence({
+                patron: user?.vocation && user.vocation !== VOCATIONS.CATECHUMEN,
+                ordination: CLERGY_VOCATIONS.includes(user?.vocation),
+                push: pushSupported && pushPermission === null,
+            }),
+        [user?.vocation, pushSupported, pushPermission],
+    )
+
+    /* Everything is written in one go, by whichever step turns out to be last.
+     *
+     * **Only the answers to questions this person was actually asked are sent.** `values`
+     * carries a default for every field, because each control has to display *something* from
+     * the moment it mounts — so a layman, whose ordination step never ran, still holds the
+     * date picker's default. Submitting it verbatim would record an ordination he never had.
+     * Dropping the key is what the partial-update contract on `updateProfile` is for: absent
+     * means "not mentioned", which leaves the column null. */
     const finish = useCallback(
         async (payload) => {
-            const result = await submit(payload)
+            const answers = { ...payload }
+            if (!steps.includes("patron")) {
+                delete answers.baptismName
+                delete answers.nameDay
+            }
+            if (!steps.includes("ordination")) delete answers.ordinationDate
+
+            const result = await submit(answers)
             if (result?.ok) return
 
             /* Land the reader on the question that failed. The common case is a handle
@@ -695,22 +771,48 @@ const WelcomePage = () => {
             )
             if (failed) setStep(STEP_FOR_FIELD[failed])
         },
-        [submit],
+        [steps, submit],
     )
 
-    const onBirthday = useCallback(
-        async (next) => {
+    /* One way forward for every step: record the answers, then move to the next question or,
+     * if there isn't one, write.
+     *
+     * It takes the step it is leaving rather than reading `step`, so it stays a stable
+     * callback across a step change and each step's `onNext` is bound to its own position.
+     * Store failures surface as toasts through useErrorListener, so each attempt clears the
+     * previous one first — otherwise a stale error sits under a fresh try. */
+    const advanceFrom = useCallback(
+        async (from, next) => {
             clearError()
             const payload = { ...values, ...next }
             setValues(payload)
 
-            if (askPush) {
-                setStep("notifications")
+            const following = steps[steps.indexOf(from) + 1]
+            if (following) {
+                setStep(following)
                 return
             }
             await finish(payload)
         },
-        [askPush, clearError, finish, values],
+        [clearError, finish, steps, values],
+    )
+
+    const onName = useCallback(
+        (next) => {
+            /* Suggest a handle from the name they just gave, but never overwrite one they
+             * have already typed — walking back to change a surname must not silently
+             * rewrite a handle they deliberately chose.
+             *
+             * The vocation comes from the viewer, not from this form: it is the admin's to
+             * set at admission and is never asked for here, and it is what decides whether
+             * the suggestion is `rdr.justinian` or `robert.paul`. */
+            advanceFrom("name", {
+                ...next,
+                handle:
+                    values.handle || suggestHandle({ ...next, vocation: user?.vocation }),
+            })
+        },
+        [advanceFrom, values.handle, user?.vocation],
     )
 
     /* The push step, whichever way it is answered.
@@ -745,33 +847,36 @@ const WelcomePage = () => {
      * far taller than a pair of text fields. */
     const isDesktop = useIsDesktop()
 
-    /* Where "back" goes from each step, or nothing on the first one.
+    /* Where "back" goes from this step, or nothing on the first one.
      *
-     * Hoisted here because the mobile layout renders it as the shell's top-left arrow —
-     * above the heading, out of the action's way — while desktop keeps it as a text link
-     * under the button. Both read this one map, so they cannot disagree about where back
-     * leads. */
-    const back = {
-        name: null,
-        handle: () => setStep("name"),
-        birthday: () => setStep("handle"),
-        notifications: () => setStep("birthday"),
-    }[step]
+     * Derived from the sequence rather than written down, so a step that is only asked of some
+     * people cannot leave a gap: a layman's back arrow on the push step lands on the birthday,
+     * a priest's on his ordination, and neither had to be enumerated.
+     *
+     * Hoisted here because the mobile layout renders it as the shell's top-left arrow — above
+     * the heading, out of the action's way — while desktop keeps it as a text link under the
+     * button. Both read this one value, so they cannot disagree about where back leads. */
+    const previous = steps[steps.indexOf(step) - 1]
+    const back = previous ? () => setStep(previous) : null
 
-    /* Keyed per step, so each form starts with its own clean react-hook-form state instead
-     * of inheriting the previous step's — and so AnimatePresence has a change to animate.
-     * `mode="wait"` cross-fades them rather than swapping instantly. */
-    /* Just the current step's body. **No AnimatePresence on mobile** — the shell cross-fades
-     * the whole screen, heading and body together, because animating only the body left the
-     * heading to change ahead of it and re-laid-out the outgoing step mid-exit. See
-     * FormScreen in GatewayShell. */
+    /* "Enter the parish" only on the step that actually writes. Anything earlier is an
+     * ordinary Continue, so the button never promises an arrival that is a screen away. */
+    const last = steps.indexOf(step) === steps.length - 1
+    const submitLabel = last ? "Enter the parish" : "Continue"
+
+    /* Just the current step's body, keyed per step so each form starts with its own clean
+     * react-hook-form state instead of inheriting the previous step's.
+     *
+     * **No AnimatePresence on mobile** — the shell cross-fades the whole screen, heading and
+     * body together, because animating only the body left the heading to change ahead of it
+     * and re-laid-out the outgoing step mid-exit. See FormScreen in GatewayShell. */
     const current =
         step === "name" ? (
             <NameStep values={values} onNext={onName} loading={loading} fill={!isDesktop} />
         ) : step === "handle" ? (
             <HandleStep
                 values={values}
-                onNext={onHandle}
+                onNext={(next) => advanceFrom("handle", next)}
                 onBack={back}
                 checkHandle={checkHandle}
                 loading={loading}
@@ -780,14 +885,29 @@ const WelcomePage = () => {
         ) : step === "birthday" ? (
             <BirthdayStep
                 values={values}
-                onNext={onBirthday}
+                onNext={(next) => advanceFrom("birthday", next)}
                 onBack={back}
                 loading={loading}
                 fill={!isDesktop}
-                /* The birthday step only "enters the parish" when it is the last one. With
-                 * the push step still to come it is an ordinary Continue, so the button does
-                 * not promise an arrival that is one screen away. */
-                submitLabel={askPush ? "Continue" : "Enter the parish"}
+                submitLabel={submitLabel}
+            />
+        ) : step === "patron" ? (
+            <PatronStep
+                values={values}
+                onNext={(next) => advanceFrom("patron", next)}
+                onBack={back}
+                loading={loading}
+                fill={!isDesktop}
+                submitLabel={submitLabel}
+            />
+        ) : step === "ordination" ? (
+            <OrdinationStep
+                values={values}
+                onNext={(next) => advanceFrom("ordination", next)}
+                onBack={back}
+                loading={loading}
+                fill={!isDesktop}
+                submitLabel={submitLabel}
             />
         ) : (
             <NotificationsStep

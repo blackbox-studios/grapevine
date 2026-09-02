@@ -165,6 +165,9 @@ const PEOPLE = [
          * the person, and the groups he owns are only the ones he creates from the app. */
         platformRole: "OWNER",
         avatarUrl: "/img/mock/priest-alexander.png",
+        baptismName: "Alexander",
+        nameDay: "08-30",
+        ordinationDate: "2011-06-12",
         signIn: true,
     },
     {
@@ -174,23 +177,25 @@ const PEOPLE = [
         email: MEMBER_EMAIL,
         vocation: "FAITHFUL",
         role: "MEMBER",
+        baptismName: "George",
+        nameDay: "04-23",
         signIn: true,
     },
-    { handle: "deacon.paul", firstName: "Paul", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER" },
-    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER" },
-    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER" },
-    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER" },
-    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER" },
-    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER" },
+    { handle: "deacon.paul", firstName: "Paul", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER", baptismName: "Paul", nameDay: "06-29", ordinationDate: "2019-10-06" },
+    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER", baptismName: "Katherine", nameDay: "11-25" },
+    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER", baptismName: "Anna", nameDay: "07-25" },
+    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER", baptismName: "Michael", nameDay: "11-08" },
+    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Helen", nameDay: "05-21" },
+    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Gregory", nameDay: "01-25" },
+    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Theodora", nameDay: "02-11" },
+    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Cassian", nameDay: "02-29" },
+    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Mary", nameDay: "08-15" },
+    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Samuel", nameDay: "08-20" },
+    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER", baptismName: "Tabitha", nameDay: "10-25" },
     /* One person removed, so the roster shows both statuses and the Restore action has
      * something to act on. REVOKED is the only alternative there is — see the admission
      * note in schema.prisma's header. */
-    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED" },
+    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED", baptismName: "Irene", nameDay: "05-05" },
 ]
 
 /* ── Mapping the fixture corpus onto rows ────────────────────────────────── */
@@ -301,6 +306,14 @@ const main = async () => {
             avatarUrl: person.avatarUrl ?? null,
             vocation: person.vocation,
             platformRole: person.platformRole ?? "NONE",
+            baptismName: person.baptismName ?? null,
+            /* `MM-DD` in the fixture, two integers in the column — a name day has no year.
+             * See the `nameDayMonth` note in schema.prisma. */
+            nameDayMonth: person.nameDay ? Number(person.nameDay.slice(0, 2)) : null,
+            nameDayDay: person.nameDay ? Number(person.nameDay.slice(3, 5)) : null,
+            ordinationDate: person.ordinationDate
+                ? new Date(`${person.ordinationDate}T00:00:00.000Z`)
+                : null,
         }
 
         const profile = await prisma.profile.upsert({
@@ -320,6 +333,31 @@ const main = async () => {
             status: person.status ?? "APPROVED",
         })
     }
+
+    /* ── The follow graph ─────────────────────────────────────────────────────
+     *
+     * Derived rather than listed, because the point is only that both lists on a profile have
+     * something in them and that paging past the first page is reachable: everybody follows
+     * the two clergy, and everybody follows the next two people along the roster. That gives
+     * each person followers and following without a fixture nobody would maintain.
+     *
+     * `createMany` with `skipDuplicates`, so a person who lands in both rules is one row —
+     * the composite primary key would otherwise fail the whole batch. */
+    console.log("→ Follows")
+    const roster = PEOPLE.map((person) => person.handle)
+    const clergy = ["cathedraldean", "deacon.paul"]
+
+    await prisma.follow.createMany({
+        data: roster.flatMap((handle, index) =>
+            [...clergy, roster[(index + 1) % roster.length], roster[(index + 2) % roster.length]]
+                .filter((target) => target !== handle)
+                .map((target) => ({
+                    followerId: byHandle.get(handle),
+                    followingId: byHandle.get(target),
+                })),
+        ),
+        skipDuplicates: true,
+    })
 
     /* The parish belongs to the seeded owner, so the delete path is exercisable locally.
      *

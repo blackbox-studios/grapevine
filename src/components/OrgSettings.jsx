@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
 import { z } from "zod"
 
 import Ripple from "@/assets/svg/ripple.svg"
-import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import OrgAvatarPicker from "@/components/OrgAvatarPicker"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,51 +27,31 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    Drawer,
-    DrawerContent,
-    DrawerHeader,
-    DrawerTitle,
-} from "@/components/ui/drawer"
 import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { MAX_ORG_BIO_LENGTH, MAX_ORG_NAME_LENGTH } from "@/lib/constants"
-import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { useBackHandler } from "@/lib/hooks/useNative.hook"
-import { useOrgEditor } from "@/lib/store/org/hook"
+import { useOrgSettings } from "@/lib/store/org/hook"
 
-/* Group settings — a dialog on a desktop, a bottom sheet on a phone.
+/* Group settings: a parish's own name, description and picture, and the danger zone that
+ * retires it.
  *
- * **Shaped after the composer, deliberately.** Both are "act on the thing you were just
- * looking at, then carry on": a post you are writing, a parish you administer. Neither is a
- * destination, so neither gets a URL — what is open is component state, which is also what
- * keeps Android's back gesture honest (`useBackHandler` closes the surface; a route would put
- * an entry in history for the gesture to unwind instead, and closing the app from on top of a
- * sheet is the failure that produces).
+ * **The group tree mirrors the account tree, and that parallel is the design.** `/settings`
+ * asks about the person — picture, name, standing, then Info and General; `/group` asks the
+ * same shape about a parish — picture, name, your role in it, then Info and Users. A reader who
+ * has used one already knows how to read the other, and every destination is a row on a list
+ * rather than a surface reached from a menu.
  *
- * It has been three other things on the way here, and each move was away from treating it as
- * a place. It was a page at `/settings/groups/edit?org=<id>` reached through a list screen —
- * the list existed only to choose between groups the switcher already lists, and the page
- * flashed "Group not found" on every exit because leaving a page clears its search params
- * mid-fade. Then a slide route, which read the overlay as the mechanism rather than as one
- * presentation of it. Then an ordinary runtime-route page. The runtime-route machinery is
- * still there and still the right answer for a URL whose id is unknown at build time (see
- * `RUNTIME_ROUTES`); this screen simply is not one, because nobody needs to link to it.
+ * **Admin-only, and gated once in the layout** rather than per page — the whole tree answers to
+ * the same question, and a gate per page is a gate somebody forgets on the next page. The form
+ * still checks `canEdit` for itself, because a role can be revoked while the page is open.
  *
- * ── Why the picture saves immediately and the text does not ──────────────────
- *
- * Because that is what each one *is*. Choosing a photo is a completed decision — there is no
- * half-chosen picture, and a Save that also had to be pressed afterwards would leave the new
- * image on screen in a state indistinguishable from saved. Typing a name is not: it passes
- * through every prefix of itself, and saving per keystroke would write "H", "Ho", "Hol" to a
- * column the switcher renders live. Save stays disabled until something actually changed,
- * which is what makes the split legible rather than arbitrary.
+ * `slug` and `kind` are not editable and never will be from here: the slug is the seeds'
+ * natural key and the only stable handle anything outside the database has on a group, and
+ * `kind` is a classification that grants nothing and that no screen renders. See
+ * `prisma/schema.prisma`.
  */
 
-/* The two editable fields. Same shape as the composer's schema, and the messages are written
- * to be read out loud by <FormMessage/> under the field that caused them — which is why the
- * limits live here rather than as an `if` in the submit handler. The server enforces the same
- * two ceilings in `updateOrg`; these exist so a refusal arrives before a round trip. */
 const schema = z.object({
     name: z
         .string()
@@ -84,7 +64,7 @@ const schema = z.object({
         .max(MAX_ORG_BIO_LENGTH, `Keep the description under ${MAX_ORG_BIO_LENGTH} characters.`),
 })
 
-const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
+const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
     /* react-hook-form + zod through the `Form` primitives, exactly as the composer does it —
      * `<FormLabel/>` owns the label/`htmlFor` pairing, `<FormControl/>` wires `aria-describedby`
      * and `aria-invalid`, and `<FormMessage/>` renders the resolver's message under the field.
@@ -111,12 +91,6 @@ const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
     /* Nothing to save until something moved, so Save is dark until it means something. */
     const changed = trimmedName !== (org.name ?? "") || trimmedBio !== (org.bio ?? "")
 
-    /* Told to the parent so a stray backdrop click cannot silently discard a half-typed name
-     * — the same guard the composer puts on an unfinished post, reported the same way. */
-    useEffect(() => {
-        onDirtyChange?.(changed)
-    }, [changed, onDirtyChange])
-
     const submit = form.handleSubmit(
         async (values) => {
             const nextName = values.name.trim().replace(/\s+/g, " ")
@@ -136,12 +110,11 @@ const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
                  * guard lifts before the surface closes. */
                 form.reset({ name: nextName, bio: nextBio })
                 toast.success("Group updated.")
-                onDone?.()
             }
         },
-        /* Validation is toasted as well as rendered, matching the composer: inside a sheet the
-         * field that failed can be scrolled out of view, and a Save that appears to do nothing
-         * is worse than a message in the wrong place. */
+        /* Validation is toasted as well as rendered, matching the composer: the field that
+         * failed can be scrolled out of view, and a Save that appears to do nothing is worse
+         * than a message in the wrong place. */
         (errors) => {
             const first = Object.values(errors).find((error) => error?.message)?.message
             if (first) toast.error(first)
@@ -161,12 +134,8 @@ const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
              * `data-vaul-no-drag` is the one that is load-bearing rather than cosmetic: Vaul
              * treats the whole drawer as a drag handle, so without it a touch that starts in
              * the name field swipes the sheet shut instead of focusing the input. */}
-            <form
-                onSubmit={submit}
-                data-vaul-no-drag
-                className="flex min-h-0 flex-1 flex-col"
-            >
-                <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-4">
+            <form onSubmit={submit} className="flex flex-col gap-5">
+                <div className="flex flex-col gap-5">
                     {/* The picture and the group's identity, above the fields — the same place
                         the composer puts the thing the post is about. */}
                     <header className="flex flex-col items-center gap-3 pt-1 text-center">
@@ -233,30 +202,23 @@ const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
 
                 </div>
 
-                {/* The composer's footer, class for class: full-width on a phone where it sits
-                    above the keyboard, and a wide pill aligned right on a desktop.
+                {/* **Save is first in the DOM and last on a desktop, and that is the whole
+                    layout.** A phone reads the column top-down, so the thing the reader came to
+                    do belongs at the top of it and the destructive one at the bottom, behind a
+                    rule that says "different kind of action". A desktop reads a row left-to-
+                    right, so `order` puts Delete back at the far left with `mr-auto` holding
+                    the other two against the right edge — away from the pair you actually came
+                    for, which is the same separation the rule draws on a phone.
 
-                    Delete lives here beside Save rather than in a section of its own. The two
-                    are the only things you can do from this form, so they belong in the same
-                    place — and `flex-1` on both is what makes them the same width on a phone,
-                    which a full-width Save above a smaller Delete conspicuously was not. */}
-                <div className="flex shrink-0 gap-2 border-t px-4 py-3 sm:justify-end">
-                    {onDelete && (
-                        <Button
-                            type="button"
-                            variant="destructive"
-                            size="lg"
-                            onClick={onDelete}
-                            className="flex-1 sm:flex-none sm:px-8"
-                        >
-                            Delete group
-                        </Button>
-                    )}
+                    Cancel is here rather than only on the back arrow: that arrow is a phone's
+                    affordance and is hidden from md up, so without this a desktop reader has no
+                    way out of the form but the nav rail. */}
+                <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:gap-2">
                     <Button
                         type="submit"
                         size="lg"
                         disabled={!changed || saving}
-                        className="flex-1 sm:flex-none sm:px-10"
+                        className="order-1 w-full sm:order-3 sm:w-auto sm:px-10"
                     >
                         {saving ? (
                             <Ripple
@@ -267,6 +229,32 @@ const OrgForm = ({ org, save, saving, onDelete, onDirtyChange, onDone }) => {
                             "Save"
                         )}
                     </Button>
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        onClick={onCancel}
+                        disabled={saving}
+                        className="order-2 w-full sm:w-auto sm:px-8"
+                    >
+                        Cancel
+                    </Button>
+
+                    {onDelete && (
+                        <>
+                            <Separator className="order-3 my-1 sm:hidden" />
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                size="lg"
+                                onClick={onDelete}
+                                className="order-4 w-full sm:order-1 sm:mr-auto sm:w-auto sm:px-8"
+                            >
+                                Delete group
+                            </Button>
+                        </>
+                    )}
                 </div>
             </form>
         </Form>
@@ -397,38 +385,23 @@ const Unavailable = () => (
     </div>
 )
 
-/* Mounted once by the protected shell. Both entrances — the gear on a hovered switcher row
- * and the mobile panel's hold menu — set `editingId` in the org store, and this draws it.
+/* The group's own details, as the body of `/group/info`.
  *
- * Crossing the breakpoint swaps dialog for sheet, and anything typed is lost in that moment.
- * That is a rotation mid-edit on a tablet and nothing else; holding the draft in a store to
- * survive it would be state with one purpose and a lifetime nobody could name — the same
- * call the composer makes. */
-const OrgEditor = () => {
-    const { open, close, org, save, saving, remove, deleting, canEdit, canDelete } =
-        useOrgEditor()
-    const [dirty, setDirty] = useState(false)
+ * A page, because it is one row of a settings tree rather than something you act in over the
+ * top of the app — and a page has no backdrop, so there is no stray-click dismissal for a
+ * half-typed name to be guarded against.
+ *
+ * The delete confirmation is a dialog, because that *is* a thing you act in and dismiss, and it
+ * is a sibling of the form rather than a child, so it owns its own focus trap. */
+const OrgSettings = () => {
+    const { org, save, saving, remove, deleting, canEdit, canDelete } = useOrgSettings()
     const [confirming, setConfirming] = useState(false)
-    const isDesktop = useIsDesktop()
+    const router = useRouter()
 
-    /* React state, not a URL, so Android's back gesture has nothing to unwind and would
-     * otherwise close the app from on top of the surface. */
-    useBackHandler(open, close)
-
-    const onOpenChange = useCallback(
-        (next) => {
-            if (!next) {
-                setDirty(false)
-                close()
-            }
-        },
-        [close],
-    )
-
-    /* Both surfaces close on success, so the confirmation has to be a toast — there is nothing
-     * left on screen to put it on. The name is captured before the call, because the row is
-     * gone from `user.orgs` by the time it resolves. A failure leaves the confirmation standing
-     * on a group that still exists, which is the honest thing to show. */
+    /* Both the group and the page it was reached from are gone once this succeeds, so the
+     * confirmation has to be a toast. The name is captured before the call, because the row is
+     * off `user.orgs` by the time it resolves. A failure leaves the dialog standing on a group
+     * that still exists, which is the honest thing to show. */
     const onDelete = useCallback(async () => {
         const name = org?.name
         if (await remove()) {
@@ -437,18 +410,10 @@ const OrgEditor = () => {
         }
     }, [remove, org])
 
-    /* Declines a dismissal that would discard an unsaved name. Passed to the dialog's
-     * outside-press and Escape handlers; the drawer needs no equivalent, because a swipe down
-     * is itself a deliberate gesture rather than a stray click. */
-    const guard = useCallback(
-        (event) => {
-            if (dirty) event.preventDefault()
-        },
-        [dirty],
-    )
+    if (!org || !canEdit) return <Unavailable />
 
-    const body =
-        org && canEdit ? (
+    return (
+        <>
             <OrgForm
                 key={org.id}
                 org={org}
@@ -457,79 +422,20 @@ const OrgEditor = () => {
                 /* Absent rather than false when the viewer may not delete, so the footer has
                    nothing to render instead of a button that hides itself. */
                 onDelete={canDelete ? () => setConfirming(true) : null}
-                onDone={() => onOpenChange(false)}
-                onDirtyChange={setDirty}
+                onCancel={() => router.back()}
             />
-        ) : (
-            <Unavailable />
-        )
 
-    /* A sibling of the editor rather than a child of it — see the header of
-     * <DeleteOrgDialog/>. Mounted only when there is a group to name, so it never renders a
-     * title with a hole in it. */
-    const confirmation = org && canDelete && (
-        <DeleteOrgDialog
-            org={org}
-            open={confirming}
-            onOpenChange={setConfirming}
-            onConfirm={onDelete}
-            deleting={deleting}
-        />
-    )
-
-    if (isDesktop) {
-        return (
-            <>
-                <Dialog open={open} onOpenChange={onOpenChange}>
-                    <DialogContent
-                        className="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-lg"
-                        onPointerDownOutside={guard}
-                        onEscapeKeyDown={guard}
-                    >
-                        {/* Announced, not shown: the group's own name and picture are the
-                            visible heading, and Radix warns when a dialog has no title. */}
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Group settings</DialogTitle>
-                            <DialogDescription>
-                                Change this group’s name, description and picture.
-                            </DialogDescription>
-                        </DialogHeader>
-                        {body}
-                    </DialogContent>
-                </Dialog>
-                {confirmation}
-            </>
-        )
-    }
-
-    /* repositionInputs is off for the same reason the composer turns it off: Vaul keeps a
-     * mobile-Safari scroll lock installed that hand-focuses inputs, and that focus does not
-     * take inside the Capacitor WebView — the field looks dead. Keeping the submit above the
-     * keyboard is KeyboardAwareColumn's job instead. */
-    return (
-        <>
-            <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
-                {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the sheet's
-                    foot would sit under the browser's own toolbar. */}
-                <DrawerContent className="h-[90dvh] max-h-[90dvh]">
-                    <KeyboardAwareColumn>
-                        {/* A sheet arrives from off-screen with none of a dialog's framing, so
-                            it keeps its name where the desktop can leave it to the group's
-                            own. */}
-                        <DrawerHeader className="shrink-0 border-b pt-2 pb-4">
-                            <DrawerTitle className="text-center font-semibold">
-                                Group settings
-                            </DrawerTitle>
-                        </DrawerHeader>
-                        {/* Mounted only while open, so the draft is seeded fresh each time
-                            rather than kept alive behind a closed sheet. */}
-                        {open && body}
-                    </KeyboardAwareColumn>
-                </DrawerContent>
-            </Drawer>
-            {confirmation}
+            {canDelete && (
+                <DeleteOrgDialog
+                    org={org}
+                    open={confirming}
+                    onOpenChange={setConfirming}
+                    onConfirm={onDelete}
+                    deleting={deleting}
+                />
+            )}
         </>
     )
 }
 
-export default OrgEditor
+export default OrgSettings

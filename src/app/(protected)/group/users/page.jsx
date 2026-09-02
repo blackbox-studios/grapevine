@@ -5,7 +5,6 @@ import { AnimatePresence } from "motion/react"
 import { toast } from "sonner"
 
 import Ripple from "@/assets/svg/ripple.svg"
-import { PrivilegedRoute } from "@/components/Auth"
 import { BackHeader } from "@/components/BackHeader"
 import Icon from "@/components/Icon"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
@@ -392,15 +391,14 @@ const SettingsUsersPage = () => {
         </>
     )
 
-    /* Gated on the *selected* group, so switching to one the viewer only belongs to sends
-     * them out of the roster rather than showing them an empty table they have no way to
-     * fill. */
+    /* No gate of its own: the whole `/group` tree is admin-only and its layout asks that once,
+     * for the reason a gate per page is a gate somebody forgets on the next page. */
     return (
-        <PrivilegedRoute role={ROLES.ADMIN} orgId={org?.id}>
+        <>
             {/* The group and its count are the title because that is what this roster is — a
                 phone shows one screen at a time, and "which parish am I looking at" is the
                 question the table's own columns cannot answer. */}
-            <BackHeader title={heading} back={ROUTES.SETTINGS} bleed />
+            <BackHeader title={heading} back={ROUTES.GROUP} bleed />
 
             <section className="flex flex-col gap-6">
                 {/* The bar carries the heading on a phone, leaving Admissions alone on this row
@@ -638,7 +636,7 @@ const SettingsUsersPage = () => {
                     </AnimatePresence>
                 </div>
             </section>
-        </PrivilegedRoute>
+        </>
     )
 }
 

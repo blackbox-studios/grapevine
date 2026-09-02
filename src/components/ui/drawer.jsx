@@ -8,6 +8,14 @@ function Drawer({
   return <DrawerPrimitive.Root data-slot="drawer" {...props} />;
 }
 
+/* A drawer opened from inside another drawer. Vaul needs to be told, so it can push the
+ * parent sheet back as this one arrives; it throws if there is no drawer above it. */
+function DrawerNested({
+  ...props
+}) {
+  return <DrawerPrimitive.NestedRoot data-slot="drawer-nested" {...props} />;
+}
+
 function DrawerTrigger({
   ...props
 }) {
@@ -117,6 +125,7 @@ function DrawerDescription({
 
 export {
   Drawer,
+  DrawerNested,
   DrawerPortal,
   DrawerOverlay,
   DrawerTrigger,

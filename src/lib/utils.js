@@ -184,6 +184,25 @@ export const todayLocal = () => {
     return `${now.getFullYear()}-${month}-${day}`
 }
 
+/* "2026-09-02" + 1 → "2026-09-03", rolling months and leap years the way the calendar does.
+ *
+ * The arithmetic runs in UTC even though the input came from a local clock, because it is a
+ * *date* being stepped rather than an instant: local-time maths across a daylight-saving
+ * boundary lands on 23:00 the previous day and rounds back to where it started. */
+export const addDays = (iso, days) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
+    if (!match) return ""
+
+    const [, year, month, day] = match.map(Number)
+    const shifted = new Date(Date.UTC(year, month - 1, day + days))
+
+    return [
+        shifted.getUTCFullYear(),
+        String(shifted.getUTCMonth() + 1).padStart(2, "0"),
+        String(shifted.getUTCDate()).padStart(2, "0"),
+    ].join("-")
+}
+
 /* A post's photos, as one array whatever the wire shape.
  *
  * `projectMedia` sends `image` + `width`/`height` for a single photo and `images` for a

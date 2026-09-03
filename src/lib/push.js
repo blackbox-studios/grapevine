@@ -216,7 +216,8 @@ export const onPushReceived = (handler) => {
     }
 }
 
-/* Somebody tapped a banner. `handler` gets the `postId` the payload carried, or null.
+/* Somebody tapped a banner. `handler` gets the payload's `data` — the destination it carried,
+ * which is a `postId` for anything that happened inside a post and a `handle` for a follow.
  *
  * This fires for a cold launch too — the plugin replays the tap that started the process — so
  * the handler has to be able to run before the app has finished booting. That is why routing
@@ -227,7 +228,7 @@ export const onPushTapped = (handler) => {
 
     const listener = FirebaseMessaging.addListener(
         "notificationActionPerformed",
-        (event) => handler(event?.notification?.data?.postId ?? null),
+        (event) => handler(event?.notification?.data ?? {}),
     )
 
     return () => {

@@ -14,7 +14,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { initials } from "@/lib/name"
-import { useOpenProfile } from "@/lib/store/profile/hook"
+import { useFollow, useOpenProfile } from "@/lib/store/profile/hook"
 import { appPath, cn, formatCompact, gradientFor, orgInitials } from "@/lib/utils"
 
 /* User/author avatar. Uses the profile image when one is provided; otherwise falls back to
@@ -87,6 +87,59 @@ export const HandleLink = ({ person, children, truncate, className }) => {
             </Hyperlink>
         </button>
     ) : null
+}
+
+/* Follow / Following, wherever it appears — the profile card's header, every row of its lists,
+ * and a follow in the notifications panel.
+ *
+ * **Both labels are always in the box, stacked in one grid cell, with a third invisible copy of
+ * the longer one holding the width.** That is what makes the control the same size in both
+ * states and lets the words cross-fade rather than snap: a button that resized as you pressed it
+ * would shove the row's text column sideways, and in a list of twenty that reads as the whole
+ * list twitching. The colour change rides `<Button/>`'s own transition.
+ *
+ * `label` is the un-followed word only. The followed one is always "Following", because that is
+ * one state of one relationship however it was entered — "Follow back" describes the tap, not
+ * what it leaves behind. The grid cell sizes to the widest of the three, so a longer label needs
+ * no measurement of its own. */
+export const FollowButton = ({ person, label = "Follow", size = "sm", className }) => {
+    const { toggleFollow } = useFollow()
+    const following = Boolean(person.following)
+
+    return (
+        <Button
+            type="button"
+            size={size}
+            variant={following ? "outline" : "default"}
+            onClick={() => toggleFollow(person)}
+            aria-pressed={following}
+            /* `size="sm"` brings a squared radius of its own; every follow control in the app is
+             * a pill, so it is put back. */
+            className={cn("rounded-full", className)}
+        >
+            <span className="grid place-items-center">
+                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                    Following
+                </span>
+                <span
+                    className={cn(
+                        "col-start-1 row-start-1 transition-opacity duration-200",
+                        following ? "opacity-0" : "opacity-100",
+                    )}
+                >
+                    {label}
+                </span>
+                <span
+                    className={cn(
+                        "col-start-1 row-start-1 transition-opacity duration-200",
+                        following ? "opacity-100" : "opacity-0",
+                    )}
+                >
+                    Following
+                </span>
+            </span>
+        </Button>
+    )
 }
 
 /* A group's mark, for the switcher and anywhere else a parish is listed.

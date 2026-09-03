@@ -8,6 +8,7 @@ import FishIcon from "@/assets/svg/icons/fast-fish.svg"
 import MeatIcon from "@/assets/svg/icons/fast-meat.svg"
 import OilIcon from "@/assets/svg/icons/fast-oil.svg"
 import WineIcon from "@/assets/svg/icons/fast-wine.svg"
+import Icon from "@/components/Icon"
 import Skeleton from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -362,14 +363,112 @@ const Fasting = ({ fasting }) => {
     )
 }
 
+/* What each reachable day is called, oldest first, matching the `dates` the hook hands over.
+ * Named rather than dated because the stepper reaches exactly one day either side and these
+ * are then exact — and because the date itself is already the heading directly below. */
+const DAY_LABELS = ["Yesterday", "Today", "Tomorrow"]
+
+/* Previous day, today, next day — the carousel dots a photo slide uses, for the same reason:
+ * a handful of positions, where being able to see how many there are and which one you are on
+ * matters more than being able to jump to any of them.
+ *
+ * It exists because the commemoration turns over at vespers rather than at midnight, so an
+ * evening reader is often after tomorrow's saint. That is a step, not a date to be chosen,
+ * which is why there is no calendar here — the reach is one day and the dots make that
+ * legible at a glance instead of implying a range nothing will answer for.
+ *
+ * The dots are buttons in their own right, so the whole control works by tapping the position
+ * you want as well as by stepping to it; each carries its own name, and the hit area is padded
+ * out to a thumb while the dot itself stays small. */
+export const DayStepper = ({ dates, index, onSelect }) => {
+    if (index < 0) return null
+
+    const step = (delta) => {
+        const next = index + delta
+        if (next >= 0 && next < dates.length) onSelect(dates[next])
+    }
+
+    return (
+        <nav aria-label="Reading day" className="flex items-center gap-1">
+            <button
+                type="button"
+                onClick={() => step(-1)}
+                disabled={index === 0}
+                aria-label={`Go to ${DAY_LABELS[index - 1]?.toLowerCase() ?? "the previous day"}`}
+                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25"
+            >
+                <Icon size="xl">chevron_left</Icon>
+            </button>
+
+            {dates.map((date, position) => (
+                <button
+                    key={date}
+                    type="button"
+                    onClick={() => onSelect(date)}
+                    aria-label={DAY_LABELS[position]}
+                    aria-current={position === index ? "date" : undefined}
+                    className="flex size-9 items-center justify-center"
+                >
+                    <span
+                        className={cn(
+                            "block size-2 rounded-full transition-all duration-300",
+                            position === index
+                                ? "w-5 bg-reading"
+                                : "bg-muted-foreground/30",
+                        )}
+                    />
+                </button>
+            ))}
+
+            <button
+                type="button"
+                onClick={() => step(1)}
+                disabled={index === dates.length - 1}
+                aria-label={`Go to ${DAY_LABELS[index + 1]?.toLowerCase() ?? "the next day"}`}
+                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25"
+            >
+                <Icon size="xl">chevron_right</Icon>
+            </button>
+        </nav>
+    )
+}
+
+/* The mark, the date, and the day switcher beneath it.
+ *
+ * Hoisted out of <Prologue/> and mounted whatever the reading is doing, which is what the
+ * switcher needs to work at all: a control must not fade out from under the finger tapping
+ * it, and a reader has to be able to step off a day that is still loading or has failed —
+ * neither of which is possible if the stepper lives inside the article it steps between.
+ *
+ * Nothing in here fades. The mark is the same on every day, and the date is one short line
+ * that is legible the instant it changes — cross-fading it would draw the eye to the one part
+ * of a step that needs no announcing, and would blink the block the switcher is anchored to.
+ * The date is the *server's* rendering of the day ("September 3"), not the reader's clock,
+ * which is why it arrives with the reading rather than being formatted here, and why a day
+ * still loading shows a placeholder in its place.
+ *
+ * Set centred, like the title page of the book this is — the one block on the screen that is,
+ * so the reading proper still begins flush left where a column of prose belongs. */
+export const PrologueTitle = ({ date, children }) => (
+    <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
+        <CrossVine aria-hidden="true" className="h-16 w-auto" />
+
+        {date ? (
+            <h1 className="text-4xl font-bold tracking-tight text-reading">{date}</h1>
+        ) : (
+            <Skeleton className="h-10 w-56" />
+        )}
+
+        {children}
+    </header>
+)
+
 /* Shaped to the real article — a date, a commemorations line, the fasting strip, then
  * alternating headings and paragraphs. Widths that disagree with what lands are what make
  * the page jump as it settles. */
 export const PrologueSkeleton = () => (
     <div className="flex w-full max-w-2xl flex-col gap-10">
-        <div className="flex flex-col items-center gap-5">
-            <Skeleton className="h-16 w-12" />
-            <Skeleton className="h-10 w-56" />
+        <div className="flex flex-col items-center gap-4">
             <Skeleton className="h-8 w-64" />
             <Skeleton className="h-4 w-52" />
         </div>
@@ -406,18 +505,7 @@ const Prologue = ({ day, className }) => {
                 className,
             )}
         >
-            {/* Set centred, like the title page of the book this is — the one block on the
-                screen that is, so the reading proper still begins flush left where a column
-                of prose belongs. */}
-            <header className="flex flex-col items-center gap-5 text-center pt-6 sm:pt-0">
-                <CrossVine aria-hidden="true" className="h-16 w-auto" />
-
-                <h1 className="text-4xl font-bold tracking-tight text-reading">
-                    {day.date}
-                </h1>
-
-                <Fasting fasting={day.fasting} />
-            </header>
+            <Fasting fasting={day.fasting} />
 
             {day.lives.map((life, index) => (
                 <Section key={index} section={life} />

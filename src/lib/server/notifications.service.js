@@ -9,11 +9,11 @@ import { pushConfigured, sendPush } from "@/lib/server/push"
 
 /* Notifications: the panel behind the bell, and the writes that fill it.
  *
- * Three kinds of event: somebody liked something you wrote (split by `type` into a like on a
- * post and a like on a comment), somebody commented on your post, and an admin published into
- * a group you belong to. The read side is a plain keyset page of the viewer's own rows,
- * identical for all of them; the write side is a builder per event, spliced into the
- * transaction the write it accompanies was already running.
+ * Four kinds of event: somebody liked something you wrote (split by `type` into a like on a
+ * post and a like on a comment), somebody commented on your post, somebody started following
+ * you, and an admin published into a group you belong to. The read side is a plain keyset page
+ * of the viewer's own rows, identical for all of them; the write side is a builder per event,
+ * spliced into the transaction the write it accompanies was already running.
  *
  * ── Why the writes are builders and not functions that write ─────────────────
  *
@@ -83,9 +83,19 @@ import { pushConfigured, sendPush } from "@/lib/server/push"
  * `actor` is the person to render, and `memberships` is filtered to their APPROVED admin
  * rows so `projectAuthor` can answer the check without a query per line — the same trick
  * `authorSelect` plays in posts.service.js. `post` supplies the group the check is resolved
- * against and, for a COMMENT_LIKE, the body the notification refers to is the comment's, so
- * it is not loaded at all: the panel says what happened, not what was said. */
-const notificationInclude = {
+ * against, and a FOLLOW has none, so a follower wears no check — which is the same answer
+ * `<ProfileCard/>` gives, and for the same reason: the check means "administers the group you
+ * are reading this in", and a follow was not read inside one. For a COMMENT_LIKE the body the
+ * notification refers to is the comment's, so it is not loaded at all: the panel says what
+ * happened, not what was said.
+ *
+ * `followers` is filtered to the viewer's own row, which is how "do you follow them back" is
+ * answered for the whole page without a second statement — the same filtered-relation trick as
+ * the memberships above, and a primary-key lookup per row under the join strategy. That is why
+ * this is a function of the viewer rather than a constant: `listFollows` pays a `followedAmong`
+ * query for the same answer because its rows are the follows themselves, but here the person is
+ * already being joined and the flag rides along. */
+const notificationInclude = (viewerId) => ({
     actor: {
         select: {
             handle: true,
@@ -98,10 +108,25 @@ const notificationInclude = {
                 where: { status: "APPROVED", role: "ADMIN" },
                 select: { orgId: true },
             },
+            followers: {
+                where: { followerId: viewerId },
+                select: { followerId: true },
+            },
         },
     },
     post: { select: { orgId: true, deletedAt: true, org: { select: { name: true } } } },
-}
+})
+
+/* The rows a panel and a bell may count: everything except an event inside a post that has
+ * since been soft-deleted.
+ *
+ * The `postId IS NULL` arm is what keeps a FOLLOW visible. Prisma reads `post: {...}` on an
+ * optional relation as "there is a post, and it matches", so the filter on its own would hide
+ * every notification that happens inside no post at all.
+ *
+ * It goes in under `AND` rather than being spread beside `keysetWhere`, whose result is itself
+ * an `OR` — two `OR` keys in one object literal and the later one silently wins. */
+const visibleSubject = { OR: [{ postId: null }, { post: { deletedAt: null } }] }
 
 /* One page of the viewer's notifications, newest first.
  *
@@ -117,12 +142,12 @@ export const listNotifications = async (viewer, { limit, cursor }) => {
     const rows = await prisma.notification.findMany({
         where: {
             recipientId: viewer.id,
-            post: { deletedAt: null },
+            AND: [visibleSubject],
             ...keysetWhere(cursor, "desc"),
         },
         orderBy: keysetOrder("desc"),
         take: limit + 1,
-        include: notificationInclude,
+        include: notificationInclude(viewer.id),
         relationLoadStrategy: "join",
     })
 
@@ -140,7 +165,7 @@ export const listNotifications = async (viewer, { limit, cursor }) => {
  * rows the panel then refuses to show is a badge that cannot be cleared by reading. */
 export const unreadCount = async (viewer) =>
     prisma.notification.count({
-        where: { recipientId: viewer.id, readAt: null, post: { deletedAt: null } },
+        where: { recipientId: viewer.id, readAt: null, AND: [visibleSubject] },
     })
 
 /* Marks everything the viewer holds as read and answers the resulting tally.
@@ -165,7 +190,7 @@ export const markNotificationsRead = async (viewer) => {
  * Writes — builders, spliced into the caller's transaction. See the header.
  * ------------------------------------------------------------------------- */
 
-/* The unique key one actor's like on one subject occupies. */
+/* The unique key one actor's event on one subject occupies. */
 const key = ({ recipientId, actorId, type, subjectId }) => ({
     recipientId_actorId_type_subjectId: { recipientId, actorId, type, subjectId },
 })
@@ -242,6 +267,36 @@ export const unnotifyComment = (tx, commentId) =>
         where: { type: { in: ["COMMENT_LIKE", "POST_COMMENT"] }, subjectId: commentId },
     })
 
+/* The write for "somebody started following you".
+ *
+ * **The subject is the actor.** A follow is identified by the pair alone — there is no post
+ * and no comment to point at — so keying on the follower is what makes the unique key mean one
+ * row per follower, and what gives `unnotifyFollow` a row to delete. It is also where the
+ * panel row goes when it is tapped.
+ *
+ * `postId` is left null: this is the one event that happens inside no post at all. See the
+ * `Notification` model, and `visibleSubject` above for what that costs the reads.
+ *
+ * An upsert for the reason a like is one — follow → unfollow → follow settles at a single row,
+ * and refreshing `createdAt`/`readAt` returns it to the top of the panel and lights the bell,
+ * because the follow genuinely happened again. */
+export const notifyFollow = ({ recipientId, actorId }) => {
+    const now = new Date()
+    return prisma.notification.upsert({
+        where: key({ recipientId, actorId, type: "FOLLOW", subjectId: actorId }),
+        create: { recipientId, actorId, type: "FOLLOW", subjectId: actorId, createdAt: now },
+        update: { createdAt: now, readAt: null },
+    })
+}
+
+/* The write for "they unfollowed". `deleteMany`, never `delete`, matching `unnotifyLike`:
+ * there may be no row — a follow made before this type existed — and a toggle must not fail
+ * because the notification it is retracting was never written. */
+export const unnotifyFollow = ({ recipientId, actorId }) =>
+    prisma.notification.deleteMany({
+        where: { recipientId, actorId, type: "FOLLOW", subjectId: actorId },
+    })
+
 /* Who hears about a new post: every APPROVED member of the group except whoever wrote it.
  *
  * Read *outside* the publish transaction on purpose. It is the one statement here that does
@@ -299,10 +354,13 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
 
 /* Assembles one FCM HTTP v1 message.
  *
- * **`data.postId` is the load-bearing field, not the title.** Tapping a push has to open the
- * thing it is about, and the client resolves that by pathname — `openSlide("/p/<id>")` — so
- * the id has to travel in the payload. Every value in `data` must be a string; FCM rejects
- * the message outright otherwise, and it is a 400 with a message that does not say so.
+ * **The destination in `data` is the load-bearing field, not the title.** Tapping a push has
+ * to open the thing it is about, so the destination travels in the payload: `postId` for
+ * everything that happened inside a post, which the client opens by pathname as
+ * `openSlide("/p/<id>")`, and `handle` for a follow, which opens that person's card. Every
+ * value in `data` must be a string — FCM rejects the whole message otherwise, with a 400 that
+ * does not say so — which is why the one that does not apply is omitted rather than sent
+ * null.
  *
  * `notification` (rather than a data-only message) is what makes the OS draw the banner while
  * the app is backgrounded or dead. A data-only message would need the app to be running to
@@ -312,14 +370,16 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
  * fan-out means a `count(*)` per member of the parish before a single push goes out — a round
  * trip per person to decorate an icon. The bell inside the app is the honest tally and it is
  * already free. */
-const message = ({ title, body, postId, type }) => ({
+const message = ({ title, body, postId = null, handle = null, type }) => ({
     notification: { title, body },
-    data: { postId, type },
+    data: { type, ...(postId ? { postId } : {}), ...(handle ? { handle } : {}) },
     android: {
         /* `high` is what wakes a dozing device; the default is `normal`, which Android is
          * free to hold until the next maintenance window — minutes to hours later. */
         priority: "high",
-        notification: { sound: "default", tag: postId },
+        /* The tag collapses repeats about the same subject into one banner, so it follows
+         * whichever destination this message carries. */
+        notification: { sound: "default", tag: postId ?? handle },
     },
     apns: {
         payload: { aps: { sound: "default" } },
@@ -398,6 +458,25 @@ export const pushComment = ({ recipientId, actor, postId }) => {
                 body: "commented on your post",
                 postId,
                 type: "POST_COMMENT",
+            }),
+        ),
+    )
+}
+
+/* "Dn. Paul followed you."
+ *
+ * The only push whose destination is a person rather than a post, so it carries `handle` and
+ * no `postId` — see `message`. Nothing to say beyond who: a follow has no body, and the panel
+ * row says the same two words. */
+export const pushFollow = ({ recipientId, actor }) => {
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: displayName(actor),
+                body: "followed you",
+                handle: actor.handle,
+                type: "FOLLOW",
             }),
         ),
     )

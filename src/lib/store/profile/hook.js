@@ -30,9 +30,10 @@ export const useOpenProfile = () => {
  * card — one whose handle changed under a mounted surface — starts its fetch before paint rather
  * than a frame after it. Same call `usePost` makes. */
 export const useProfileCard = () => {
-    const [openHandle, current, ready, load, close, editAction] = useProfileStore(
+    const [openHandle, openTab, current, ready, load, close, editAction] = useProfileStore(
         useShallow((state) => [
             state.openHandle,
+            state.openTab,
             state.current,
             state.ready,
             state.load,
@@ -54,6 +55,7 @@ export const useProfileCard = () => {
     return useMemo(
         () => ({
             handle: openHandle,
+            openTab,
             open: Boolean(openHandle),
             profile: current,
             skeleton: !ready,
@@ -61,7 +63,7 @@ export const useProfileCard = () => {
             close,
             edit,
         }),
-        [openHandle, current, ready, close, edit],
+        [openHandle, openTab, current, ready, close, edit],
     )
 }
 

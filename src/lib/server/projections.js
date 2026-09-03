@@ -163,14 +163,20 @@ export const projectComment = (
  * published into, exactly as they would above a post of their own. The panel is not scoped
  * to the selected group, so this is the only thing that could answer it correctly.
  *
+ * It carries two fields a byline has no use for, both for the follow-back button on a FOLLOW
+ * row: `id`, because the follow write patches rows by id wherever the same person appears, and
+ * `following`, the viewer's own answer to "do you follow them back". They go on every row
+ * rather than on the FOLLOW ones alone — the actor block is one shape whatever the type, and
+ * both come free from a statement that had already joined the person.
+ *
  * `type` goes over raw rather than as a rendered sentence. "liked your post" is copy, and
  * copy belongs on the client next to the layout that has to fit it — the same reason a name
  * ships as parts. It is also what lets a grouped line ("and 9 others") reuse this projection
  * unchanged when that lands; see the GROUPING note in `notifications.service.js`.
  *
- * `postId` is where this notification points. It is shipped even though nothing navigates
- * with it yet, because it is what a push payload and a tapped row both need, and it costs a
- * column already loaded.
+ * `postId` is where this notification points, and it is null for a FOLLOW — the one event
+ * that happens inside no post. A row without one opens the actor's card instead, which is the
+ * only destination a follow has.
  *
  * `orgName` is what a NEW_POST line names — "posted in Holy Trinity Cathedral" — and it has
  * to come from the post rather than from the switcher, because this panel is not scoped to
@@ -181,7 +187,11 @@ export const projectComment = (
 export const projectNotification = (notification) => ({
     id: notification.id,
     type: notification.type,
-    actor: projectAuthor(notification.actor, notification.post?.orgId ?? null),
+    actor: {
+        ...projectAuthor(notification.actor, notification.post?.orgId ?? null),
+        id: notification.actorId,
+        following: notification.actor.followers.length > 0,
+    },
     postId: notification.postId,
     orgName: notification.post?.org?.name ?? null,
     createdAt: notification.createdAt.toISOString(),

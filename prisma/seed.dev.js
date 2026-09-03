@@ -346,21 +346,41 @@ const main = async () => {
      * the two clergy, and everybody follows the next two people along the roster. That gives
      * each person followers and following without a fixture nobody would maintain.
      *
-     * `createMany` with `skipDuplicates`, so a person who lands in both rules is one row —
-     * the composite primary key would otherwise fail the whole batch. */
+     * `createMany` with `skipDuplicates` on both writes, so a person who lands in both rules is
+     * one row — the composite primary key would otherwise fail the whole batch. */
     console.log("→ Follows")
     const roster = PEOPLE.map((person) => person.handle)
     const clergy = ["cathedraldean", "deacon.paul"]
 
-    await prisma.follow.createMany({
-        data: roster.flatMap((handle, index) =>
-            [...clergy, roster[(index + 1) % roster.length], roster[(index + 2) % roster.length]]
-                .filter((target) => target !== handle)
-                .map((target) => ({
-                    followerId: byHandle.get(handle),
-                    followingId: byHandle.get(target),
-                })),
-        ),
+    /* Dated a month back, a minute apart, rather than left on the column default. The panel is
+     * newest-first, so a hundred follows all stamped at seed time would bury every post and
+     * like in the corpus under one wall of "followed you" — and a follow graph that predates
+     * the posts is the truer fixture anyway. */
+    const followedAt = (index) => new Date(Date.now() - (30 * 24 * 60 - index) * 60 * 1000)
+
+    const follows = roster.flatMap((handle, index) =>
+        [...clergy, roster[(index + 1) % roster.length], roster[(index + 2) % roster.length]]
+            .filter((target) => target !== handle)
+            .map((target) => ({
+                followerId: byHandle.get(handle),
+                followingId: byHandle.get(target),
+                createdAt: followedAt(index),
+            })),
+    )
+
+    await prisma.follow.createMany({ data: follows, skipDuplicates: true })
+
+    /* The notification `toggleFollow` would have written for each of them, for the same reason
+     * the likes further down get theirs: the seed inserts the rows directly rather than through
+     * the one path that pairs the two. */
+    await prisma.notification.createMany({
+        data: follows.map((follow) => ({
+            recipientId: follow.followingId,
+            actorId: follow.followerId,
+            type: "FOLLOW",
+            subjectId: follow.followerId,
+            createdAt: follow.createdAt,
+        })),
         skipDuplicates: true,
     })
 

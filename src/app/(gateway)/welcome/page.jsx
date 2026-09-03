@@ -3,14 +3,11 @@
 import { useCallback, useMemo, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { AnimatePresence, motion } from "motion/react"
-import useMeasure from "react-use-measure"
 import { z } from "zod"
 
 import DatePicker from "@/components/DatePicker"
-import GatewayShell, { GatewayButton } from "@/components/GatewayShell"
+import GatewayShell, { GatewayButton, GatewaySteps } from "@/components/GatewayShell"
 import { HandleField, useHandleCheck } from "@/components/HandleField"
-import Transition from "@/components/Transition"
 import {
     Form,
     FormControl,
@@ -99,12 +96,6 @@ const STEP_FOR_FIELD = {
     nameDay: "patron",
     ordinationDate: "ordination",
 }
-
-/* The wrapper each step fades in through. A column rather than a row so the step's form can
- * claim the full height on mobile (which is what puts its action at the bottom), with
- * `items-center` doing the horizontal centring the row used to — on desktop the form caps
- * itself at `max-w-88`, on mobile it spans the width like the reference layout. */
-const STEP_CLASS = "flex min-h-0 w-full flex-1 flex-col items-center"
 
 const nameSchema = z.object({
     /* Bounded, not patterned. Any regex narrow enough to be worth writing rejects
@@ -677,8 +668,6 @@ const WelcomePage = () => {
     const { user, submit, checkHandle, loading, clearError } = useOnboarding()
 
     const [step, setStep] = useState(FIRST_STEP)
-    /* Drives the height animation across a step change. */
-    const [measureRef, bounds] = useMeasure()
 
     /* The answers live here rather than in one big form, so each step can own its own
      * resolver while a Back button still finds the previous answer intact.
@@ -864,12 +853,6 @@ const WelcomePage = () => {
     const last = steps.indexOf(step) === steps.length - 1
     const submitLabel = last ? "Enter the parish" : "Continue"
 
-    /* Just the current step's body, keyed per step so each form starts with its own clean
-     * react-hook-form state instead of inheriting the previous step's.
-     *
-     * **No AnimatePresence on mobile** — the shell cross-fades the whole screen, heading and
-     * body together, because animating only the body left the heading to change ahead of it
-     * and re-laid-out the outgoing step mid-exit. See FormScreen in GatewayShell. */
     const current =
         step === "name" ? (
             <NameStep values={values} onNext={onName} loading={loading} fill={!isDesktop} />
@@ -928,32 +911,7 @@ const WelcomePage = () => {
             screenKey={step}
             onBack={back}
         >
-            {isDesktop ? (
-                <motion.div
-                    /* `mode="wait"` unmounts the outgoing step before mounting the incoming
-                     * one, so there is a frame where nothing is measured and the height
-                     * reads 0. Passing `undefined` for that frame tells motion not to touch
-                     * the property, holding the box at its last height instead of collapsing
-                     * and springing back. `initial={false}` keeps the first measurement from
-                     * animating in from nothing on mount. */
-                    initial={false}
-                    animate={{ height: bounds.height > 0 ? bounds.height : undefined }}
-                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                    className="relative w-full overflow-hidden"
-                >
-                    <div ref={measureRef} className="flex w-full flex-col items-center">
-                        <AnimatePresence mode="wait" initial={false}>
-                            <Transition fast key={step} className={STEP_CLASS}>
-                                {current}
-                            </Transition>
-                        </AnimatePresence>
-                    </div>
-                </motion.div>
-            ) : (
-                /* `min-h-0` so the column can be squeezed by the keyboard rather than
-                 * overflowing past the bottom of the screen with the button on it. */
-                <div className="flex min-h-0 flex-1 flex-col">{current}</div>
-            )}
+            <GatewaySteps stepKey={step}>{current}</GatewaySteps>
         </GatewayShell>
     )
 }

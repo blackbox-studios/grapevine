@@ -3,14 +3,11 @@
 import { Fragment, useMemo, useState } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { AnimatePresence, motion } from "motion/react"
 import { REGEXP_ONLY_DIGITS } from "input-otp"
-import useMeasure from "react-use-measure"
 import { z } from "zod"
 
-import GatewayShell, { GatewayButton } from "@/components/GatewayShell"
+import GatewayShell, { GatewayButton, GatewaySteps } from "@/components/GatewayShell"
 import Hyperlink from "@/components/Hyperlink"
-import Transition from "@/components/Transition"
 import {
     Form,
     FormControl,
@@ -29,11 +26,6 @@ import { OTP_LENGTH } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useLogin } from "@/lib/store/auth/hook"
 import { cn } from "@/lib/utils"
-
-/* The wrapper each step fades in through — a column so the step's form can grow to the full
- * keyboard-safe height on mobile, which is what puts its action at the bottom. `items-center`
- * does the horizontal centring the old row did. */
-const STEP_CLASS = "flex min-h-0 w-full flex-1 flex-col items-center"
 
 /* Sign-in, in three screens: an opening one, the address, then the one-time code Supabase
  * emails back.
@@ -302,8 +294,6 @@ const CodeStep = ({ onSubmit, onResend, onBack, loading, resendIn, fill }) => {
 const LoginPage = () => {
     const { stage, email, requestCode, verify, resend, resendIn, back, loading, clearError } =
         useLogin()
-    /* Drives the height animation across the step change. */
-    const [measureRef, bounds] = useMeasure()
 
     /* Store failures surface as toasts through useErrorListener, so each submit clears the
      * previous one first — otherwise a stale error sits under a fresh attempt. */
@@ -359,11 +349,6 @@ const LoginPage = () => {
         },
     }[screen]
 
-    /* Just the current screen's body. **No AnimatePresence on mobile**: the shell cross-fades
-     * the whole screen — heading, mark and body together — because animating only the body
-     * left the chrome to change 180ms ahead of it, which re-laid-out the outgoing screen and
-     * made it jump before fading. See FormScreen in GatewayShell. Desktop still wraps this in
-     * its own transition below, where the hero chrome does not change between screens. */
     const current =
         screen === "intro" ? (
             <div className="flex w-full flex-col items-center gap-5 sm:max-w-88">
@@ -412,35 +397,7 @@ const LoginPage = () => {
              * screens drop it — it has already been agreed to by then. */
             footer={isDesktop ? legal : undefined}
         >
-            {isDesktop ? (
-                <motion.div
-                    /* The height is animated alongside the fade because the screens differ
-                     * appreciably in height. Without it the legal copy below would jump the
-                     * instant the swap happened, which is the exact seam the fade exists to
-                     * hide.
-                     *
-                     * `mode="wait"` unmounts the outgoing step before mounting the incoming
-                     * one, so there is a frame where nothing is measured and the height
-                     * reads 0. Passing `undefined` for that frame tells motion not to touch
-                     * the property, which holds the box at its last height instead of
-                     * collapsing and springing back. `initial={false}` keeps the very first
-                     * measurement from animating in from nothing on mount. */
-                    initial={false}
-                    animate={{ height: bounds.height > 0 ? bounds.height : undefined }}
-                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                    className="relative w-full overflow-hidden"
-                >
-                    <div ref={measureRef} className="flex w-full flex-col items-center">
-                        <AnimatePresence mode="wait" initial={false}>
-                            <Transition fast key={screen} className={STEP_CLASS}>
-                                {current}
-                            </Transition>
-                        </AnimatePresence>
-                    </div>
-                </motion.div>
-            ) : (
-                <div className="flex min-h-0 flex-1 flex-col">{current}</div>
-            )}
+            <GatewaySteps stepKey={screen}>{current}</GatewaySteps>
         </GatewayShell>
     )
 }

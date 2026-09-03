@@ -10,6 +10,7 @@ import { useEntered } from "@/lib/hooks/useEntered.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { cn } from "@/lib/utils"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import useMeasure from "react-use-measure"
 
 /* How long everything but the mark waits before fading in: the entrance spring is still
  * travelling for most of it, so the content arrives to a mark that has landed rather than
@@ -306,6 +307,48 @@ const GatewayShell = ({
                 </Transition>
             </main>
         </div>
+    )
+}
+
+/* The body of a multi-step gateway flow: one step at a time, cross-fading into the next.
+ *
+ * Desktop animates the box's height alongside the fade, because consecutive steps differ
+ * appreciably in height and whatever sits below them — the legal copy on sign-in — would
+ * otherwise jump the instant the swap happened, which is the exact seam the fade exists to
+ * hide. Mobile does none of that: the form layout cross-fades the whole screen on
+ * `screenKey` already, and the column has to stay a plain flex child so the keyboard can
+ * squeeze it.
+ *
+ * `mode="wait"` unmounts the outgoing step before mounting the incoming one, so there is a
+ * frame where nothing is measured and the height reads 0. Passing `undefined` for that frame
+ * tells motion not to touch the property, holding the box at its last height instead of
+ * collapsing and springing back. `initial={false}` keeps the very first measurement from
+ * animating in from nothing. */
+export const GatewaySteps = ({ stepKey, children }) => {
+    const isDesktop = useIsDesktop()
+    const [measureRef, bounds] = useMeasure()
+
+    if (!isDesktop) return <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+
+    return (
+        <motion.div
+            initial={false}
+            animate={{ height: bounds.height > 0 ? bounds.height : undefined }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="relative -my-1 w-full overflow-hidden"
+        >
+            <div ref={measureRef} className="flex w-full flex-col items-center py-1">
+                <AnimatePresence mode="wait" initial={false}>
+                    <Transition
+                        fast
+                        key={stepKey}
+                        className="flex min-h-0 w-full flex-1 flex-col items-center"
+                    >
+                        {children}
+                    </Transition>
+                </AnimatePresence>
+            </div>
+        </motion.div>
     )
 }
 

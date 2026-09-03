@@ -7,6 +7,8 @@ description: How to write and audit code comments in this repo — the why-not-w
 
 Comments carry the *why*; the code already states the what.
 
+**The default is no comment.** Most changes need none, and a comment is something the change has to earn — it is another line to keep true, and a repo of them compounds into prose nobody trusts. A comment is not a receipt for the work; write one only where the next person would otherwise break something.
+
 **This is a separate skill because knowing the rules is not what enforces them.** The reasoning is fresh while you write, so the prose that records it always reads as necessary — and the rules that get broken are broken *at the end of a long change*, when the file being edited has a history in your head that it does not have in the repo. Load this when you start writing comments, and again before you finish.
 
 ---
@@ -21,7 +23,9 @@ The first three are the ones that get broken.
 
    The corollary: **if an edit leaves a file's code unchanged, its comments come out unchanged too.** Touching only the prose of a file you didn't otherwise modify is the tell that you are narrating a decision rather than documenting one. (The one exception is rule 7 — a comment left naming a symbol you just deleted is broken, and fixing it is required, not narration.)
 
-3. **Scale the comment to the change, not to the effort of finding it.** A one-token fix — a class swapped, an `!` added, a prop renamed — gets one line at most, and usually none. A change that took an hour to diagnose is still a small change; the diagnosis is not what the reader needs, the constraint is. If the note explains its own mechanics (which selector wins, how specificity resolved, what you tried first), cut it back to the constraint the next person would otherwise break. Never explain the same fix in two places.
+3. **Scale the comment to the change, not to the effort of finding it.** A one-token fix — a class swapped, an `!` added, a prop renamed — gets **nothing**. A change that took an hour to diagnose is still a small change; the diagnosis is not what the reader needs, and usually neither is the constraint. If the note explains its own mechanics (which selector wins, how specificity resolved, what you tried first), cut it. Never explain the same fix in two places.
+
+   The worked example, because this is the rule that gets broken while feeling most justified: adding `py-1` to a clipped box and `-my-1` to its parent, to stop an `overflow-hidden` shearing a focus ring, got a five-line block explaining the ring, the clip box and the measurement. It warranted **no comment**. Two Tailwind classes are readable, the next person deleting them sees the ring get cut and puts them back in a minute, and the block cost more to read forever than the bug ever cost once. Ask what the comment *saves* the reader — if the answer is a minute, it is a net loss.
 
 4. **Length is earned.** One or two lines is the default. Spend a paragraph only where the next person would otherwise undo the decision — a platform quirk, an ordering that looks arbitrary and isn't, a constraint enforced somewhere else. Never on restating a signature.
 
@@ -38,7 +42,7 @@ The first three are the ones that get broken.
 **Re-read the comments in your diff as someone who never saw this conversation.** Six tells, each a rewrite rather than a judgement call:
 
 - **Past tense about the code itself** — "used to", "now", "no longer", "previously", "briefly", "replaced", "turned out", "was the first of its kind", "rather than the dialog it was". You are narrating the diff.
-- **A paragraph over a hunk that changed one class or one prop.** Cut to the constraint, or cut it entirely.
+- **Any comment over a hunk that changed one class or one prop.** Delete it. Not "cut it to a line" — delete it.
 - **The same reason given in two files.** Keep it where the behaviour lives; delete the other.
 - **A file whose only change is prose.** Revert it — unless it is rule 7, a stale reference you are repairing.
 - **A comment naming something that no longer exists.** Grep the symbols your change deleted or renamed; a header pointing at a component you just removed is a lie the next reader will trust.

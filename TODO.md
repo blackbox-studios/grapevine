@@ -95,3 +95,29 @@ Done (2026-08-27):
   is worth a job.
 - **Notification grouping** ("and 9 others") — a read-side change, planned in detail in the
   header of `src/lib/server/notifications.service.js`.
+
+## The Daily Read owes an About page — a licence condition, not a nicety
+
+The reading is fetched at runtime from `github.com/jaredef/ochrid`, which is **CC BY-NC 4.0**
+and whose README states the underlying translation is third-party copyrighted material
+carried under a fair-use claim. Naming the source is a condition of that licence, so this
+gates showing the screen to a parish rather than being tidy-up.
+
+The block was drawn at the foot of the reading and was taken off it deliberately — that page
+should end on the text — so it is **relocated, not dropped**. Nothing renders it today, which
+is the gap.
+
+Build `/settings/about` as a sibling of `/settings/info` and `/settings/general`, reached by a
+row on the account index and drawn by the shared `<SettingsRow/>`. It carries:
+
+- The Prologue of Ohrid by St. Nikolai Velimirovic
+- Text from **ochrid.org**, CC BY-NC 4.0
+- Fasting rule from **orthocal.info**
+
+Both links go through `<Hyperlink soft>` — never a bare `underline`, per the Hyperlinks rule.
+
+> The NonCommercial term is a live question for counsel, since Grapevine has a paid tier.
+> Attribution is the part that is unambiguous and cheap; do it regardless of how that lands.
+
+Likely the right home for the app version and any future terms/privacy links too — Play
+already needs a privacy policy URL (see the Google Play section above).

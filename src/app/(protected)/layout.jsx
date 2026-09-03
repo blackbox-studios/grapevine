@@ -7,8 +7,8 @@ import { motion } from "motion/react";
 import Logo from "@/assets/svg/logo.svg"
 import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
-import SendIcon from "@/assets/svg/icons/send.svg"
-import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
+import BookIcon from "@/assets/svg/icons/book.svg"
+import BookOutlineIcon from "@/assets/svg/icons/book-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { ProtectedGate } from "@/components/AuthGate";
@@ -42,10 +42,10 @@ const NAV = [
         Filled: HomeIcon,
     },
     {
-        title: "Inbox",
-        href: ROUTES.INBOX,
-        Outline: SendOutlineIcon,
-        Filled: SendIcon,
+        title: "Daily Read",
+        href: ROUTES.PROLOGUE,
+        Outline: BookOutlineIcon,
+        Filled: BookIcon,
     },
 ]
 

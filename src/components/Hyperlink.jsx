@@ -21,6 +21,10 @@ import { cn } from "@/lib/utils"
  * a `<p>`, which is where most of the app's links actually sit. The flex container blockifies
  * them, so the wipe still positions and clips exactly as a block would.
  *
+ * The hover group is **named** (`group/link`): a bare `group-hover:` matches *any* ancestor
+ * carrying `group`, so a link inside a row that reveals a control on hover would underline
+ * itself from anywhere in that row rather than from the word.
+ *
  * `truncate` is for a label in a row that can run out of room — a byline beside a timestamp. The
  * default sizes both boxes to their content (`w-fit`), which pushes a long name past the card
  * rather than ellipsing it; this swaps that for `min-w-0 max-w-full` so the chain can shrink, and
@@ -33,7 +37,7 @@ const Hyperlink = ({ children, className, soft, truncate, href, ...props }) => {
     return (
         <Comp
             className={cn(
-                "group text-inherit inline-flex cursor-pointer",
+                "group/link text-inherit inline-flex cursor-pointer",
                 truncate ? "min-w-0 max-w-full" : "w-fit",
                 className,
             )}
@@ -45,12 +49,12 @@ const Hyperlink = ({ children, className, soft, truncate, href, ...props }) => {
                     "overflow-hidden relative pb-1.5 -mb-1.5 leading-[0.8em]",
                     truncate ? "min-w-0 max-w-full truncate" : "w-fit",
                     soft
-                        ? "text-inherit transition-colors group-hover:text-link group-focus-visible:text-link"
+                        ? "text-inherit transition-colors group-hover/link:text-link group-focus-visible/link:text-link"
                         : "text-link",
                 )}
             >
                 {children}
-                <span className="absolute bottom-0 left-0 h-[1.5px] w-full scale-x-0 origin-right group-hover:scale-x-100 group-hover:origin-left bg-current rounded-full transition-transform duration-200" />
+                <span className="absolute bottom-0 left-0 h-[1.5px] w-full scale-x-0 origin-right group-hover/link:scale-x-100 group-hover/link:origin-left bg-current rounded-full transition-transform duration-200" />
             </span>
         </Comp>
     )

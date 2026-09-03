@@ -5,6 +5,10 @@ export const APP_NAME = "Grapevine"
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
+    /* The Prologue of Ohrid for today, with the day's fasting rule. Not scoped to a group:
+     * the reading is the same wherever it is read, which is why it sits beside Home in the
+     * nav rather than anywhere in the group tree. */
+    PROLOGUE: "/prologue",
     POST: "/p",
     NOTIFICATIONS: "/notifications",
     /* The account surface, and the index of the settings tree: who the viewer is, and every
@@ -170,6 +174,9 @@ export const API_ENDPOINTS = {
      * detach it. Write-only — there is no GET, because listing somebody's tokens would hand
      * out the values needed to push to their phones. */
     DEVICES: "/devices",
+    /* Today's reading, or `?date=YYYY-MM-DD` for another day. The client sends its own
+     * local date so the reading turns over at the reader's midnight, not the server's. */
+    PROLOGUE: "/prologue",
 }
 
 /* How many items a page pulls, per collection. The server clamps to its own maximum. */

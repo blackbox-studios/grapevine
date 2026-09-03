@@ -172,6 +172,18 @@ export const formatDateCompact = (iso) => {
     return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1].slice(0, 3)} ${match[1]}`
 }
 
+/* Today, as `YYYY-MM-DD`, in the reader's own timezone.
+ *
+ * Built from the local getters rather than `toISOString`, which converts to UTC first: for
+ * a reader west of Greenwich after 4pm that returns tomorrow's date, so the Daily Read
+ * would turn over an evening early. */
+export const todayLocal = () => {
+    const now = new Date()
+    const month = String(now.getMonth() + 1).padStart(2, "0")
+    const day = String(now.getDate()).padStart(2, "0")
+    return `${now.getFullYear()}-${month}-${day}`
+}
+
 /* A post's photos, as one array whatever the wire shape.
  *
  * `projectMedia` sends `image` + `width`/`height` for a single photo and `images` for a

@@ -112,7 +112,7 @@ const handleSchema = z.object({
         .max(HANDLE_MAX, `At most ${HANDLE_MAX} characters`)
         .regex(
             HANDLE_PATTERN,
-            "Letters, numbers, dots, underscores and hyphens — starting and ending with a letter or number",
+            "Letters, numbers, dots, underscores and hyphens, starting and ending with a letter or number",
         ),
 })
 

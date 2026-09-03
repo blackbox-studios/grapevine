@@ -47,6 +47,20 @@ import { toErrorList } from '@/lib/utils'
  * `init()` reconciles it against Supabase on every boot and signs out if the session is
  * gone. See auth-architecture.md. */
 
+/* Supabase's real one-time code for the store-review account, or null.
+ *
+ * Null for every failure — unconfigured (404), wrong address, wrong code, offline. The caller
+ * is on a path where sign-in has *already* failed, so the only thing a thrown error could do
+ * here is replace an accurate "that code is not valid" with a confusing one. */
+const reviewToken = async (email, code) => {
+    try {
+        const { token } = await api.post(API_ENDPOINTS.AUTH_REVIEW, { email, code })
+        return token ?? null
+    } catch {
+        return null
+    }
+}
+
 const ERROR_INIT = {
     request: false,
     verify: false,
@@ -186,7 +200,7 @@ const readCallbackError = () => {
     if (!code && !params.get("error")) return null
 
     if (code === "otp_expired") {
-        return "That sign-in link has expired or was already used — links work only once. Request a new code below."
+        return "That sign-in link has expired or was already used. Links work only once, so request a new code below."
     }
     return (
         params.get("error_description")?.replace(/\+/g, " ") ??
@@ -220,13 +234,13 @@ const requestFailureMessage = (error) => {
     /* Supabase's built-in SMTP allows 2 messages an hour, project-wide, and only custom
      * SMTP can raise it. Saying so plainly beats implying the account is at fault. */
     if (isRateLimited(error)) {
-        return "Too many sign-in emails have been sent recently. If you already have a code, enter it below — otherwise wait a few minutes and try again."
+        return "Too many sign-in emails have been sent recently. If you already have a code, enter it below. Otherwise wait a few minutes and try again."
     }
 
     /* `shouldCreateUser: false` refusing an address with no account — the invite-only gate
      * doing its job. */
     if (code === "otp_disabled" || code === "signup_disabled" || status === 422) {
-        return "We could not send a code to that address. Grapevine is invite-only — check with your parish administrator."
+        return "We could not send a code to that address. Grapevine is invite-only, so check with your parish administrator."
     }
 
     if (code === "validation_failed") {
@@ -427,7 +441,27 @@ const useStore = create(
                             token,
                             type: 'email',
                         })
-                        if (error) throw error
+                        /* The store reviewer's fixed code, tried only after the real one has
+                         * already been rejected — so this costs an ordinary sign-in nothing and
+                         * a mistyped code one request on a path that was failing anyway.
+                         *
+                         * `/api/auth/review` hands back Supabase's *real* current code for one
+                         * hardcoded address, which is then verified below by the same call that
+                         * just failed. Nothing here is a second way to obtain a session: it is
+                         * the same door, opened with a code fetched over HTTP instead of read
+                         * out of an inbox. The endpoint 404s unless REVIEW_EMAIL/REVIEW_OTP are
+                         * set, so on any normal deploy this branch is one dead request. */
+                        if (error) {
+                            const real = await reviewToken(email, token)
+                            if (!real) throw error
+
+                            const retried = await supabase().auth.verifyOtp({
+                                email,
+                                token: real,
+                                type: 'email',
+                            })
+                            if (retried.error) throw retried.error
+                        }
 
                         await get()._loadProfile()
 
@@ -486,6 +520,7 @@ const useStore = create(
                         router.replace(ROUTES.PUBLIC.LOGIN)
                     }
                 },
+
 
                 /* The session died mid-use — called by `lib/api.js` on any 401.
                  *

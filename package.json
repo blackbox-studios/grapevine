@@ -1,7 +1,7 @@
 {
   "name": "grapevine",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",
@@ -14,6 +14,7 @@
     "android": "npm run sync && cap open android",
     "open:ios": "cap open ios",
     "open:android": "cap open android",
+    "release:android": "node scripts/release-android.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
@@ -28,6 +29,8 @@
     "db:reset": "node scripts/assert-local-db.mjs \"db:reset\" && prisma migrate reset --force --skip-seed && npm run db:secure && npm run db:seed",
     "postinstall": "prisma generate",
     "owner": "node scripts/grant-owner.mjs",
+    "reviewer": "node scripts/provision-reviewer.mjs",
+    "erase": "node scripts/erase-account.mjs",
     "comments:rescore": "node scripts/rescore-comments.mjs",
     "dev:login": "node scripts/dev-login.mjs",
     "dev:reset-member": "node scripts/dev-reset-member.mjs",

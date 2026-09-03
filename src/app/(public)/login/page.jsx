@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import GatewayShell, { GatewayButton, GatewaySteps } from "@/components/GatewayShell"
 import Hyperlink from "@/components/Hyperlink"
+import { LegalModal } from "@/components/Legal"
 import {
     Form,
     FormControl,
@@ -326,12 +327,19 @@ const LoginPage = () => {
     const [started, setStarted] = useState(false)
     const screen = stage === "code" ? "code" : started ? "email" : "intro"
 
+    /* Which legal document is open, or null. One piece of state for both links. */
+    const [legalOpen, setLegal] = useState(null)
+
+    /* Both documents open here rather than navigating, because this screen is where the links
+     * are and sending somebody away from a half-typed address to read a policy loses them. It is
+     * also the only presentation the packaged app can reach — see <LegalModal/>. The same text
+     * is served at /privacy and /delete-account, which is what Play stores. */
     const legal = (
         <div className="mx-auto max-w-72 text-center text-xs leading-relaxed text-muted-foreground">
             By continuing you agree to the&nbsp;
-            <Hyperlink>System User Agreement</Hyperlink>
-            &nbsp;and&nbsp;
-            <Hyperlink>Privacy Policy</Hyperlink>
+            <Hyperlink onClick={() => setLegal("privacy")}>Privacy Policy</Hyperlink>.
+            <br />
+            <Hyperlink onClick={() => setLegal("deletion")}>Your data</Hyperlink>
         </div>
     )
 
@@ -373,6 +381,7 @@ const LoginPage = () => {
         )
 
     return (
+        <>
         <GatewayShell
             heading={COPY.heading}
             subheading={COPY.subheading}
@@ -399,6 +408,11 @@ const LoginPage = () => {
         >
             <GatewaySteps stepKey={screen}>{current}</GatewaySteps>
         </GatewayShell>
+
+        {/* A sibling of the shell rather than a child, so it owns its own focus trap and is
+            not clipped by the shell's cross-fade. */}
+        <LegalModal which={legalOpen} onOpenChange={(open) => !open && setLegal(null)} />
+        </>
     )
 }
 

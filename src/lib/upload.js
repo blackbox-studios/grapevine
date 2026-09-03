@@ -193,7 +193,7 @@ export const prepareFile = async (file) => {
 
     if (file.size > MAX_PICKED_BYTES) {
         throw new Error(
-            `${file.name || "That file"} is ${megabytes(file.size)}MB — the limit is ${megabytes(MAX_PICKED_BYTES)}MB.`,
+            `${file.name || "That file"} is ${megabytes(file.size)}MB. The limit is ${megabytes(MAX_PICKED_BYTES)}MB.`,
         )
     }
 
@@ -202,8 +202,8 @@ export const prepareFile = async (file) => {
 
     if (prepared.blob.size > limit) {
         throw new Error(
-            `${prepared.fileName ?? "That file"} is too large to post — ${
-                isImage ? "photos" : "files"
+            `${prepared.fileName ?? "That file"} is too large to post. ${
+                isImage ? "Photos" : "Files"
             } are limited to ${megabytes(limit)}MB.`,
         )
     }

@@ -395,7 +395,7 @@ export const DayStepper = ({ dates, index, onSelect }) => {
                 onClick={() => step(-1)}
                 disabled={index === 0}
                 aria-label={`Go to ${DAY_LABELS[index - 1]?.toLowerCase() ?? "the previous day"}`}
-                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25"
+                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25 cursor-pointer"
             >
                 <Icon size="xl">chevron_left</Icon>
             </button>
@@ -425,7 +425,7 @@ export const DayStepper = ({ dates, index, onSelect }) => {
                 onClick={() => step(1)}
                 disabled={index === dates.length - 1}
                 aria-label={`Go to ${DAY_LABELS[index + 1]?.toLowerCase() ?? "the next day"}`}
-                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25"
+                className="flex size-9 items-center justify-center rounded-full text-reading transition-colors hover:text-reading/80 disabled:pointer-events-none disabled:opacity-25 cursor-pointer"
             >
                 <Icon size="xl">chevron_right</Icon>
             </button>

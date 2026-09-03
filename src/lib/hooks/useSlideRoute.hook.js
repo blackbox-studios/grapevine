@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { usePathname, useRouter } from "next/navigation"
 
 import { ROUTES } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { appPath, basePath, runtimeRouteFor, slideRouteFor } from "@/lib/utils"
+import { appPath, baseRouteFor, basePath, runtimeRouteFor, slideRouteFor } from "@/lib/utils"
 
 /* The other half of a slide route: how one is opened, and how the shell knows to draw it.
  *
@@ -194,6 +194,35 @@ export const useActiveSlide = () => {
     const open = slides.length > 0
 
     return { slides, route: slideRouteFor(pathname), open, pushed: open && !isDesktop }
+}
+
+/* The route the shell should behave as if it is on, which is not always the one in the URL.
+ *
+ * A slide route changes the URL without changing the rendered route, so while one is open the
+ * pathname names the overlay and the page slot still holds the page underneath. Anything that
+ * asks "where are we" off the raw pathname therefore gets the overlay's answer for a page that
+ * is still on screen — which lights the wrong nav tab, and, because the shell keys its
+ * cross-fade on it, fades that page out and back in *behind* the overlay and scrolls it to the
+ * top on the way.
+ *
+ * **The page underneath is wherever the reader was, not the registry's `base`.** A post opened
+ * from the daily reading sits over the daily reading; `base` is the *cold* answer — where a
+ * shared link has to dismiss to, since nothing is mounted behind it — and using it for a
+ * surface this session opened is what made the overlay claim to be over the feed from every
+ * other page in the app. So the last non-slide pathname is held, and that is what the shell
+ * reads.
+ *
+ * Derived during render rather than in an effect, so the held value is right on the frame the
+ * pathname changes; an effect would let one frame paint on the overlay's answer, which is the
+ * flash this exists to prevent. It initialises through `baseRouteFor`, which is what makes a
+ * cold deep link resolve to the registry base with no branch of its own. */
+export const useShellRoute = () => {
+    const pathname = usePathname()
+    const [route, setRoute] = useState(() => baseRouteFor(pathname))
+
+    if (!slideRouteFor(pathname) && route !== pathname) setRoute(pathname)
+
+    return route
 }
 
 /* How every slide-route surface gets closed, and the Escape key that does it.

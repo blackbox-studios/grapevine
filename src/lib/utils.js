@@ -251,21 +251,25 @@ export const slideRouteFor = (pathname) => {
     return route?.slide ? route : null
 }
 
-/* The route the shell should behave as if it's on. A slide route resolves to the
- * base surface it overlays (the feed is still the "current place" while a post is
- * open); every other route is itself. */
+/* A slide-route pathname resolved to the surface it overlays; every other route is itself.
+ *
+ * This is the registry's answer, and it is the right one for a pathname with nothing mounted
+ * behind it — a cold deep link, where `base` is also where a dismissal goes. What the shell is
+ * standing on while a surface *it* opened is up is `useShellRoute`. */
 export const baseRouteFor = (pathname) => slideRouteFor(pathname)?.base ?? pathname
 
-/* Key for the top-level <PageTransition/>. Collapsing a group of paths to one key
- * suppresses the cross-fade at that level: nested trees own their sub-route fades,
- * and a slide route keys to its base so the base never fades or scrolls out from
- * under the overlay. */
+/* Key for the top-level <PageTransition/>. Collapsing a group of paths to one key suppresses
+ * the cross-fade at that level, which is how a nested tree comes to own its own sub-route fades.
+ *
+ * The shell feeds this `useShellRoute` rather than the pathname, so an open slide route leaves
+ * the key untouched and the page underneath never fades or scrolls out from under the overlay. */
 export const pageTransitionKey = (pathname) =>
     NESTED_TRANSITION_ROUTES.find((prefix) => isUnder(pathname, prefix)) ??
     baseRouteFor(pathname)
 
-/* Whether a nav destination should read as current. Resolves through the base route
- * first, so an open slide route keeps its base tab lit. */
+/* Whether a nav destination should read as current. Resolves through `baseRouteFor`, so a
+ * slide-route pathname still lights a tab rather than none; the shell passes `useShellRoute`,
+ * which is what lights the tab the overlay was opened from. */
 export const isRouteActive = (pathname, href) => {
     const base = baseRouteFor(pathname)
     return href === ROUTES.DEFAULT ? base === ROUTES.DEFAULT : isUnder(base, href)

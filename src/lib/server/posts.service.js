@@ -44,8 +44,7 @@ import { uploadPrefix } from "@/lib/server/uploads.service"
 
 /* Everything needed to render whoever wrote something.
  *
- * The name arrives in parts because the client composes it (see `projectAuthor`), and
- * `vocation` rides along because it is what supplies the title.
+ * Both names come, because a card and a roster ask for different ones — see `projectAuthor`.
  *
  * `memberships` is how the blue check is answered without a stored flag. It is narrowed to
  * the author's APPROVED **admin** memberships — a handful of ids at most, and usually one —
@@ -54,9 +53,9 @@ import { uploadPrefix } from "@/lib/server/uploads.service"
  * every author on a feed page to answer a boolean. */
 const authorSelect = {
     handle: true,
+    displayName: true,
     firstName: true,
     lastName: true,
-    christianName: true,
     vocation: true,
     avatarUrl: true,
     memberships: {
@@ -98,10 +97,9 @@ const commentInclude = (viewerId) => ({
 /* The social-proof person on a card — "<name> and 17 others" — for a whole page of posts in
  * one query.
  *
- * Selects the name *parts* rather than a name, because the card composes it with
- * `displayName()` exactly as it composes a byline — so a deacon who liked a post reads as
- * "Dn. Paul and 17 others" and not as his given and family name, which is the one place
- * he is never called that.
+ * Selects the same name fields `projectAuthor` sends rather than one string, because the card
+ * runs `displayName()` over this exactly as it does over a byline — so a deacon who liked a
+ * post reads as "Dn. Paul and 17 others", the way he is addressed everywhere else.
  *
  * `DISTINCT ON` is Postgres-specific and has no Prisma Client equivalent, which is why
  * this drops to raw SQL. The alternative shapes are both worse: a nested `take: 1` include
@@ -123,9 +121,9 @@ const likedByNames = async (postIds, viewerId) => {
         SELECT DISTINCT ON (l.post_id)
             l.post_id AS "postId",
             p.handle AS "handle",
+            p.display_name AS "displayName",
             p.first_name AS "firstName",
             p.last_name AS "lastName",
-            p.christian_name AS "christianName",
             p.vocation AS "vocation"
         FROM post_like l
         JOIN profile p ON p.id = l.profile_id
@@ -139,9 +137,9 @@ const likedByNames = async (postIds, viewerId) => {
             row.postId,
             {
                 handle: row.handle,
+                displayName: row.displayName,
                 firstName: row.firstName,
                 lastName: row.lastName,
-                christianName: row.christianName,
                 vocation: row.vocation,
             },
         ]),

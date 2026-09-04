@@ -13,6 +13,7 @@ import Skeleton from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
+import { haptic } from "@/lib/native"
 import { cn } from "@/lib/utils"
 
 /* The Daily Read: one day of the Prologue of Ohrid, and the day's fasting rule.
@@ -385,9 +386,15 @@ const DAY_LABELS = ["Yesterday", "Today", "Tomorrow"]
 export const DayStepper = ({ dates, index, onSelect }) => {
     if (index < 0) return null
 
+    /* Inside the bounds check, so the tap that buzzes is the one that moved the day.
+     * "light", because a day is chrome sliding past rather than something being committed to
+     * — the weight the group switcher opens on. The dots are left silent: an arrow is a
+     * repeated gesture a thumb rests on, which is what a haptic is worth having for. */
     const step = (delta) => {
         const next = index + delta
-        if (next >= 0 && next < dates.length) onSelect(dates[next])
+        if (next < 0 || next >= dates.length) return
+        haptic("light")
+        onSelect(dates[next])
     }
 
     return (

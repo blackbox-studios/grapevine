@@ -18,17 +18,15 @@ import { documentType, formatBytes } from "@/lib/utils"
 
 /* The author block every post and comment carries.
  *
- * **The name is sent in parts, never as a composed string.** `firstName`, `lastName`,
- * `christianName` and `vocation` go over the wire and `displayName()` in `lib/name.js`
- * assembles them on the client. That is not indirection for its own sake: the same author is
- * written two ways depending on where they appear — "Dn. Paul" in a byline, "Paul Ivanov" in
- * a roster that sorts by surname — and a server that picked one would make the other
- * impossible without a second endpoint. Sending the parts lets each surface ask for the form
- * it needs.
+ * **Both names go over: the one they are addressed by and the one they are filed under.**
+ * `displayName` is what a byline prints; `firstName`/`lastName` is what a roster sorts on.
+ * A server that shipped one composed string would make the other surface impossible without
+ * a second endpoint, which is why `displayName()` and `fullName()` in `lib/name.js` both
+ * take this block whole and each picks what it needs.
  *
- * `christianName` is one of those parts rather than profile detail, because for clergy it *is*
- * the given name — a byline that arrives without it addresses a priest by a legal name nobody
- * in the parish uses. Every block below that a name is composed from carries it.
+ * `patronSaint` is **not** here. It is the saint written in full, it composes nothing, and
+ * the surface that shows it is `<ProfileCard/>` — so it belongs to a profile rather than to a
+ * byline. See the column in `prisma/schema.prisma`.
  *
  * `verified` is the blue check, and it is **computed, not stored**: it means "this person
  * administers the organization this post belongs to". `orgId` is therefore required to
@@ -41,9 +39,9 @@ import { documentType, formatBytes } from "@/lib/utils"
  * query per card. */
 export const projectAuthor = (profile, orgId = null) => ({
     handle: profile.handle,
+    displayName: profile.displayName,
     firstName: profile.firstName,
     lastName: profile.lastName,
-    christianName: profile.christianName,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
     verified: Boolean(
@@ -237,9 +235,9 @@ export const projectOrg = (org, membership, { canDelete = false } = {}) => ({
 export const projectPerson = (profile, { following = false, isSelf = false } = {}) => ({
     id: profile.id,
     handle: profile.handle,
+    displayName: profile.displayName,
     firstName: profile.firstName,
     lastName: profile.lastName,
-    christianName: profile.christianName,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
     following,
@@ -271,9 +269,10 @@ export const projectPerson = (profile, { following = false, isSelf = false } = {
 export const projectProfile = (profile, { following = false, isSelf = false } = {}) => ({
     id: profile.id,
     handle: profile.handle,
+    displayName: profile.displayName,
     firstName: profile.firstName,
     lastName: profile.lastName,
-    christianName: profile.christianName,
+    patronSaint: profile.patronSaint,
     vocation: profile.vocation,
     avatar: profile.avatarUrl,
     /* One value or null, never half a date — the two columns are written together. Sent as
@@ -333,9 +332,10 @@ export const projectViewer = (profile, memberships = []) => {
         id: profile.id,
         email: profile.email,
         handle: profile.handle,
-        /* Parts, not a composed string — the viewer is rendered by `displayName()` like
-         * anybody else, and the onboarding form needs the two fields back individually to
-         * populate itself if the viewer returns to it. */
+        /* All three, because the viewer is both rendered and edited: `displayName()` writes
+         * their byline from the first, and the settings form seeds every one of its boxes
+         * from the row it is going to write back. */
+        displayName: profile.displayName,
         firstName: profile.firstName,
         lastName: profile.lastName,
         avatar: profile.avatarUrl,
@@ -352,7 +352,7 @@ export const projectViewer = (profile, memberships = []) => {
          * General can seed its form from the viewer rather than fetching a second copy of
          * them. `nameDay` takes the same `MM-DD` shape `projectProfile` sends, so one control
          * reads both. */
-        christianName: profile.christianName,
+        patronSaint: profile.patronSaint,
         nameDay:
             profile.nameDayMonth && profile.nameDayDay
                 ? `${String(profile.nameDayMonth).padStart(2, "0")}-${String(profile.nameDayDay).padStart(2, "0")}`

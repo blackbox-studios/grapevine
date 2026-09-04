@@ -99,9 +99,9 @@ const notificationInclude = (viewerId) => ({
     actor: {
         select: {
             handle: true,
+            displayName: true,
             firstName: true,
             lastName: true,
-            christianName: true,
             vocation: true,
             avatarUrl: true,
             memberships: {
@@ -366,12 +366,48 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
  * the app is backgrounded or dead. A data-only message would need the app to be running to
  * render anything, which is the one case push exists for.
  *
+ * ── The actor's picture ──────────────────────────────────────────────────────
+ *
+ * `image` is the face of whoever did the thing, and it is a **URL the OS fetches**, not bytes
+ * we send. That works because the `media` bucket is public-read (see `scripts/setup-storage.mjs`)
+ * — a signed URL would expire while the phone was asleep, which is precisely when a push
+ * matters. Omitted when the person has no picture, for the same reason `postId` is: FCM types
+ * every field and a null fails the whole send.
+ *
+ * It is passed through `pushableImage` rather than straight off the column, because a phone
+ * has no origin to resolve a relative path against and a malformed `image` does not fail
+ * quietly — it is a 400 on the whole message, identically for every recipient. See that
+ * helper.
+ *
+ * **It is not the small round icon, and no FCM field is.** Android draws it as the expanded
+ * notification's picture and as the thumbnail on the collapsed row; the little circle stays
+ * the app icon, because `android.notification.icon` takes a bundled drawable name and cannot
+ * take a URL. On iOS `mutable-content` plus `fcm_options.image` is the documented path, and
+ * it needs a Notification Service Extension in the iOS target to actually render — there is
+ * none yet, so the field is inert there and the banner is text. Both are sent because the
+ * payload is then already right for the day the extension lands.
+ *
  * **No badge count.** iOS would happily take one, but it is per recipient, so setting it on a
  * fan-out means a `count(*)` per member of the parish before a single push goes out — a round
  * trip per person to decorate an icon. The bell inside the app is the honest tally and it is
  * already free. */
-const message = ({ title, body, postId = null, handle = null, type }) => ({
-    notification: { title, body },
+/* An avatar the OS on a phone can actually fetch, or null.
+ *
+ * `Profile.avatarUrl` holds two shapes. A picture somebody uploaded is an absolute URL into
+ * the public `media` bucket, which is what this wants. A dev fixture is a path like
+ * `/img/mock/priest-alexander.png`, which the client resolves through `appPath` against the
+ * origin it is running on — and a push has no such origin: the payload is handed to Google and
+ * rendered by a phone that knows nothing about this deployment.
+ *
+ * Dropping the unusable one rather than sending it is the whole point. FCM rejects a malformed
+ * `notification.image` with a 400 on the *message*, not on the token, so it fails identically
+ * for every recipient — a like that would have gone through silently loses its notification
+ * instead of merely losing its picture. `sendOne` in `push.js` is written to tell that class of
+ * failure apart precisely because it is not recoverable by retrying. */
+const pushableImage = (url) => (/^https?:\/\//i.test(url ?? "") ? url : null)
+
+const message = ({ title, body, postId = null, handle = null, image = null, type }) => ({
+    notification: { title, body, ...(image ? { image } : {}) },
     data: { type, ...(postId ? { postId } : {}), ...(handle ? { handle } : {}) },
     android: {
         /* `high` is what wakes a dozing device; the default is `normal`, which Android is
@@ -382,7 +418,8 @@ const message = ({ title, body, postId = null, handle = null, type }) => ({
         notification: { sound: "default", tag: postId ?? handle },
     },
     apns: {
-        payload: { aps: { sound: "default" } },
+        payload: { aps: { sound: "default", ...(image ? { "mutable-content": 1 } : {}) } },
+        ...(image ? { fcm_options: { image } } : {}),
     },
 })
 
@@ -418,9 +455,9 @@ const detach = (promise) => {
 
 /* "Dn. Paul liked your post."
  *
- * Takes the actor as the viewer object the route already holds, so the name costs nothing —
- * `displayName` is the same function the feed uses, which is what keeps a push and the panel
- * row it corresponds to from addressing the same deacon two different ways.
+ * Takes the actor as the viewer object the route already holds, so the name and the picture
+ * both cost nothing — `displayName` is the same function the feed uses, which is what keeps a
+ * push and the panel row it corresponds to from addressing the same deacon two different ways.
  *
  * Silent for a self-like, matching `notifyLike`: there is no row, so there is nothing to
  * deliver. The check is repeated here rather than inferred from `notifyLike` returning null,
@@ -436,6 +473,7 @@ export const pushLike = ({ recipientId, actor, type, postId }) => {
                 title: displayName(actor),
                 body: type === "COMMENT_LIKE" ? "liked your comment" : "liked your post",
                 postId,
+                image: pushableImage(actor.avatarUrl),
                 type,
             }),
         ),
@@ -457,6 +495,7 @@ export const pushComment = ({ recipientId, actor, postId }) => {
                 title: displayName(actor),
                 body: "commented on your post",
                 postId,
+                image: pushableImage(actor.avatarUrl),
                 type: "POST_COMMENT",
             }),
         ),
@@ -476,6 +515,7 @@ export const pushFollow = ({ recipientId, actor }) => {
                 title: displayName(actor),
                 body: "followed you",
                 handle: actor.handle,
+                image: pushableImage(actor.avatarUrl),
                 type: "FOLLOW",
             }),
         ),
@@ -489,7 +529,12 @@ export const pushFollow = ({ recipientId, actor }) => {
  * to know who. The panel row makes the same choice.
  *
  * `recipients` is already the parish minus the author — `newPostRecipients` excluded them —
- * so there is no self-check to repeat here. */
+ * so there is no self-check to repeat here.
+ *
+ * **The one push with no picture**, because the three that carry one are titled with a person
+ * and this one is titled with a group. The author's face under the cathedral's name answers a
+ * question nobody asked; the post's own photo would be the right image and is the thing to add
+ * if this ever gets one, which means plumbing the media rows down to here. */
 export const pushNewPost = ({ recipients, actor, orgName, postId }) => {
     if (recipients.length === 0) return
 

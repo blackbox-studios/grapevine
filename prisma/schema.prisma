@@ -133,20 +133,16 @@ model Profile {
   /// somebody knows only their address — orientation is where they replace it.
   handle String @unique
 
-  /// The person's name, in two parts, supplied by them during orientation.
+  /// The person's legal name, in two parts, supplied by them during orientation.
   ///
-  /// **There is no `fullName` column, and adding one back would be a mistake.** A stored
-  /// display string cannot answer both of the questions this app asks of a name: the feed
-  /// addresses clergy as title + given name ("Dn. Paul"), while the roster sorts and
-  /// searches on the surname. One frozen string serves one of those and quietly corrupts
-  /// the other — which is what happened when an admin typed "Dn. Paul" into a full-name
-  /// box and the deacon's surname ceased to exist as data.
+  /// **These two are never a title and never a rank.** They are what a passport says, and
+  /// they exist to be sorted and searched on: the roster orders a parish by surname, which
+  /// a name with a title welded onto the front cannot serve. `fullName()` in `lib/name.js`
+  /// is the only thing that joins them, and there is no `fullName` column for that reason
+  /// — a stored join is a third copy of two facts that can disagree with them.
   ///
-  /// The title is **not** stored here either. It is derived from `vocation` at render
-  /// time by `displayName()` in `lib/name.js`, so ordaining a reader as a deacon is a
-  /// vocation change rather than a name edit — and so nobody can be addressed as a rank
-  /// they do not hold. For a ranked person the given name it attaches to is `christianName`
-  /// rather than `firstName`; see that column.
+  /// How a person is *addressed* is `displayName` below, which is a separate column because
+  /// it is a separate fact. See it.
   ///
   /// Nullable because admission provisions a Profile from an email address alone; both are
   /// non-null from the moment orientation completes. A profile with no name yet renders as
@@ -154,31 +150,53 @@ model Profile {
   firstName String? @map("first_name")
   lastName  String? @map("last_name")
 
+  /// How this person is addressed everywhere their name appears — a byline, a comment, a
+  /// push banner, a follower list. "Priest Alexander", "Dn. Paul", "Rob".
+  ///
+  /// **Typed by the person, not composed from the columns around it, and the composition is
+  /// what has no correct answer.** `vocation` + `patronSaint` looks like it should produce
+  /// this, but a patron saint is not a first name: it is the saint written the way the Church
+  /// writes him, so "The Right-Believing Prince Alexander Nevsky" is a correct value in that
+  /// column and an impossible one to prefix with a rank. Prefixed anyway it reads "Priest
+  /// Right Believing Prince Alexander Nevsky", which is not a person's name in any register —
+  /// and no rule over the two columns repairs it, because the one holding the long form is
+  /// holding the right thing. So the person says what to call them.
+  ///
+  /// The cost is real and is accepted: ordaining a reader as a deacon is a vocation change
+  /// **and** a name edit, because nothing derives this. `suggestDisplayName()` in
+  /// `lib/name.js` is what keeps that cheap — it proposes "Dn. Paul" into one field — and it
+  /// is only ever a suggestion, because the whole point is that the last word is the person's.
+  ///
+  /// Null means "not set", and `displayName()` falls back to the legal name and then to the
+  /// handle. It stays null for most laity: orientation asks for it only from the ranks a name
+  /// is conferred with (`RANKED_VOCATIONS`), where the question has an answer nobody
+  /// can derive. Everyone else is called what their name is.
+  displayName String? @map("display_name")
+
   avatarUrl String?  @map("avatar_url")
   /// Who the person is, not what they may do. See the header note.
   vocation  Vocation @default(FAITHFUL)
 
-  /// The name this person bears in the Church — the saint they are named for.
+  /// The saint this person is named for, written as the Church writes him.
   ///
-  /// **Not "baptism name", and the difference is not wording.** It is given at baptism or
-  /// chrismation, but it is given *again* at tonsure and at consecration: a man baptised
-  /// David may be tonsured Frank's monastic name and consecrated Bishop Daniel, and each new
-  /// name replaces the last. One column holds the current one, because the current one is
-  /// the only one anybody is addressed by.
+  /// **Not "baptism name", and the difference is not wording.** The name is given at baptism
+  /// or chrismation, but it is given *again* at tonsure and at consecration: a man baptised
+  /// David may be tonsured under a monastic name and consecrated Bishop Daniel, and each one
+  /// replaces the last. One column holds the current patron, because the current one is the
+  /// only one that answers anything.
   ///
   /// Held apart from `firstName` because for most people the two differ — someone baptised
   /// Nicholas may go by Nick, or by a legal name with no saint behind it at all.
   ///
-  /// **For anyone conferred a rank it is the name they are addressed by**, and
-  /// `displayName()` in `lib/name.js` reads it: a priest whose legal name is Robert and whose
-  /// Christian name is Alexander is "Priest Alexander" and never "Priest Robert". Reader and
-  /// above — `CHRISTIAN_NAME_VOCATIONS` in `lib/constants.js`, which is a separate list from
-  /// the ordained ranks and says so. Everyone else is still written from `firstName`.
+  /// **It is free to be as long as the saint is**: "The Right-Believing Prince Alexander
+  /// Nevsky" belongs in this column, and the length is why the column is named for a saint
+  /// rather than for a name. Nothing composes a byline out of it — that is `displayName`
+  /// above, which a person types. It is the Patron column on `<ProfileCard/>` and what makes
+  /// the name-day digest legible, and both want the full form.
   ///
   /// Null for a catechumen, who has not been given one yet, and orientation does not ask
-  /// them for one. Null afterwards means only "not supplied", which is why the display falls
-  /// back to `firstName` rather than to the handle.
-  christianName String? @map("christian_name")
+  /// them for one; null afterwards means only "not supplied".
+  patronSaint String? @map("patron_saint")
 
   /// The patronal feast this person keeps — a **month and a day, with no year**, because
   /// that is what a name day is. Split into two small integers rather than stored as a date

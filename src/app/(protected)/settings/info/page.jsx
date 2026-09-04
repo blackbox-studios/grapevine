@@ -27,7 +27,8 @@ import {
     HANDLE_MAX,
     HANDLE_MIN,
     HANDLE_PATTERN,
-    MAX_CHRISTIAN_NAME_LENGTH,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_PATRON_SAINT_LENGTH,
     ROUTES,
 } from "@/lib/constants"
 import { useProfileEditor } from "@/lib/store/auth/hook"
@@ -46,13 +47,14 @@ import { useProfileEditor } from "@/lib/store/auth/hook"
  * with a verification step rather than a profile edit.
  *
  * **A page rather than a mode on the card.** The card is a thing you peek at from a byline;
- * this is eight fields and a save, which is a place you go — and being a page in the account
- * tree is what gives it the same back arrow, the same cross-fade and the same frame as General
- * beside it.
+ * this is a column of fields and a save, which is a place you go — and being a page in the
+ * account tree is what gives it the same back arrow, the same cross-fade and the same frame as
+ * General beside it.
  *
  * Which fields exist follows the vocation, exactly as orientation's steps do: a catechumen has
- * no Christian name yet, a layman no ordination. `submit` drops the ones that were never drawn,
- * so a form that does not ask cannot answer. */
+ * no patron saint yet, a layman no ordination and nothing to decide about how he is
+ * addressed. `submit` drops the ones that were never drawn, so a form that does not ask cannot
+ * answer. */
 
 const schema = z.object({
     firstName: z.string().trim().min(1, "Enter your first name").max(80, "That is too long"),
@@ -75,7 +77,8 @@ const schema = z.object({
             "That date is in the future",
         )
         .refine((value) => Number(value.slice(0, 4)) >= 1900, "Check the year"),
-    christianName: z.string().trim().max(MAX_CHRISTIAN_NAME_LENGTH, "That is too long"),
+    displayName: z.string().trim().max(MAX_DISPLAY_NAME_LENGTH, "That is too long"),
+    patronSaint: z.string().trim().max(MAX_PATRON_SAINT_LENGTH, "That is too long"),
     /* `MM-DD`, or empty — a name day is a month and a day with no year. See the Precision note
      * in <DatePicker/>. */
     nameDay: z.union([z.literal(""), z.string().regex(/^\d{2}-\d{2}$/, "Choose a day")]),
@@ -115,7 +118,7 @@ const PrivateLabel = ({ children }) => (
 )
 
 const SettingsInfoPage = () => {
-    const { values, person, email, catechumen, clergy, checkHandle, save, saving } =
+    const { values, person, email, catechumen, clergy, ranked, checkHandle, save, saving } =
         useProfileEditor()
 
     const form = useForm({ resolver: zodResolver(schema), defaultValues: values })
@@ -131,10 +134,11 @@ const SettingsInfoPage = () => {
     const submit = async (next) => {
         const changes = { ...next }
         if (catechumen) {
-            delete changes.christianName
+            delete changes.patronSaint
             delete changes.nameDay
         }
         if (!clergy) delete changes.ordinationDate
+        if (!ranked) delete changes.displayName
 
         const result = await save(changes)
         if (!result?.ok) {
@@ -218,6 +222,35 @@ const SettingsInfoPage = () => {
                         />
                     </div>
 
+                    {/* Directly under the legal name, because it is the answer to "and what
+                        do we call you". Ranked only: a layman is addressed by the two fields
+                        above, so the box would be asking him to type them again. */}
+                    {ranked && (
+                        <FormField
+                            control={form.control}
+                            name="displayName"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Display name</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            autoComplete="off"
+                                            autoCapitalize="words"
+                                            placeholder="Priest Alexander"
+                                            maxLength={MAX_DISPLAY_NAME_LENGTH}
+                                            disabled={saving}
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormDescription>
+                                        How your parish sees you above everything you post.
+                                    </FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+
                     <HandleField
                         form={form}
                         status={status}
@@ -225,7 +258,7 @@ const SettingsInfoPage = () => {
                         disabled={saving}
                         description={
                             <FormDescription>
-                                This is what appears next to everything you write.
+                                The @name people find you by.
                             </FormDescription>
                         }
                     />
@@ -234,10 +267,10 @@ const SettingsInfoPage = () => {
                         <>
                             <FormField
                                 control={form.control}
-                                name="christianName"
+                                name="patronSaint"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Christian name</FormLabel>
+                                        <FormLabel>Patron saint</FormLabel>
                                         <FormControl>
                                             <Input
                                                 autoComplete="off"

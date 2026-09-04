@@ -129,7 +129,8 @@ const TRANSIENT = new Set([
  * `useViewerAuthor` (a hook, for components) and the comments store (plain state, no hook
  * available). Two copies of this drifted apart is exactly the bug it prevents.
  *
- * The name goes as parts, like every other author block — `displayName()` composes it.
+ * The name goes in the same fields every other author block carries, so `displayName()` and
+ * `initials()` read it identically.
  *
  * `verified` is the approximation: the server answers it against the organization the
  * content belongs to, and the viewer's role in their primary group is the closest a client
@@ -139,9 +140,9 @@ export const viewerAuthor = (user) =>
     user
         ? {
               handle: user.handle,
+              displayName: user.displayName,
               firstName: user.firstName,
               lastName: user.lastName,
-              christianName: user.christianName,
               vocation: user.vocation,
               avatar: user.avatar,
               verified: user.role === ROLES.ADMIN,
@@ -165,9 +166,10 @@ export const viewerProfile = (user) =>
         ? {
               id: user.id,
               handle: user.handle,
+              displayName: user.displayName ?? null,
               firstName: user.firstName,
               lastName: user.lastName,
-              christianName: user.christianName ?? null,
+              patronSaint: user.patronSaint ?? null,
               vocation: user.vocation,
               avatar: user.avatar,
               nameDay: user.nameDay ?? null,

@@ -105,6 +105,7 @@ const DIOCESE_BISHOP = {
     handle: "bp.nicholas",
     firstName: "Nicholas",
     lastName: "Sokolov",
+    displayName: "Bp. Nicholas",
     vocation: "BISHOP",
     role: "ADMIN",
 }
@@ -144,11 +145,10 @@ const DIOCESE_POSTS = [
  * Handles match the fixture data in seed-data.js, because that is how comments are mapped
  * back onto their authors below.
  *
- * **Names are given and family, never an addressed form.** Nobody is seeded as "Dn. Paul"
- * — he is Grigore Ivanov with `vocation: DEACON` and `christianName: "Paul"`, and both the
- * title and the name it attaches to are composed at render time by `displayName()`. Seeding
- * the addressed form is what the old `fullName` column encouraged, and it left every deacon
- * and matushka in the corpus with no surname at all.
+ * **Three names, and they are three different facts.** `firstName`/`lastName` is the legal
+ * name the roster sorts on, `patronSaint` is the saint written as the Church writes him,
+ * and `displayName` is what a byline prints. Nobody is seeded with a title welded onto a
+ * surname — that is what leaves a corpus of deacons and matushkas with no surname at all.
  *
  * There is no `verified` either. The blue check is derived from an ADMIN membership, so the
  * `role` below is already what grants it. */
@@ -166,7 +166,8 @@ const PEOPLE = [
          * the person, and the groups he owns are only the ones he creates from the app. */
         platformRole: "OWNER",
         avatarUrl: "/img/mock/priest-alexander.png",
-        christianName: "Alexander",
+        displayName: "Priest Alexander",
+        patronSaint: "Alexander",
         nameDay: "08-30",
         ordinationDate: "2011-06-12",
         signIn: true,
@@ -178,29 +179,29 @@ const PEOPLE = [
         email: MEMBER_EMAIL,
         vocation: "FAITHFUL",
         role: "MEMBER",
-        christianName: "George",
+        patronSaint: "George",
         nameDay: "04-23",
         signIn: true,
     },
-    /* The one fixture whose legal and Christian names differ, because `displayName()`
-     * addresses a ranked person by the second and nothing here would demonstrate that if
-     * every pair agreed. His handle stays on the first, which is what really happens: a
-     * handle is chosen before the rank and is never re-derived. */
-    { handle: "deacon.paul", firstName: "Grigore", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER", christianName: "Paul", nameDay: "06-29", ordinationDate: "2019-10-06" },
-    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER", christianName: "Katherine", nameDay: "11-25" },
-    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER", christianName: "Anna", nameDay: "07-25" },
-    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER", christianName: "Michael", nameDay: "11-08" },
-    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER", christianName: "Helen", nameDay: "05-21" },
-    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER", christianName: "Gregory", nameDay: "01-25" },
-    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER", christianName: "Theodora", nameDay: "02-11" },
-    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER", christianName: "Cassian", nameDay: "02-29" },
-    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER", christianName: "Mary", nameDay: "08-15" },
-    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER", christianName: "Samuel", nameDay: "08-20" },
-    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER", christianName: "Tabitha", nameDay: "10-25" },
+    /* Three names that all disagree, which is the case the model exists for: he is filed
+     * under Ivanov, addressed as "Dn. Paul", and his handle is on the legal name he chose it
+     * from before he was ordained. Reader Michael is the other half of it — a patron saint
+     * ("Michael of Chernigov") too long for the byline his display name gives him. */
+    { handle: "deacon.paul", firstName: "Grigore", lastName: "Ivanov", vocation: "DEACON", role: "MEMBER", displayName: "Dn. Paul", patronSaint: "Paul", nameDay: "06-29", ordinationDate: "2019-10-06" },
+    { handle: "mat.carly", firstName: "Carly", lastName: "Petrov", vocation: "MATUSHKA", role: "MEMBER", displayName: "Mat. Carly", patronSaint: "Katherine", nameDay: "11-25" },
+    { handle: "matushka.anna", firstName: "Anna", lastName: "Volkov", vocation: "MATUSHKA", role: "MEMBER", displayName: "Mat. Anna", patronSaint: "Anna", nameDay: "07-25" },
+    { handle: "reader.michael", firstName: "Michael", lastName: "Cross", vocation: "READER", role: "MEMBER", displayName: "Reader Michael", patronSaint: "Michael of Chernigov", nameDay: "11-08" },
+    { handle: "choir.elena", firstName: "Elena", lastName: "Marku", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Helen", nameDay: "05-21" },
+    { handle: "geoffrey.k", firstName: "Geoffrey", lastName: "Kane", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Gregory", nameDay: "01-25" },
+    { handle: "theodora.v", firstName: "Theodora", lastName: "Vasil", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Theodora", nameDay: "02-11" },
+    { handle: "casey.n", firstName: "Casey", lastName: "Nguyen", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Cassian", nameDay: "02-29" },
+    { handle: "morgan.p", firstName: "Morgan", lastName: "Patel", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Mary", nameDay: "08-15" },
+    { handle: "sam.okafor", firstName: "Sam", lastName: "Okafor", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Samuel", nameDay: "08-20" },
+    { handle: "taylor.b", firstName: "Taylor", lastName: "Brooks", vocation: "FAITHFUL", role: "MEMBER", patronSaint: "Tabitha", nameDay: "10-25" },
     /* One person removed, so the roster shows both statuses and the Restore action has
      * something to act on. REVOKED is the only alternative there is — see the admission
      * note in schema.prisma's header. */
-    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED", christianName: "Irene", nameDay: "05-05" },
+    { handle: "riley.c", firstName: "Riley", lastName: "Chen", vocation: "FAITHFUL", role: "MEMBER", status: "REVOKED", patronSaint: "Irene", nameDay: "05-05" },
 ]
 
 /* ── Mapping the fixture corpus onto rows ────────────────────────────────── */
@@ -310,8 +311,9 @@ const main = async () => {
             lastName: person.lastName,
             avatarUrl: person.avatarUrl ?? null,
             vocation: person.vocation,
+            displayName: person.displayName ?? null,
             platformRole: person.platformRole ?? "NONE",
-            christianName: person.christianName ?? null,
+            patronSaint: person.patronSaint ?? null,
             /* `MM-DD` in the fixture, two integers in the column — a name day has no year.
              * See the `nameDayMonth` note in schema.prisma. */
             nameDayMonth: person.nameDay ? Number(person.nameDay.slice(0, 2)) : null,

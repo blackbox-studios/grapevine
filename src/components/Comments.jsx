@@ -26,6 +26,7 @@ import { useEndSentinel } from "@/lib/hooks/useScroll.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { displayName } from "@/lib/name"
 import { useComments } from "@/lib/store/comments/hook"
 import { usePostLike } from "@/lib/store/post/hook"
 import { ROW_SPRING, appPath, cn, formatCompact, timeAgoCompact, timeAgoMacro } from "@/lib/utils"
@@ -417,14 +418,39 @@ export const CommentsPanel = ({ post, dismiss, caption, className }) => {
 
     return (
         <div className={cn("flex min-h-0 flex-col", className)}>
+            {/* The same two-line byline the feed card carries: how the author is addressed
+              * over the handle that identifies them. A reader arrives here from that card, so
+              * the header they land on should name the person the way the one they tapped
+              * did — a rail that showed only "@robert.paul3" made the same post look like it
+              * had two different authors. */}
             <header className="flex shrink-0 items-center gap-3 px-4 py-3">
-                <Avatar person={author} className="size-8" />
-                <HandleLink person={author} className="text-sm font-semibold" />
-                {author.verified && (
-                    <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
-                        verified
-                    </Icon>
-                )}
+                <Avatar person={author} className="size-9" />
+                <div className="flex min-w-0 flex-col leading-tight">
+                    <div className="flex items-center gap-1">
+                        {/* `truncate`, so a long name ellipses rather than pushing the check
+                          * and the menu out of the rail. */}
+                        <HandleLink
+                            person={author}
+                            truncate
+                            className="text-sm font-semibold"
+                        >
+                            {displayName(author)}
+                        </HandleLink>
+                        {author.verified && (
+                            /* `shrink-0`: the name truncates, and without this the check is
+                               squeezed away before the name ever ellipses. */
+                            <Icon
+                                size="xs"
+                                className="shrink-0 text-brand [font-variation-settings:'FILL'_1]"
+                            >
+                                verified
+                            </Icon>
+                        )}
+                    </div>
+                    <span className="truncate text-xs text-muted-foreground">
+                        @{author.handle}
+                    </span>
+                </div>
                 {/* Deleting from here takes the dialog with it — `dismiss` is why this
                   * surface's copy of the menu is not the same instance as the feed card's. */}
                 <PostMenuTrigger post={post} dismiss={dismiss} className="ml-auto" />

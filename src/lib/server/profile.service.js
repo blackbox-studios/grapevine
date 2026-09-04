@@ -6,7 +6,8 @@ import {
     HANDLE_MAX,
     HANDLE_MIN,
     HANDLE_PATTERN,
-    MAX_CHRISTIAN_NAME_LENGTH,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_PATRON_SAINT_LENGTH,
     UPLOAD_PURPOSES,
 } from "@/lib/constants"
 import { prisma } from "@/lib/db"
@@ -105,7 +106,7 @@ const readName = (value, field, label) => {
 /* The same rule, applied only if the caller mentioned the field.
  *
  * `undefined` passes straight through; an empty string does **not** — a name is not clearable
- * the way a Christian name is, because every byline in the app falls back to the handle and a
+ * the way a patron saint is, because every byline in the app falls back to the handle and a
  * person who blanked their name would silently become "@j.smith" everywhere. So the partial
  * update can leave a name alone but never erase one. */
 const readNameIfGiven = (value, field, label) =>
@@ -172,7 +173,7 @@ const readBirthday = (value) => {
  * lets somebody who typed the wrong saint's name empty the box again, and an empty string is
  * how a form says that. `undefined` means the caller did not mention the field, which is what
  * keeps a partial update from wiping what it did not send. */
-const readOptionalText = (value, field, label, max = MAX_CHRISTIAN_NAME_LENGTH) => {
+const readOptionalText = (value, field, label, max = MAX_PATRON_SAINT_LENGTH) => {
     if (value === undefined) return undefined
     const text = String(value ?? "").trim().replace(/\s+/g, " ")
     if (!text) return null
@@ -311,7 +312,7 @@ export const checkHandle = async (viewer, value) => {
 }
 
 /* Completes first-run orientation: the viewer's name, the @handle they chose, their
- * birthday, and — for the people it applies to — their Christian name, name day, and
+ * birthday, and — for the people it applies to — their patron saint, name day, and
  * ordination date.
  *
  * **One write, or none.** Stamping `onboardedAt` is what lets the viewer past the welcome
@@ -325,18 +326,33 @@ export const checkHandle = async (viewer, value) => {
  *
  * **The four required fields are required; the last three are not, and that asymmetry is the
  * point.** Which of them the form even asks depends on a vocation the admin set — a catechumen
- * has no Christian name yet, and a layman has no ordination — so the server cannot demand what
+ * has no patron saint yet, and a layman has no ordination — so the server cannot demand what
  * it cannot know was offered. Anything omitted stays null and is answerable later from
  * Settings → General, which is the same write with `updateProfile` behind it. */
 export const completeOnboarding = async (
     viewer,
-    { firstName, lastName, handle, birthday, christianName, nameDay, ordinationDate },
+    {
+        firstName,
+        lastName,
+        handle,
+        birthday,
+        displayName,
+        patronSaint,
+        nameDay,
+        ordinationDate,
+    },
 ) => {
     const first = readName(firstName, "firstName", "first name")
     const last = readName(lastName, "lastName", "last name")
     const chosen = readHandle(handle)
     const date = readBirthday(birthday)
-    const christian = readOptionalText(christianName, "christianName", "Christian name")
+    const shown = readOptionalText(
+        displayName,
+        "displayName",
+        "display name",
+        MAX_DISPLAY_NAME_LENGTH,
+    )
+    const patron = readOptionalText(patronSaint, "patronSaint", "patron saint")
     const feast = readNameDay(nameDay)
     const ordained = readOrdinationDate(ordinationDate)
 
@@ -351,7 +367,8 @@ export const completeOnboarding = async (
                 lastName: last,
                 handle: chosen,
                 birthday: date,
-                ...(christian !== undefined ? { christianName: christian } : {}),
+                ...(shown !== undefined ? { displayName: shown } : {}),
+                ...(patron !== undefined ? { patronSaint: patron } : {}),
                 ...(feast ?? {}),
                 ...(ordained !== undefined ? { ordinationDate: ordained } : {}),
                 onboardedAt: new Date(),
@@ -407,7 +424,13 @@ export const updateProfile = async (viewer, input) => {
     const last = readNameIfGiven(input.lastName, "lastName", "last name")
     const chosen = input.handle === undefined ? undefined : readHandle(input.handle)
     const born = input.birthday === undefined ? undefined : readBirthday(input.birthday)
-    const christian = readOptionalText(input.christianName, "christianName", "Christian name")
+    const shown = readOptionalText(
+        input.displayName,
+        "displayName",
+        "display name",
+        MAX_DISPLAY_NAME_LENGTH,
+    )
+    const patron = readOptionalText(input.patronSaint, "patronSaint", "patron saint")
     const feast = readNameDay(input.nameDay)
     const ordained = readOrdinationDate(input.ordinationDate)
     const picture = readAvatarUrl(viewer, input.avatar)
@@ -418,7 +441,8 @@ export const updateProfile = async (viewer, input) => {
         ...(chosen !== undefined ? { handle: chosen } : {}),
         ...(born !== undefined ? { birthday: born } : {}),
         ...(picture !== undefined ? { avatarUrl: picture } : {}),
-        ...(christian !== undefined ? { christianName: christian } : {}),
+        ...(shown !== undefined ? { displayName: shown } : {}),
+        ...(patron !== undefined ? { patronSaint: patron } : {}),
         ...(feast ?? {}),
         ...(ordained !== undefined ? { ordinationDate: ordained } : {}),
     }
@@ -462,9 +486,8 @@ export const updateProfile = async (viewer, input) => {
 
 /* One row of the roster.
  *
- * The name goes over as parts, like everywhere else — the roster is in fact the surface
- * that most needs them, because it sorts and searches on the surname that a composed
- * "Dn. Paul" would have thrown away.
+ * Both names, like everywhere else — and the roster is the surface that most needs the legal
+ * one, because it sorts and searches on the surname that "Priest Alexander" does not contain.
  *
  * There is no `verified` here: the check means "administers this group", and this row
  * already carries `role`. Sending both would be the same fact twice, with the ever-present
@@ -474,9 +497,9 @@ const projectMember = (membership) => ({
     membershipId: membership.id,
     email: membership.profile.email,
     handle: membership.profile.handle,
+    displayName: membership.profile.displayName,
     firstName: membership.profile.firstName,
     lastName: membership.profile.lastName,
-    christianName: membership.profile.christianName,
     avatar: membership.profile.avatarUrl,
     vocation: membership.profile.vocation,
     role: membership.role,

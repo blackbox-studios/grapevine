@@ -21,11 +21,13 @@ import {
     HANDLE_MAX,
     HANDLE_MIN,
     HANDLE_PATTERN,
-    MAX_CHRISTIAN_NAME_LENGTH,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_PATRON_SAINT_LENGTH,
+    RANKED_VOCATIONS,
     VOCATIONS,
 } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { suggestHandle } from "@/lib/name"
+import { suggestDisplayName, suggestHandle } from "@/lib/name"
 import { useOnboarding } from "@/lib/store/auth/hook"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { cn } from "@/lib/utils"
@@ -54,7 +56,7 @@ import { cn } from "@/lib/utils"
  * screen, and this should read as the next beat of it rather than a new place. */
 
 /* **The sequence is not fixed, and every step that can be skipped is skipped for a reason the
- * viewer would recognise.** A catechumen has not been given a Christian name yet, and a layman
+ * viewer would recognise.** A catechumen has not been given a patron saint yet, and a layman
  * has no ordination — asking either is asking a question with no true answer, and a form that
  * does it is a form that has not been read. The vocation those branch on is the *admin's*,
  * set at admission, so it is known before this screen renders.
@@ -71,14 +73,17 @@ import { cn } from "@/lib/utils"
  * viewer's first minute, and one thing at a time reads as a conversation. */
 const FIRST_STEP = "name"
 
-/* The order the applicable steps are asked in. `patron` and `ordination` sit after the
- * birthday because they are the parish's questions rather than the account's, and the
- * notification prompt is always last so the OS's dialog is the final thing before the feed. */
-const stepSequence = ({ patron, ordination, push }) => [
+/* The order the applicable steps are asked in. The parish's questions sit after the birthday
+ * because the ones before it are the account's, and the notification prompt is always last so
+ * the OS's dialog is the final thing before the feed. */
+const stepSequence = ({ patron, address, ordination, push }) => [
     FIRST_STEP,
     "handle",
     "birthday",
     ...(patron ? ["patron"] : []),
+    /* After the patron, because it is prefilled from the patron saint given there — a
+     * priest who has just typed "Alexander" is offered "Priest Alexander" and continues. */
+    ...(address ? ["address"] : []),
     ...(ordination ? ["ordination"] : []),
     ...(push ? ["notifications"] : []),
 ]
@@ -92,8 +97,9 @@ const STEP_FOR_FIELD = {
     lastName: "name",
     handle: "handle",
     birthday: "birthday",
-    christianName: "patron",
+    patronSaint: "patron",
     nameDay: "patron",
+    displayName: "address",
     ordinationDate: "ordination",
 }
 
@@ -134,17 +140,27 @@ const birthdaySchema = z.object({
 
 /* The patron step's two answers. Both required, and that is a considered position rather than
  * an oversight: this pair exists so a priest can be told whose feast falls this week, and a
- * Christian name with no date attached answers half of that question and serves neither half.
+ * patron saint with no date attached answers half of that question and serves neither half.
  * Everyone this step is shown to has a patron saint and therefore a feast; someone who wants to
  * correct either later does it in Settings → General. */
 const patronSchema = z.object({
-    christianName: z
+    patronSaint: z
         .string()
         .trim()
-        .min(1, "Enter your Christian name")
-        .max(MAX_CHRISTIAN_NAME_LENGTH, "That is too long"),
+        .min(1, "Enter your patron saint")
+        .max(MAX_PATRON_SAINT_LENGTH, "That is too long"),
     /* `MM-DD` — a month and a day, with no year. See the Precision note in <DatePicker/>. */
     nameDay: z.string().trim().regex(/^\d{2}-\d{2}$/, "Choose the day of the feast"),
+})
+
+/* Required, and short — this string has to fit a byline and a push banner's title, which is
+ * the whole reason it is asked for separately from the patron saint above. */
+const addressSchema = z.object({
+    displayName: z
+        .string()
+        .trim()
+        .min(1, "Enter the name your parish uses")
+        .max(MAX_DISPLAY_NAME_LENGTH, "That is too long for a byline"),
 })
 
 const ordinationSchema = z.object({
@@ -392,7 +408,7 @@ const HandleStep = ({ values, onNext, onBack, checkHandle, loading, fill }) => {
 const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
     const form = useForm({
         resolver: zodResolver(patronSchema),
-        defaultValues: { christianName: values.christianName, nameDay: values.nameDay },
+        defaultValues: { patronSaint: values.patronSaint, nameDay: values.nameDay },
     })
 
     const valid = useStepValid(form, patronSchema)
@@ -408,22 +424,22 @@ const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
             fill={fill}
             disabled={!valid}
             note={
-                <p className="w-full text-xs leading-relaxed text-muted-foreground">
+                <p className="w-full text-center text-xs leading-relaxed text-muted-foreground">
                     Your parish uses this to remember your name day.
                 </p>
             }
         >
             <FormField
                 control={form.control}
-                name="christianName"
+                name="patronSaint"
                 render={({ field }) => (
                     <FormItem className="w-full">
                         <FormControl>
                             <Input
                                 autoComplete="off"
                                 autoCapitalize="words"
-                                placeholder="Christian name"
-                                aria-label="Christian name"
+                                placeholder="Patron saint"
+                                aria-label="Patron saint"
                                 autoFocus
                                 disabled={loading}
                                 {...field}
@@ -449,6 +465,68 @@ const PatronStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
                                 disabled={loading}
                                 label="Name day"
                                 placeholder="Pick a day"
+                            />
+                        </FormControl>
+                        <FormMessage className="px-5" />
+                    </FormItem>
+                )}
+            />
+        </Step>
+    )
+}
+
+/* The address step: what the parish should call this person, shown only to the ranks a name is
+ * conferred with.
+ *
+ * **It arrives filled in, which is the opposite of the handle step's rule and is right for the
+ * same reason.** A filled field reads as a decision already made and almost nobody edits one —
+ * which is exactly what is wanted here, because "Priest Alexander" is the correct answer for
+ * nearly everybody and the step should cost them one tap. The handle step leaves its field
+ * empty because a provisional handle cut from an email address is *not* the right answer, and
+ * offering it would end the question.
+ *
+ * What that buys is the minority: a priest whose patron saint is written out in full, or one
+ * his parish calls something else. They see the suggestion, see it is wrong, and fix it here
+ * rather than being addressed by it forever. */
+const AddressStep = ({ values, onNext, onBack, loading, fill, submitLabel }) => {
+    const form = useForm({
+        resolver: zodResolver(addressSchema),
+        defaultValues: { displayName: values.displayName },
+    })
+
+    const valid = useStepValid(form, addressSchema)
+
+    return (
+        <Step
+            form={form}
+            onSubmit={onNext}
+            onBack={onBack}
+            submitLabel={submitLabel}
+            loading={loading}
+            busyLabel="Saving your details"
+            fill={fill}
+            disabled={!valid}
+            note={
+                <p className="w-full text-center text-xs leading-relaxed text-muted-foreground">
+                    You can change this later in Settings.
+                </p>
+            }
+        >
+            <FormField
+                control={form.control}
+                name="displayName"
+                render={({ field }) => (
+                    <FormItem className="w-full">
+                        <FormControl>
+                            <Input
+                                autoComplete="off"
+                                autoCapitalize="words"
+                                placeholder="Priest Alexander"
+                                aria-label="Display name"
+                                maxLength={MAX_DISPLAY_NAME_LENGTH}
+                                autoFocus
+                                disabled={loading}
+                                {...field}
                             />
                         </FormControl>
                         <FormMessage className="px-5" />
@@ -651,7 +729,11 @@ const COPY = {
     },
     patron: {
         heading: "Who is your patron saint?",
-        subheading: "Your Christian name, and the day your parish celebrates it with you.",
+        subheading: "The saint you are named for, and the day your parish celebrates it with you.",
+    },
+    address: {
+        heading: "What should we call you?",
+        subheading: "This is the name above everything you post.",
     },
     ordination: {
         heading: "When were you ordained?",
@@ -696,11 +778,15 @@ const WelcomePage = () => {
              * something derived from the name they actually gave. */
             handle: "",
             birthday: user?.birthday ?? defaultBirthday,
-            christianName: user?.christianName ?? "",
+            patronSaint: user?.patronSaint ?? "",
             /* Empty rather than a default: the name day is picked from a popover, which shows
              * a placeholder until it is answered — so there is nothing on screen for a default
              * to agree with, and a fabricated feast is worse than an unanswered one. */
             nameDay: user?.nameDay ?? "",
+            /* Filled on the way past rather than seeded here — the suggestion is built from
+             * the patron saint, which is answered two steps after this state is created.
+             * See `onPatron`. */
+            displayName: user?.displayName ?? "",
             /* The ordination picker is the birthday's, so it needs the same concrete default
              * for the same reason: the drum always displays something. Today, because an
              * ordination is a recent event far more often than a birth is. */
@@ -726,6 +812,7 @@ const WelcomePage = () => {
         () =>
             stepSequence({
                 patron: user?.vocation && user.vocation !== VOCATIONS.CATECHUMEN,
+                address: RANKED_VOCATIONS.includes(user?.vocation),
                 ordination: CLERGY_VOCATIONS.includes(user?.vocation),
                 push: pushSupported && pushPermission === null,
             }),
@@ -744,10 +831,11 @@ const WelcomePage = () => {
         async (payload) => {
             const answers = { ...payload }
             if (!steps.includes("patron")) {
-                delete answers.christianName
+                delete answers.patronSaint
                 delete answers.nameDay
             }
             if (!steps.includes("ordination")) delete answers.ordinationDate
+            if (!steps.includes("address")) delete answers.displayName
 
             const result = await submit(answers)
             if (result?.ok) return
@@ -802,6 +890,31 @@ const WelcomePage = () => {
             })
         },
         [advanceFrom, values.handle, user?.vocation],
+    )
+
+    /* Propose how they are addressed from the patron saint they just gave, and never
+     * overwrite one they have already typed — the same rule the handle suggestion follows, and
+     * for the same reason: walking back to correct a saint must not silently rewrite a byline
+     * the person deliberately chose.
+     *
+     * The first and last names come from `values` because the suggestion falls back to them
+     * for anyone who left the patron saint blank, and the vocation from the viewer, since it
+     * is the admin's to set and this flow never asks for it. */
+    const onPatron = useCallback(
+        (next) => {
+            advanceFrom("patron", {
+                ...next,
+                displayName:
+                    values.displayName ||
+                    suggestDisplayName({
+                        ...next,
+                        firstName: values.firstName,
+                        lastName: values.lastName,
+                        vocation: user?.vocation,
+                    }),
+            })
+        },
+        [advanceFrom, values.displayName, values.firstName, values.lastName, user?.vocation],
     )
 
     /* The push step, whichever way it is answered.
@@ -877,7 +990,16 @@ const WelcomePage = () => {
         ) : step === "patron" ? (
             <PatronStep
                 values={values}
-                onNext={(next) => advanceFrom("patron", next)}
+                onNext={onPatron}
+                onBack={back}
+                loading={loading}
+                fill={!isDesktop}
+                submitLabel={submitLabel}
+            />
+        ) : step === "address" ? (
+            <AddressStep
+                values={values}
+                onNext={(next) => advanceFrom("address", next)}
                 onBack={back}
                 loading={loading}
                 fill={!isDesktop}

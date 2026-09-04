@@ -72,7 +72,7 @@ export const PrivacyPolicy = () => (
                 and the @handle you choose.
             </li>
             <li>
-                <strong>Your profile.</strong> First and last name, Christian name, vocation,
+                <strong>Your profile.</strong> First and last name, patron saint, vocation,
                 profile picture, name day, ordination date, and date of birth.
             </li>
             <li>
@@ -246,7 +246,7 @@ export const AccountDeletion = () => (
         <H>What is deleted</H>
         <List>
             <li>
-                Your profile: name, Christian name, @handle, profile picture, vocation, date of
+                Your profile: name, patron saint, @handle, profile picture, vocation, date of
                 birth, name day and ordination date.
             </li>
             <li>Your email address and the sign&#8209;in credential attached to it.</li>

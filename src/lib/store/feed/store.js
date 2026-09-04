@@ -231,12 +231,12 @@ const useStore = create(immer((set, get) => ({
                 author: user
                     ? {
                           handle: user.handle,
-                          /* Name parts, not a rendered name — the card composes it with
-                           * displayName(), so the optimistic row is written exactly the way
-                           * the server's reply will be. */
+                          /* The same name fields the server's author block carries, so the
+                           * card runs displayName() over the optimistic row exactly as it
+                           * will over the reply that replaces it. */
+                          displayName: user.displayName,
                           firstName: user.firstName,
                           lastName: user.lastName,
-                          christianName: user.christianName,
                           vocation: user.vocation,
                           avatar: user.avatar,
                           /* Publishing requires ADMIN of this org, so the check is not a

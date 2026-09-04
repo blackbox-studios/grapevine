@@ -118,6 +118,10 @@ const PEOPLE = [
         email: "ajkoranda@gmail.com",
         firstName: "Alexander",
         lastName: "Koranda",
+        /* How he is addressed. Content, so it is written once on create and never again —
+         * a priest who shortens it to "Fr. Alexander" from /settings/info must not have it
+         * put back by the next run. */
+        displayName: "Priest Alexander",
         vocation: "PRIEST",
         role: "ADMIN",
         platformRole: "OWNER",
@@ -344,6 +348,7 @@ const ensureProfile = async (supabase, person) => {
                 handle: handleFromEmail(person.email),
                 firstName: person.firstName,
                 lastName: person.lastName,
+                displayName: person.displayName ?? null,
                 vocation: person.vocation,
                 platformRole: person.platformRole,
             },
@@ -357,6 +362,7 @@ const ensureProfile = async (supabase, person) => {
     const fill = {}
     if (!existing.firstName) fill.firstName = person.firstName
     if (!existing.lastName) fill.lastName = person.lastName
+    if (!existing.displayName && person.displayName) fill.displayName = person.displayName
     if (existing.email !== person.email) fill.email = person.email
     if (existing.platformRole !== person.platformRole) fill.platformRole = person.platformRole
 

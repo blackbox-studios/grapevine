@@ -415,15 +415,17 @@ export const VOCATIONS = {
 
 /* How a vocation prefixes a name, for the vocations that carry a form of address.
  *
- * **This is the only place a title is written down.** Titles used to live inside stored
- * name strings — an admin typed "Dn. Paul" into a full-name box — which made the rank part
- * of the person's name and left their surname unrecorded. Deriving it here means ordaining
- * a reader as a deacon is a vocation change and nothing else, and that nobody can be
- * addressed as a rank they do not hold.
+ * **This is the only place a title is written down, and it reaches exactly one caller:**
+ * `suggestDisplayName()` in `lib/name.js`, which prefills the display-name field. Nothing
+ * renders a title — how somebody is addressed is `Profile.displayName`, which they type.
  *
  * Absent (CATECHUMEN, FAITHFUL) means no title, which is not the same as an empty string:
- * `displayName()` branches on whether a title exists to decide between "Dn. Paul" and
- * "Jordan Rivera". See `lib/name.js`.
+ * the suggestion branches on whether one exists to decide between "Dn. Paul" and "Jordan
+ * Rivera".
+ *
+ * The backfill in `20260903160000_display_name` writes these same strings in SQL, and the
+ * two have to agree — a title changed here without changing there renames nobody, but a
+ * parish seeded after the change would disagree with one seeded before it.
  *
  * "Priest" rather than the colloquial "Fr.", and the Slavic "Mat." rather than the Greek
  * "Presbytera", matching the vocation names themselves. */
@@ -492,13 +494,15 @@ export const VOCATION_OPTIONS = [
  * other vocation constant. */
 export const CLERGY_VOCATIONS = [VOCATIONS.DEACON, VOCATIONS.PRIEST, VOCATIONS.BISHOP]
 
-/* Who is addressed by their **Christian name** rather than their given one — see
- * `givenName()` in `lib/name.js`, which is the only thing that reads this.
+/* The ranks a name is **conferred** with — who is asked for a patron saint, and whose
+ * display-name suggestion is built from it rather than from their first name.
  *
- * The ranks a name is conferred with. A reader is tonsured to one, a deacon and a priest are
- * ordained, a monk is tonsured again and a bishop consecrated again — and each of those hands
- * the man the name he is thereafter called by, which is why "Priest Robert" names somebody
- * nobody in the parish knows.
+ * A reader is tonsured to one, a deacon and a priest are ordained, a monk is tonsured again
+ * and a bishop consecrated again — and each of those hands the man the name he is thereafter
+ * called by, which is why "Priest Robert" names somebody nobody in the parish knows.
+ *
+ * It is also who is shown the display-name field at all. Everyone else is called what their
+ * name is, so there is nothing for them to decide.
  *
  * **A separate list from `CLERGY_VOCATIONS`, not a superset to fold into it.** That one
  * answers "who was ordained", which decides whether orientation asks for a date and which
@@ -507,7 +511,7 @@ export const CLERGY_VOCATIONS = [VOCATIONS.DEACON, VOCATIONS.PRIEST, VOCATIONS.B
  *
  * MATUSHKA is absent: her title comes from her husband's ordination rather than from anything
  * conferred on her, so nothing has renamed her. */
-export const CHRISTIAN_NAME_VOCATIONS = [
+export const RANKED_VOCATIONS = [
     VOCATIONS.READER,
     VOCATIONS.DEACON,
     VOCATIONS.PRIEST,
@@ -524,9 +528,16 @@ export const MONTHS = [
     "July", "August", "September", "October", "November", "December",
 ]
 
-/* How long a Christian name may be. The same ceiling a name part gets in `readName`, for the
- * same reason: the only failures worth catching are empty and absurd. */
-export const MAX_CHRISTIAN_NAME_LENGTH = 80
+/* How long a patron saint may be. Generous because the value is the saint as the Church
+ * writes him — "The Right-Believing Prince Alexander Nevsky" is 42 characters and is not an
+ * outlier. The only failures worth catching are empty and absurd. */
+export const MAX_PATRON_SAINT_LENGTH = 80
+
+/* How long a display name may be, and it is deliberately far shorter than the patron saint
+ * above. This is the string that has to fit a byline, a follower row and a push banner's
+ * title, and the reason the field exists is that a full hagiographic title does not — so a
+ * ceiling that would admit one back would give up the thing that was bought. */
+export const MAX_DISPLAY_NAME_LENGTH = 40
 
 /* Whether a signed-in viewer may use the app, and if not, why.
  *

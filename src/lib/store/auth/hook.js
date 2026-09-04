@@ -9,6 +9,7 @@ import {
     CLERGY_VOCATIONS,
     OTP_RESEND_SECONDS,
     PLATFORM_ROLES,
+    RANKED_VOCATIONS,
     ROLE_LEVEL,
     ROLES,
     ROUTES,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { isNative, onAppState } from "@/lib/native"
+import { suggestDisplayName } from "@/lib/name"
 import { useUpload } from "@/lib/store/uploads/hook"
 import useAuthStore, { viewerAuthor } from "./store"
 
@@ -188,10 +190,11 @@ export const useAvatarUpload = () => {
  * parish facts all land in `PATCH /api/me` and all come back as one viewer, so splitting them
  * across hooks would only give the page several ways to be half-saved.
  *
- * `catechumen` and `clergy` are answered here rather than in the page because they are facts
- * about the viewer, not about the layout: a catechumen has not been given a Christian name yet
- * and a layman has no ordination. They shape the form only — `updateProfile` accepts every
- * field from anybody, so a reader ordained a deacon needs a vocation change and nothing else.
+ * The three vocation flags are answered here rather than in the page because they are facts
+ * about the viewer, not about the layout: a catechumen has not been given a patron saint yet,
+ * a layman has no ordination, and nobody unranked needs telling what to be called. They shape
+ * the form only — `updateProfile` accepts every field from anybody, so a reader ordained a
+ * deacon needs a vocation change and nothing else.
  *
  * `checkHandle` is passed straight through from the store, the same way orientation consumes
  * it: the answer is per-keystroke and belongs to the field that asked, so it is held in local
@@ -215,7 +218,12 @@ export const useProfileEditor = () => {
                 lastName: user?.lastName ?? "",
                 handle: user?.handle ?? "",
                 birthday: user?.birthday ?? "",
-                christianName: user?.christianName ?? "",
+                /* Seeded from the suggestion when the column is null, so somebody who
+                 * onboarded before this field existed opens the form on the name they are
+                 * already shown under rather than on an empty box that reads as having no
+                 * name. Saving it is what makes it theirs. */
+                displayName: user?.displayName || suggestDisplayName(user) || "",
+                patronSaint: user?.patronSaint ?? "",
                 nameDay: user?.nameDay ?? "",
                 ordinationDate: user?.ordinationDate ?? "",
             },
@@ -225,6 +233,9 @@ export const useProfileEditor = () => {
             email: user?.email ?? "",
             catechumen: user?.vocation === VOCATIONS.CATECHUMEN,
             clergy: CLERGY_VOCATIONS.includes(user?.vocation),
+            /* Who is asked what to be called. A layman is called what his name is, so the
+             * field would be a box asking him to retype it. */
+            ranked: RANKED_VOCATIONS.includes(user?.vocation),
             checkHandle,
             save: saveProfile,
             saving,

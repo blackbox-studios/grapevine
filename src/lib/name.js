@@ -1,97 +1,95 @@
 import {
-    CHRISTIAN_NAME_VOCATIONS,
     HANDLE_MAX,
+    RANKED_VOCATIONS,
     VOCATION_HANDLE_PREFIX,
     VOCATION_TITLE,
 } from "@/lib/constants"
 
 /* How a person is written, everywhere.
  *
- * The database stores `firstName`, `lastName`, and `vocation` as three separate facts and
- * no display string at all — see the Profile model in `prisma/schema.prisma`. This module
- * is where they become a name, and it is deliberately the *only* place that happens: a
- * second `${first} ${last}` at a call site is how the feed and the roster start disagreeing
- * about what to call the same deacon.
+ * **A person is addressed by the name they typed.** `Profile.displayName` holds it — "Priest
+ * Alexander", "Dn. Paul", "Rob" — and nothing here composes one out of a rank and a Christian
+ * name. That composition has no correct answer: `patronSaint` holds a saint written as the
+ * Church writes him, so "The Right-Believing Prince Alexander Nevsky" is a correct value to
+ * store and an impossible one to prefix with "Priest". See the `displayName` column in
+ * `prisma/schema.prisma`.
  *
- * **Clergy are addressed by title and given name; everyone else by given and family name.**
- * That is the parish convention, not a shortening — "Dn. Paul" is his name in the nave, and
- * "Dn. Paul Ivanov" is not how anyone speaks to him. Surnames are still stored and still
- * searched and sorted on by the roster; they are simply not part of how a ranked person is
- * addressed. `fullName()` exists for the places that genuinely want both parts.
+ * What survives is `suggestDisplayName()`, which proposes that composition into an editable
+ * field at orientation and in Settings. It is the *only* function here that reads a vocation,
+ * and it is only ever a suggestion.
  *
- * **And for a reader and above the given name is the Christian one, not the legal one** —
- * see `givenName()` below, which every function here goes through.
+ * `firstName` and `lastName` stay the legal name, and `fullName()` is where the roster gets a
+ * surname to sort on. Two functions rather than one because they answer different questions:
+ * "Priest Alexander" has no surname in it, and a roster ordered on it would be ordered on
+ * ranks.
  *
  * Every function here tolerates a missing name, because a Profile exists from the moment an
- * admin admits an email address and has no name until that person completes orientation.
- * The handle is the fallback throughout — it is the one identifier that always exists. */
+ * admin admits an email address and has no name until that person completes orientation. The
+ * handle is the fallback throughout — it is the one identifier that always exists. */
 
-/* The name a person is called by.
+/* The name to show: whatever the person set, else their legal name, else "@handle".
  *
- * For a **reader and above** that is `christianName`, the name conferred with the rank: a
- * priest whose legal name is Robert and whose Christian name is Alexander is Fr. Alexander to
- * everyone in the parish, and "Priest Robert" names a man nobody knows. It can be conferred
- * more than once — again at tonsure, again at consecration — which is why the column holds
- * the current one rather than a baptismal record. For everyone else it is `firstName`; a
- * layman is called what he is called.
- *
- * Falls back to `firstName` whenever the Christian name is missing — a deacon admitted last
- * week may not have finished orientation, and "Dn." with nothing after it is worse than his
- * legal name. */
-const givenName = (person) => {
-    const first = person.firstName?.trim() ?? ""
-    if (!CHRISTIAN_NAME_VOCATIONS.includes(person.vocation)) return first
-    return person.christianName?.trim() || first
-}
-
-/* The name to show: "Dn. Paul", "Jordan Rivera", or "@handle" for someone who has not
- * finished orientation.
- *
- * Takes the author/viewer/member object whole rather than loose arguments, so every call
- * site passes the same thing and adding a field later does not mean touching them all. */
+ * Takes the author/viewer/member object whole rather than loose arguments, so every call site
+ * passes the same thing and adding a field later does not mean touching them all. */
 export const displayName = (person) => {
     if (!person) return ""
 
-    const first = givenName(person)
-    const last = person.lastName?.trim() ?? ""
-    const title = VOCATION_TITLE[person.vocation]
+    const chosen = person.displayName?.trim()
+    if (chosen) return chosen
 
-    /* No name yet — an admitted address that has never signed in. The handle always
-     * exists, and showing it beats an empty byline or a bare title with nobody attached. */
-    if (!first && !last) return person.handle ? `@${person.handle}` : ""
-
-    /* A title needs a given name to attach to. Someone ranked who has somehow only a
-     * surname recorded falls through to the plain form rather than reading "Dn. Ivanov",
-     * which addresses him as a person he is not. */
-    if (title && first) return `${title} ${first}`
-
-    return [first, last].filter(Boolean).join(" ")
+    return fullName(person)
 }
 
 /* Given and family name, with no title — for the roster, search, and anywhere sorting by
  * surname has to agree with what is on screen. Falls back to the handle for the same reason
  * `displayName` does.
  *
- * The given half is `givenName()`, so a priest reads as "Alexander Petrov" here and "Priest
- * Alexander" in a byline. Two lists that named the same man differently would be worse than
- * either choice — which is the whole reason this module exists. */
+ * It ignores `displayName` deliberately: a person who set theirs to "Priest Alexander" still
+ * files under Petrov, and a list that sorted on the addressed name would put every priest in
+ * the parish together under P. */
 export const fullName = (person) => {
     if (!person) return ""
-    const parts = [givenName(person), person.lastName?.trim()].filter(Boolean)
+    const parts = [person.firstName?.trim(), person.lastName?.trim()].filter(Boolean)
     if (parts.length === 0) return person.handle ? `@${person.handle}` : ""
     return parts.join(" ")
 }
 
 /* Up to two letters for the gradient avatar fallback.
  *
- * Built from the name parts rather than by splitting a display string, because the display
+ * Built from the legal name parts rather than by splitting the display name, because that
  * string may lead with a title — "Dn. Paul" would otherwise initialize as "DP", which is
  * neither of his names. Falls back to the handle's first letter. */
 export const initials = (person) => {
     if (!person) return ""
-    const letters = [givenName(person)[0], person.lastName?.trim()?.[0]].filter(Boolean)
+    const letters = [person.firstName?.trim()?.[0], person.lastName?.trim()?.[0]].filter(Boolean)
     if (letters.length > 0) return letters.join("").toUpperCase()
     return person.handle?.[0]?.toUpperCase() ?? ""
+}
+
+/* A starting point for the display-name field: "Dn. Paul", "Mat. Carly", "Robert Paul".
+ *
+ * **The one place a rank and a name are joined, and it writes into a text box rather than
+ * onto a screen.** Everything the composition gets wrong — a patron saint that is a full
+ * hagiographic title, a priest who goes by "Fr. Alex", a rank whose English form the parish
+ * does not use — is wrong in a field the person is looking at and can correct in one edit.
+ * That is the whole reason it is a suggestion and `displayName` is a column.
+ *
+ * The given half is `patronSaint` for the ranks a name is conferred with, because that is
+ * the name they are called by; `firstName` for everyone else, and as the fallback for a
+ * ranked person who has not supplied one yet. A title with nothing after it is worse than a
+ * legal name, so a profile with no first name gets nothing rather than "Dn. ". */
+export const suggestDisplayName = (person) => {
+    if (!person) return ""
+
+    const first = person.firstName?.trim() ?? ""
+    const given = RANKED_VOCATIONS.includes(person.vocation)
+        ? person.patronSaint?.trim() || first
+        : first
+
+    const title = VOCATION_TITLE[person.vocation]
+    if (title) return given ? `${title} ${given}` : ""
+
+    return [first, person.lastName?.trim()].filter(Boolean).join(" ")
 }
 
 /* What the viewer typed, as a handle would be stored: lowercased, stripped of a leading @
@@ -120,10 +118,11 @@ export const normalizeHandleInput = (value) =>
  * addressed as "Robert Paul" would find `robert` alone both presumptuous and likely taken.
  * The suggestion follows how each person is actually named.
  *
- * `firstName` and not `givenName()`, so a priest is offered `fr.robert` where his byline will
- * read "Priest Alexander". That is the ordering of orientation rather than an oversight: the
- * handle step runs before the one that asks for a Christian name, so there is nothing better
- * to propose — and the field is his to overwrite on the screen he is looking at.
+ * `firstName` and not the patron saint, so a priest is offered `fr.robert` where he may
+ * well end up addressed as "Priest Alexander". That is the ordering of orientation rather
+ * than an oversight: the handle step runs before the one that asks for a patron saint, so
+ * there is nothing better to propose — and the field is his to overwrite on the screen he is
+ * looking at.
  *
  * Only a starting point: the field it fills is editable, the availability check decides
  * whether it survives, and nothing re-derives it if the person is later ordained — their

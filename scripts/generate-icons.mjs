@@ -547,6 +547,65 @@ async function buildAndroid(splashSvg, iconPalette) {
     }
 }
 
+/* Google Play's two listing graphics. They are not launcher assets: nothing reads them at
+ * runtime and nothing syncs them into the native projects, but they are generated here so
+ * they take their outline and their gloss from `src/lib/mark.js` like everything else and
+ * cannot drift from the icon they sit beside in the store.
+ *
+ * The feature graphic is a fixed 1024x500 that Play scales down and, on some surfaces,
+ * crops toward the centre, so the mark and the wordmark are stacked in the middle third
+ * and the outer margins are left empty. The wordmark is drawn at full opacity here rather
+ * than the splash's half: on a splash it is a caption under the mark, and on a store shelf
+ * it is the name of the app. */
+const STORE_DIR = path.join(ROOT, "store/play")
+const FEATURE = { width: 1024, height: 500 }
+const FEATURE_MARK_SCALE = 0.17
+const FEATURE_MARK_CENTER_Y = 0.40
+const FEATURE_TYPE_SCALE = 0.28
+const FEATURE_TYPE_CENTER_Y = 0.70
+
+async function buildStore(iconPalette) {
+    console.log("\nPlay Store")
+
+    /* Play rejects an icon with an alpha channel, the same rule the App Store applies.
+     * The field is opaque already, so `flatten` only drops the channel. */
+    await write(
+        path.join(STORE_DIR, "icon-512.png"),
+        await sharp(await renderSquare(iconSvg(512, IOS_SCALE, iconPalette), 512))
+            .flatten({ background: ICON_FIELD.bottom })
+            .png()
+            .toBuffer(),
+    )
+
+    const { width, height } = FEATURE
+    const markWidth = Math.round(width * FEATURE_MARK_SCALE)
+    const mark = await renderMark(markSvg(iconPalette), markWidth)
+    const markHeight = markWidth * (H / W)
+    const bleedPx = (mark.total - markWidth) / 2
+    const wordmark = await renderTypeLogo(SPLASH_TYPE_FILL, Math.round(width * FEATURE_TYPE_SCALE))
+
+    await write(
+        path.join(STORE_DIR, "feature-graphic.png"),
+        await sharp({
+            create: { width, height, channels: 4, background: SPLASH_DARK_BG },
+        })
+            .composite([
+                {
+                    input: mark.buffer,
+                    left: Math.round((width - markWidth) / 2 - bleedPx),
+                    top: Math.round(height * FEATURE_MARK_CENTER_Y - markHeight / 2 - bleedPx),
+                },
+                {
+                    input: wordmark.buffer,
+                    left: Math.round((width - wordmark.width) / 2),
+                    top: Math.round(height * FEATURE_TYPE_CENTER_Y - wordmark.height / 2),
+                },
+            ])
+            .png()
+            .toBuffer(),
+    )
+}
+
 async function main() {
     const palette = paletteFor("jungle")
     console.log(
@@ -558,6 +617,7 @@ async function main() {
     const splashSvg = markSvg(palette)
     await buildIos(splashSvg, palette)
     await buildAndroid(splashSvg, palette)
+    await buildStore(palette)
     console.log("\nDone. Run `npm run sync` to push these into the native projects.")
 }
 

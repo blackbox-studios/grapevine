@@ -1154,6 +1154,12 @@ Layout sizes are exposed as CSS variables in `globals.css`:
 
 Use them via Tailwind v4 arbitrary value syntax with the variable form: `w-(--nav-width)`, `h-(--topbar-height)`, `left-(--nav-width)`, `top-(--bumper)`. **Never** copy the literal pixel value into a class.
 
+### Fonts
+
+Four local faces, all declared as `@font-face` in `globals.css` and bundled from `src/assets/fonts/` — there is no `next/font` and no external stylesheet. **Material Symbols Rounded** (the `<Icon>` glyphs) and **Babe Sans** (`--font-display`, every `h1`) are shell faces, requested on the first paint of any screen. **PT Serif Caption** (`--font-reading`) is set by the Daily Read and nothing else.
+
+That last one is the case to watch. A face only one screen uses is not requested until the reader opens that screen, and `font-display: swap` then repaints the page in it — so `useFontWarm` fetches it on an idle moment beforehand. **Adding a webfont means asking which kind it is**: shell faces need nothing, a screen-specific one belongs in that hook. Its header holds the reasoning.
+
 ### Custom font sizes
 
 A bespoke typographic scale lives in `globals.css`. `text-xxs` and `text-button` are real classes — use them. `tailwind-merge` is extended in `lib/utils.js` to know about them, so `cn()` composes them safely.
@@ -1592,7 +1598,7 @@ return (
 
 There is no `main.jsx`. Three files split the responsibilities the old `main.jsx` + `App.jsx` used to hold:
 
-**`app/layout.jsx`** — the entry, a Server Component. Renders `<html>`/`<body>`, imports `globals.css`, adds the Material Symbols `<link>`, exports `metadata` (title + favicon), and mounts `<Providers>` + `<App/>`. `suppressHydrationWarning` on `<html>` is required by next-themes (it stamps the theme class before hydration — no manual no-flash script needed).
+**`app/layout.jsx`** — the entry, a Server Component. Renders `<html>`/`<body>`, imports `globals.css` (which carries every `@font-face`), exports `metadata` (title + favicon), and mounts `<Providers>` + `<App/>`. `suppressHydrationWarning` on `<html>` is required by next-themes (it stamps the theme class before hydration — no manual no-flash script needed).
 
 ```jsx
 // app/layout.jsx (essence)
@@ -1601,7 +1607,6 @@ export const metadata = { title: "Grapevine", icons: { icon: "/favicon.svg" } }
 export default function RootLayout({ children }) {
     return (
         <html lang="en" suppressHydrationWarning>
-            <head>{/* Material Symbols <link> */}</head>
             <body>
                 <Providers>{children}</Providers>
                 <App />

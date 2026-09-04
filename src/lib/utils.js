@@ -356,6 +356,79 @@ export function captionPreview(text, limit) {
     return { preview: body.slice(0, limit).replace(/\s+\S*$/, ""), truncated: true }
 }
 
+/* A URL as somebody types it into a post: with a scheme, or the bare `www.` form a parish
+ * newsletter is written in. Nothing else is a link — an address with no scheme and no `www.`
+ * ("stnicholas.org") is indistinguishable from a sentence ending in an abbreviation, and
+ * guessing turns "Vespers at 6 p.m." into a dead link. */
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s]+/gi
+
+/* Punctuation that ends the sentence rather than the URL. The closing bracket is the awkward
+ * one: it belongs to the link in a Wikipedia path and to the prose in "(see https://x.org)",
+ * so it is given up only while the match has no opening bracket left to pair it with. */
+const SENTENCE_END = /[.,;:!?'"“”‘’«»]/
+
+const trimTrailing = (url) => {
+    let end = url.length
+
+    while (end > 0) {
+        const char = url[end - 1]
+
+        if (SENTENCE_END.test(char)) {
+            end -= 1
+            continue
+        }
+
+        if (char === ")") {
+            const head = url.slice(0, end - 1)
+            const opened = head.split("(").length
+            const closed = head.split(")").length
+            if (closed >= opened) {
+                end -= 1
+                continue
+            }
+        }
+
+        break
+    }
+
+    return url.slice(0, end)
+}
+
+/* Splits a body into the runs a reader can tap and the runs they cannot: an array of
+ * `{ text }` parts, each carrying an `href` if it is a link.
+ *
+ * A tokenizer rather than a string of HTML, because the bodies it runs over are author input
+ * and the only safe way to render those is as React children — `dangerouslySetInnerHTML` on a
+ * post body would let anyone in the parish publish markup into everyone else's feed.
+ *
+ * `href` is separate from `text` so the reader sees what they typed while the link still
+ * resolves: a `www.` address is displayed bare and navigates to `https://`. */
+export function linkTokens(text) {
+    const body = String(text ?? "")
+    const parts = []
+    let cursor = 0
+
+    for (const match of body.matchAll(URL_PATTERN)) {
+        const url = trimTrailing(match[0])
+        /* The pattern can match a scheme with nothing behind it once the trailing punctuation
+         * is given back ("https://." in prose). That is not an address. */
+        if (!/^(?:https?:\/\/|www\.)[^\s]/i.test(url)) continue
+
+        if (match.index > cursor) parts.push({ text: body.slice(cursor, match.index) })
+
+        parts.push({
+            text: url,
+            href: /^www\./i.test(url) ? `https://${url}` : url,
+        })
+
+        cursor = match.index + url.length
+    }
+
+    if (cursor < body.length) parts.push({ text: body.slice(cursor) })
+
+    return parts
+}
+
 /* Bytes → the short string an attachment renders. Formatted at the edge rather than stored,
  * so the underlying number stays sortable and re-formattable.
  *

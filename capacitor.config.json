@@ -5,7 +5,8 @@
     "backgroundColor": "#0a1014",
     "ios": {
         "contentInset": "never",
-        "backgroundColor": "#0a1014"
+        "backgroundColor": "#0a1014",
+        "allowsLinkPreview": false
     },
     "android": {
         "backgroundColor": "#0a1014"

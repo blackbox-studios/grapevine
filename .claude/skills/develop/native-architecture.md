@@ -305,6 +305,31 @@ naturally, which is exactly why `closeSlide` uses `history.back()`.
 
 ---
 
+## Links out of the app
+
+A URL somebody types into a post or a comment is rendered as a real `<a href>` by
+`<Linkify/>`, which tokenizes the body with `linkTokens` in `lib/utils.js` (a tokenizer
+rather than a string of HTML: bodies are author input, so the only safe rendering is React
+children).
+
+**The tap needs no plugin.** Capacitor's own navigation delegate cancels any top-level
+navigation off the app's origin and hands the URL to the OS — `UIApplication.open` on iOS,
+an `ACTION_VIEW` intent on Android — so the link opens in the phone's browser and the app
+stays where it was. There is no `@capacitor/browser` here and none is wanted.
+
+**The hold is the app's own menu, not the WebView's.** `globals.css` suppresses
+`-webkit-touch-callout` across the packaged app, and Android's WebView has no link menu to
+begin with, so a long press draws a popover with **Open in browser** and **Copy link** —
+the same `<MenuItems/>` rows `<HoldMenu/>` uses, so a held link and a held comment answer
+the same way. `ios.allowsLinkPreview: false` in `capacitor.config.json` is what stops
+WebKit's own context menu racing it; it is the only reason that key is set.
+
+That menu is also the whole of copy/paste on a body: selection stays off everywhere, and
+copying a link is a menu item rather than a text selection. In a browser the hold is off
+entirely, because Safari and Chrome already offer their own on the same gesture.
+
+---
+
 ## Push notifications (Firebase)
 
 **The row is the notification; a push is one delivery of it.** Nothing in the app

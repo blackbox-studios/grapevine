@@ -2,6 +2,7 @@
 
 import { BackHeader } from "@/components/BackHeader"
 import { CommentsPanel } from "@/components/Comments"
+import Linkify from "@/components/Linkify"
 import { SlideSurface } from "@/components/SlideSurface"
 import { Attachment, Close, Overlay } from "@/components/Widgets"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
@@ -25,7 +26,7 @@ const PostText = ({ post }) => (
         )}
         {post.body && (
             <p className="whitespace-pre-line wrap-break-word text-base">
-                {post.body}
+                <Linkify text={post.body} />
             </p>
         )}
         {post.document && (

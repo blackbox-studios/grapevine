@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react"
 
 import HoldMenu from "@/components/HoldMenu"
 import Icon from "@/components/Icon"
+import Linkify from "@/components/Linkify"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, useReflowMotion } from "@/components/Reflow"
 import Transition from "@/components/Transition"
@@ -82,7 +83,9 @@ const CommentRow = ({ comment, now, onToggleLike, onDelete }) => {
                         · {timeAgoCompact(now, new Date(createdAt).getTime())}
                     </span>
                 </p>
-                <p className="text-sm leading-snug wrap-break-word font-medium">{text}</p>
+                <p className="text-sm leading-snug wrap-break-word font-medium">
+                    <Linkify text={text} />
+                </p>
             </div>
             <div className="flex items-start gap-2.5 pt-1.5">
                 {/* Beside the heart, because the two are the row's controls and a reader
@@ -406,7 +409,7 @@ export const CommentsPanel = ({ post, dismiss, caption, className }) => {
                     {/* `whitespace-pre-line` keeps the author's line breaks — see <Caption/>
                       * in components/Feed.jsx for why every body surface carries it. */}
                     <p className="whitespace-pre-line text-sm leading-snug">
-                        <HandleLink person={author} className="font-semibold" /> {post.body}
+                        <HandleLink person={author} className="font-semibold" /> <Linkify text={post.body} />
                     </p>
                 </div>
             )}
@@ -551,7 +554,7 @@ export const PostCommentsThread = ({ post }) => {
                       * in components/Feed.jsx for why every body surface carries it. */}
                     {post.body && (
                         <p className="whitespace-pre-line text-sm leading-snug">
-                            <HandleLink person={author} className="font-semibold" /> {post.body}
+                            <HandleLink person={author} className="font-semibold" /> <Linkify text={post.body} />
                         </p>
                     )}
                     <span className="text-xs text-muted-foreground">

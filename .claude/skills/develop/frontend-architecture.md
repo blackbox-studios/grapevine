@@ -91,6 +91,7 @@ Reference files:
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
 │   │   ├── Hyperlink.jsx
+│   │   ├── Linkify.jsx              # Author text with its URLs live — the only link out of the app
 │   │   ├── Breadcrumb.jsx
 │   │   ├── Notifications.jsx
 │   │   ├── Profile.jsx
@@ -1253,10 +1254,12 @@ live in one file, and a bare `underline` cannot follow them.
 - It is built from spans, so it is valid **inside a `<p>`**, which is where most of the app's
   links actually sit.
 
-The one case that cannot use it is text that must `truncate`: the wipe's box sizes to its content,
-so a constrained-width label would overflow rather than ellipse. Give that element no hover
-treatment at all rather than reaching for `underline` — see the author name in `<PostCard/>`, whose
-tap target is shared with the avatar beside it and which is therefore already legible as one.
+Two cases cannot use it, both because the wipe's box is an `inline-flex` sized to its content.
+Text that must **`truncate`** would overflow rather than ellipse, and a **URL in a body** cannot
+break mid-word, so a long address pushes the card wide. Give either one no hover treatment at all
+rather than reaching for `underline` — see the author name in `<PostCard/>`, whose tap target is
+shared with the avatar beside it and which is therefore already legible as one, and `<Linkify/>`,
+which takes the link colour and nothing else.
 
 ### Close affordances — `<Close/>`
 

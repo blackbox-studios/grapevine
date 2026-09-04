@@ -9,6 +9,7 @@ import Hyperlink from "@/components/Hyperlink"
 import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
+import Linkify from "@/components/Linkify"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, ReflowItem } from "@/components/Reflow"
 import { Attachment, Avatar, HandleLink } from "@/components/Widgets"
@@ -95,7 +96,7 @@ const Caption = ({ label, text, limit = CAPTION_LIMIT, className }) => {
                         <span className="font-semibold">{label}</span>{" "}
                     </>
                 )}
-                {open || !truncated ? text : preview}
+                <Linkify text={open || !truncated ? text : preview} />
                 {truncated && !open && (
                     <>
                         {" ... "}

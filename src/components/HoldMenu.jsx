@@ -49,6 +49,37 @@ import { cn } from "@/lib/utils"
  *
  * Reference caller: `components/Comments.jsx`. */
 
+/* The rows a held thing answers with — `{ label, icon, destructive, onSelect }` each, closing
+ * the menu before they run. Exported because a hold is not always a block: `<Linkify/>` holds
+ * an inline link, which cannot carry the lens or the duplicated element below, but must offer
+ * the reader the same list drawn the same way. */
+export const MenuItems = ({ items, onSelect }) =>
+    items.map((item) => (
+        <button
+            key={item.label}
+            type="button"
+            onClick={() => {
+                onSelect?.()
+                item.onSelect()
+            }}
+            className={cn(
+                "flex w-full cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium transition-colors",
+                item.destructive ? "text-destructive hover:bg-destructive/10" : "hover:bg-accent",
+            )}
+        >
+            {/* A Material ligature name, or a drawn SVG component. Both are in use: a comment
+                row's actions are ligatures, and the group switcher passes the same bespoke gear
+                its desktop hover control uses, so the one action does not appear as two
+                different glyphs by platform. */}
+            {typeof item.icon === "string" ? (
+                <Icon size="md">{item.icon}</Icon>
+            ) : (
+                <item.icon className="size-5 shrink-0" />
+            )}
+            {item.label}
+        </button>
+    ))
+
 const HoldMenu = ({
     enabled = true,
     items = [],
@@ -152,33 +183,7 @@ const HoldMenu = ({
                 /* The menu is the one thing the blur must not take. */
                 className={cn(ABOVE_LENS, "w-auto min-w-40 gap-0 rounded-3xl p-1.5")}
             >
-                {items.map((item) => (
-                    <button
-                        key={item.label}
-                        type="button"
-                        onClick={() => {
-                            setOpen(false)
-                            item.onSelect()
-                        }}
-                        className={cn(
-                            "flex w-full cursor-pointer items-center gap-3 rounded-2xl px-3 py-2.5 text-base font-medium transition-colors",
-                            item.destructive
-                                ? "text-destructive hover:bg-destructive/10"
-                                : "hover:bg-accent",
-                        )}
-                    >
-                        {/* A Material ligature name, or a drawn SVG component. Both are in
-                            use: a comment row's actions are ligatures, and the group switcher
-                            passes the same bespoke gear its desktop hover control uses, so the
-                            one action does not appear as two different glyphs by platform. */}
-                        {typeof item.icon === "string" ? (
-                            <Icon size="md">{item.icon}</Icon>
-                        ) : (
-                            <item.icon className="size-5 shrink-0" />
-                        )}
-                        {item.label}
-                    </button>
-                ))}
+                <MenuItems items={items} onSelect={() => setOpen(false)} />
             </PopoverContent>
         </Popover>
     )

@@ -5,7 +5,7 @@ import net from "node:net"
 
 import { MAX_CALENDAR_DAYS } from "@/lib/constants"
 import { invalid, notFound, unavailable } from "@/lib/server/errors"
-import { expandCalendar, instantToZoned } from "@/lib/server/ical"
+import { dayIn, expandCalendar } from "@/lib/server/ical"
 import { projectCalendarEntry, projectCalendarSlot } from "@/lib/server/projections"
 import { requireMembership } from "@/lib/server/auth"
 import { slotsInWindow } from "@/lib/server/signups.service"
@@ -243,15 +243,6 @@ const parishEvents = async (org, window) => {
         return []
     }
 }
-
-/* Which local day an instant falls on, in a given zone, as `YYYY-MM-DD`.
- *
- * The merge below asks "are these the same day", and a day is a reading of a clock rather than a
- * span of a timeline — 9 PM in Chicago and 3 AM in London can be the same instant and are not
- * the same day. The sheet's own zone is the one used for both sides of a comparison, because
- * the rota is the thing being matched *from*. */
-const dayIn = (date, timeZone) =>
-    new Date(instantToZoned(date.getTime(), timeZone)).toISOString().slice(0, 10)
 
 /* Folds a rota into the parish event that is the same thing under another spelling.
  *

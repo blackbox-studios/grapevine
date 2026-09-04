@@ -57,6 +57,14 @@ const NAV = [
     },
 ]
 
+/* Where the composer sits among the mobile bar's entries, counting itself and the profile
+ * trigger: the middle. The plus is the only thing on that bar that acts rather than
+ * navigates, and the centre is both where a thumb rests and where every phone app a
+ * parishioner already uses puts it. Derived rather than written down, so a fourth
+ * destination re-centres the plus instead of shunting it off-centre. The desktop rail is a
+ * column with no equivalent position, and keeps the plus below the destinations. */
+const COMPOSE_SLOT = Math.floor((NAV.length + 2) / 2)
+
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
  * the label fades in only while the rail (the `group`) is hovered. */
@@ -281,10 +289,13 @@ const ProtectedShell = ({ children }) => {
                     wherever the reader is — and on a phone the trigger belongs at the top
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
-                {NAV.map((item, idx) => (
-                    <NavItem key={idx} item={item} route={route} />
+                {NAV.slice(0, COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} />
                 ))}
                 <Compose />
+                {NAV.slice(COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} />
+                ))}
                 <ProfileTrigger route={route} />
             </motion.nav>
 

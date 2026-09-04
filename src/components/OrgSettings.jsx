@@ -226,10 +226,9 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
                             )}
                         />
 
-                        {/* **The parish's calendar lives here, not on the Events surface.** It
-                            is a fact about the group rather than a preference of whoever is
-                            reading it, so it belongs beside the name and the picture — the same
-                            call the roster makes.
+                        {/* **The parish's calendar is a fact about the group** rather than a
+                            preference of whoever is reading it, so it is set beside the name and
+                            the picture — the same call the roster makes.
 
                             It is read as a **feed**, never embedded: the events are fetched as
                             iCalendar and drawn by the app, which is what lets a parish service

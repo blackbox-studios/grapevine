@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { AnimatePresence } from "motion/react"
 import { toast } from "sonner"
@@ -16,7 +16,7 @@ import { Avatar, ConfirmDialog, HandleLink } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MAX_SLOT_CAPACITY, SIGNUP_STATUS } from "@/lib/constants"
+import { MAX_SLOT_CAPACITY, ROUTES, SIGNUP_STATUS } from "@/lib/constants"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { displayName } from "@/lib/name"
@@ -24,8 +24,7 @@ import { pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { useSheet } from "@/lib/store/sheet/hook"
 import { useEventsView, useSignupAdmin, useSignups } from "@/lib/store/signups/hook"
-import { ROUTES } from "@/lib/constants"
-import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath } from "@/lib/utils"
+import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts } from "@/lib/utils"
 
 /* The parish's rotas: reading them, taking a place on one, and — for an admin — running them.
  *
@@ -48,11 +47,6 @@ import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath } from "
  * in the page's header (`<ModeSwitch/>`), drawn only for an admin, and checked again in
  * `useEventsView` rather than trusted — a role can be revoked while the page is open. None of
  * it is a control: `requireMembership(..., { role: "ADMIN" })` is.
- *
- * ── The tallies read as empty, not as full ───────────────────────────────────
- *
- * "0 of 4 taken", never "4 of 4 left". A rota exists to be signed up for, and the number that
- * moves somebody is the one that is still zero.
  */
 
 /* The View / Edit switch, mounted by the Events page's header rather than by this component.
@@ -120,7 +114,7 @@ const ClaimRow = ({ claim }) => (
 
 /* The date, its time, and its note — the half of a slot row that reads the same in both modes. */
 const SlotWhen = ({ slot }) => (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-w-0 flex-1 flex-col pt-0.5">
         <span
             className={cn(
                 "text-sm font-semibold text-foreground",
@@ -139,24 +133,53 @@ const SlotWhen = ({ slot }) => (
     </div>
 )
 
-/* How full a date is, said the way round that gets somebody to sign up.
+/* The count, in a ring that is also the gauge: the dots run from the top clockwise and are lit
+ * as far as the date is subscribed, so a Sunday nobody has taken is visible from across the
+ * column before the sentence beside it has been read.
  *
- * **"0 of 4 taken", not "4 of 4 left".** A rota is published because it needs people, and the
- * number worth putting in front of a reader is the one that is still short. "Full" replaces it
- * outright at the top, because "4 of 4 taken" is a sum somebody has to do to learn there is
- * nothing to do. */
-const SlotTally = ({ slot }) => {
-    if (slot.canceled) return null
-    const full = slot.spotsLeft === 0
+ * Two copies of one dotted circle, the lit one masked to an arc, so every dot sits in the same
+ * place in both. The mask's stroke is wider than the dots it covers, which is what makes the
+ * boundary land between two dots instead of shaving one down its side. */
+const TallyRing = ({ taken, capacity }) => {
+    const mask = useId()
+    const filled = Math.max(0, Math.min(1, taken / capacity)) * 100
+    const dots = { pathLength: 100, strokeDasharray: "0.1 4.9", strokeLinecap: "round" }
 
     return (
-        <span
-            className={cn(
-                "text-xs tabular-nums",
-                full ? "text-muted-foreground" : "font-semibold text-foreground",
-            )}
-        >
-            {full ? "Full" : `${slot.taken} of ${slot.capacity} taken`}
+        <span className="relative flex size-6 shrink-0 items-center justify-center">
+            <svg viewBox="0 0 24 24" className="absolute inset-0 size-full" aria-hidden="true">
+                <mask id={mask}>
+                    <circle
+                        cx="12" cy="12" r="10.5" fill="none" stroke="white" strokeWidth="4"
+                        pathLength="100" strokeDasharray={`${filled} 100`}
+                        transform="rotate(-90 12 12)"
+                    />
+                </mask>
+                <circle
+                    cx="12" cy="12" r="10.5" fill="none" strokeWidth="1.5"
+                    className="stroke-foreground/25" {...dots}
+                />
+                <circle
+                    cx="12" cy="12" r="10.5" fill="none" strokeWidth="1.5"
+                    className="stroke-foreground" mask={`url(#${mask})`} {...dots}
+                />
+            </svg>
+            <span className="text-xxs font-semibold text-foreground">{taken}</span>
+        </span>
+    )
+}
+
+/* How full a date is. The sentence is `slotTallyParts`'s; what is local is the setting of it —
+ * the count ringed and at full contrast against the rest of it muted, so a column of dates
+ * reads as the numbers down its side. */
+const SlotTally = ({ slot }) => {
+    if (slot.canceled) return null
+    const { full, rest } = slotTallyParts(slot)
+
+    return (
+        <span className="flex items-center justify-center gap-1.5 text-xs tabular-nums">
+            {!full && <TallyRing taken={slot.taken} capacity={slot.capacity} />}
+            <span className="text-muted-foreground">{rest}</span>
         </span>
     )
 }
@@ -173,37 +196,41 @@ const SlotRow = ({ slot, sheet, onTake }) => {
             className={cn(
                 "flex flex-col gap-3 px-2 py-6",
                 slot.canceled && "opacity-60",
-                /* Yours is tinted rather than outlined: the rows are separated by rules now, so
-                   a border on one would read as a box that had wandered into a list. */
-                slot.mine && !slot.canceled && "-mx-2 rounded-2xl bg-brand/8 px-4",
             )}
         >
             <div className="flex items-start gap-3">
                 <SlotWhen slot={slot} />
 
-                <div className="flex shrink-0 items-center gap-3">
-                    <SlotTally slot={slot} />
-
+                {/* Laid to a width rather than to its contents, so the pills and the
+                    tallies line up down the list however each date has been answered. */}
+                <div className=" flex w-28 shrink-0 flex-col items-center gap-1.5">
+                    {/* **The filled pill is the date you are already on**, which is back to
+                        front for a call to action and is the point: nothing else on a row says
+                        the date is yours, and a filled shape is what carries that down a column
+                        of dates. Take is an invitation rather than a state, and an outline is
+                        enough to be tapped. */}
                     {slot.mine ? (
                         <Button
-                            variant="outline"
                             size="sm"
                             onClick={() => onTake(slot)}
-                            className="rounded-full px-4"
+                            className="w-full rounded-full"
                         >
                             Signed up
                         </Button>
                     ) : (
                         !slot.canceled && !past && !closed && !full && (
                             <Button
+                                variant="outline"
                                 size="sm"
                                 onClick={() => onTake(slot)}
-                                className="rounded-full px-5"
+                                className="w-full rounded-full"
                             >
                                 Take
                             </Button>
                         )
                     )}
+
+                    <SlotTally slot={slot} />
                 </div>
             </div>
 
@@ -632,55 +659,15 @@ const RotaRow = ({ row, onOpen }) => (
     </li>
 )
 
-/* What this person has already promised, across every rota in the group.
- *
- * At the top and horizontal, because it answers the question most people open this tab with,
- * and because it is short by nature. Tapping one opens the same surface a date opens anywhere
- * else, which is where a place is given up. */
-const MyClaims = ({ mine, onOpen }) => {
-    if (mine.length === 0) return null
-
-    return (
-        <section className="flex flex-col gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Your sign-ups
-            </h3>
-            <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-                {mine.map((slot) => (
-                    <button
-                        key={slot.id}
-                        type="button"
-                        onClick={() => onOpen(slot, slot.sheetTitle)}
-                        className="flex w-52 shrink-0 cursor-pointer flex-col gap-1 rounded-2xl border border-brand/40 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10"
-                    >
-                        <span className="truncate text-sm font-semibold text-foreground">
-                            {slot.sheetTitle}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                            {formatDayHeading(slot.startsAt)}
-                        </span>
-                        <span className="truncate text-xxs text-muted-foreground">
-                            {formatTimeRange(slot.startsAt, slot.endsAt)}
-                        </span>
-                    </button>
-                ))}
-            </div>
-        </section>
-    )
-}
-
 const SignupSheets = () => {
-    const { sheets, mine, skeleton, hasMore, loadingMore, loadMore } = useSignups()
+    const { sheets, skeleton, hasMore, loadingMore, loadMore } = useSignups()
     const { editing, canEdit } = useEventsView()
     const { create, saving } = useSignupAdmin()
     const { sheet, skeleton: loadingRota, open, close } = useSheet()
     const { orgId } = useCurrentOrg()
-    const [taking, setTaking] = useState(null)
     const [creating, setCreating] = useState(false)
     const pathname = usePathname()
     const router = useRouter()
-
-    const onTake = useCallback((slot, title) => setTaking({ slot, title }), [])
 
     /* **Which rota is open is the URL, not state.** That is what makes a link, a reminder and a
      * cold load all land on the same thing, and it is why this reads the pathname rather than
@@ -794,8 +781,6 @@ const SignupSheets = () => {
                 ) : (
                     <Transition fast key="list">
                         <div className="flex flex-col gap-6">
-                            {!editing && <MyClaims mine={mine} onOpen={onTake} />}
-
                             {sheets.length === 0 && !editing ? (
                                 <div className="flex flex-col items-center gap-2 py-16 text-center">
                                     <Icon size="xl" className="text-muted-foreground/60">
@@ -861,16 +846,6 @@ const SignupSheets = () => {
                     </Transition>
                 )}
             </AnimatePresence>
-
-            {/* The strip's cards open a date directly, which is the one way into
-                `<SignupClaim/>` that does not go through a rota's page. */}
-            <SignupClaim
-                slot={taking?.slot ?? null}
-                title={taking?.title ?? ""}
-                onOpenChange={(next) => {
-                    if (!next) setTaking(null)
-                }}
-            />
 
             <SignupEditor
                 open={creating}

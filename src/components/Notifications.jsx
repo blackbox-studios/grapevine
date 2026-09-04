@@ -60,7 +60,7 @@ const LINES = {
 const SIGNUP_LINES = {
     SIGNUP_REMINDER: (item) =>
         item.signup
-            ? `${item.signup.title} — ${formatDayHeading(item.signup.startsAt)}. You signed up.`
+            ? `${item.signup.title} on ${formatDayHeading(item.signup.startsAt)}. You signed up.`
             : "You have a sign-up coming up.",
     SIGNUP_CANCELED: (item) =>
         item.signup

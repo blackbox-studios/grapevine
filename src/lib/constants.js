@@ -110,9 +110,6 @@ export const RUNTIME_ROUTES = [
     { prefix: ROUTES.SIGNUP, slide: false },
 ]
 
-/* Route trees that must collapse to a single top-level page-transition key, because a
- * nested layout underneath runs its own <PageTransition/> for its sub-routes. Without
- * this the shell would cross-fade the whole pane on every sub-tab change. */
 /* Route trees that collapse to a single top-level page-transition key.
  *
  * `/settings` and `/group` are here because a nested layout underneath runs its own

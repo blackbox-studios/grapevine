@@ -20,7 +20,7 @@ import { prisma } from "@/lib/db"
 import { membershipIn, requireMembership } from "@/lib/server/auth"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
 import { conflict, forbidden, invalid, notFound } from "@/lib/server/errors"
-import { instantToZoned, zonedToInstant } from "@/lib/server/ical"
+import { dayIn, instantToZoned, zonedToInstant } from "@/lib/server/ical"
 import {
     newPostRecipients,
     notifySignupCanceled,
@@ -150,10 +150,6 @@ const slotWindow = () => ({ gte: new Date(Date.now() - 14 * 86400000) })
 const shiftDays = (date, days, timeZone) =>
     new Date(zonedToInstant(instantToZoned(date.getTime(), timeZone) + days * 86400000, timeZone))
 
-/* The local day an instant falls on, for grouping a rota's last date back into its slots. */
-const dayOf = (date, timeZone) =>
-    new Date(instantToZoned(date.getTime(), timeZone)).toISOString().slice(0, 10)
-
 /* Keeps an ongoing rota stocked to the horizon.
  *
  * ── What "forever" is, mechanically ─────────────────────────────────────────
@@ -201,9 +197,9 @@ const topUpRecurring = async (sheets) => {
             if (last.startsAt >= horizon) return
 
             /* The last day's slots, in order — the template a week is cut from. */
-            const lastDay = dayOf(last.startsAt, sheet.timezone)
+            const lastDay = dayIn(last.startsAt, sheet.timezone)
             const template = slots.filter(
-                (slot) => dayOf(slot.startsAt, sheet.timezone) === lastDay,
+                (slot) => dayIn(slot.startsAt, sheet.timezone) === lastDay,
             )
 
             const room = MAX_SHEET_SLOTS - slots.length

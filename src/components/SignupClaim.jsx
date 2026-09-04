@@ -41,7 +41,7 @@ import { useNow } from "@/lib/hooks/useNow.hook"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useSheet } from "@/lib/store/sheet/hook"
-import { cn, formatDayHeading, formatTimeRange } from "@/lib/utils"
+import { cn, formatDayHeading, formatTimeRange, slotTally } from "@/lib/utils"
 
 /* Taking a place on a rota — a dialog on a desktop, a bottom sheet on a phone.
  *
@@ -284,9 +284,7 @@ const ReleaseBody = ({ slot, onDone }) => {
                     You are signed up
                 </p>
                 <p className="text-sm text-muted-foreground">
-                    {slot.capacity > 1
-                        ? `${slot.taken} of ${slot.capacity} taken.`
-                        : "Thank you."}
+                    {slot.capacity > 1 ? slotTally(slot) : "Thank you."}
                 </p>
             </div>
 
@@ -325,35 +323,53 @@ const ClosedBody = ({ reason }) => (
     </div>
 )
 
-/* Mounted with whichever slot was tapped, and unmounted on close — so the form is seeded fresh
- * each time rather than kept alive behind a closed sheet holding the last rota's details. */
+/* Mounted with whichever slot was tapped, and remounted on every tap — so the form is seeded
+ * fresh each time rather than kept alive behind a closed sheet holding the last rota's
+ * details. */
 const SignupClaim = ({ slot, title, onOpenChange }) => {
     const isDesktop = useIsDesktop()
     const now = useNow()
     const open = Boolean(slot)
 
+    /* The date this draws, which is not the one it was last handed.
+     *
+     * Closing sets the caller's state back to null while the sheet still has a few hundred
+     * milliseconds of sliding out to do, so the live props describe nothing for that whole
+     * stretch: no body, no title, and the height rule below falling through to the form's
+     * `h-[90dvh]`, which reads as the sheet leaping to full screen and then being dismissed.
+     * Holding the last date means the exit animates what was on screen.
+     *
+     * `seq` is what keeps that hold out of the next open: `<ClaimForm/>` is keyed on it, so
+     * every tap mounts a fresh one rather than one still carrying the last date's note. Callers
+     * build a new `{ slot, title }` on the tap and leave it alone until the surface closes, so
+     * a re-render while open cannot bump it. */
+    const [held, setHeld] = useState(null)
+    if (slot && slot !== held?.slot) setHeld({ slot, title, seq: (held?.seq ?? 0) + 1 })
+
+    const shown = held?.slot ?? null
+
     useBackHandler(open, () => onOpenChange(false))
 
-    const when = slot
-        ? `${formatDayHeading(slot.startsAt)}, ${formatTimeRange(slot.startsAt, slot.endsAt)}`
+    const when = shown
+        ? `${formatDayHeading(shown.startsAt)}, ${formatTimeRange(shown.startsAt, shown.endsAt)}`
         : ""
 
     /* Which of the three bodies this date wants. Ordered the way a person would ask: am I on
      * it, is it happening, is there room. */
-    const body = !slot ? null
-        : slot.mine ? <ReleaseBody slot={slot} onDone={() => onOpenChange(false)} />
-        : slot.canceled ? <ClosedBody reason="This date has been cancelled." />
-        : slot.open === false ? <ClosedBody reason="This sign-up sheet is closed." />
-        : new Date(slot.endsAt).getTime() < now ? <ClosedBody reason="This date has already been." />
-        : slot.spotsLeft === 0 ? <ClosedBody reason="This date is full. Try another one." />
-        : <ClaimForm slot={slot} onDone={() => onOpenChange(false)} />
+    const body = !shown ? null
+        : shown.mine ? <ReleaseBody slot={shown} onDone={() => onOpenChange(false)} />
+        : shown.canceled ? <ClosedBody reason="This date has been cancelled." />
+        : shown.open === false ? <ClosedBody reason="This sign-up sheet is closed." />
+        : new Date(shown.endsAt).getTime() < now ? <ClosedBody reason="This date has already been." />
+        : shown.spotsLeft === 0 ? <ClosedBody reason="This date is full. Try another one." />
+        : <ClaimForm key={held.seq} slot={shown} onDone={() => onOpenChange(false)} />
 
     if (isDesktop) {
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
                 <DialogContent className="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-lg">
                     <DialogHeader className="border-b px-4 pb-4 pt-5">
-                        <DialogTitle>{title}</DialogTitle>
+                        <DialogTitle>{held?.title ?? ""}</DialogTitle>
                         <DialogDescription>{when}</DialogDescription>
                     </DialogHeader>
                     {body}
@@ -367,10 +383,10 @@ const SignupClaim = ({ slot, title, onOpenChange }) => {
             {/* Sized to what it holds rather than to a fixed share of the screen: giving up a
                 place is three lines and a button, and a sheet nine tenths of the way up the
                 display for that reads as a mistake. */}
-            <DrawerContent className={cn("max-h-[90dvh]", slot?.mine ? "" : "h-[90dvh]")}>
+            <DrawerContent className={cn("max-h-[90dvh]", shown?.mine ? "" : "h-[90dvh]")}>
                 <KeyboardAwareColumn>
                     <DrawerHeader className="shrink-0 border-b pt-2 pb-4">
-                        <DrawerTitle className="text-center font-semibold">{title}</DrawerTitle>
+                        <DrawerTitle className="text-center font-semibold">{held?.title ?? ""}</DrawerTitle>
                         <p className="text-center text-xs text-muted-foreground">{when}</p>
                     </DrawerHeader>
                     {body}

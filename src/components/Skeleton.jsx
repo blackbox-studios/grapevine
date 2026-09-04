@@ -316,24 +316,11 @@ export function CalendarSkeleton() {
     )
 }
 
-/* The sign-ups tab: the strip of the viewer's own dates, then the rotas as collapsed rows.
- *
- * Each row is one line, because that is what a collapsed accordion is — and the rows are what
- * this is mostly made of, since the strip is absent for anybody who has not signed up for
- * anything. Drawn anyway: a skeleton that guessed the strip away would leave the list jumping
- * down for the readers who do have one, which is the majority of the people who open this tab
- * on purpose. */
+/* The sign-ups tab: the rotas as collapsed rows. Each row is one line, because that is what a
+ * collapsed accordion is. */
 export function SignupsSkeleton({ count = 3 }) {
     return (
         <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-3">
-                <Skeleton className="h-3 w-28" />
-                <div className="flex gap-3">
-                    <Skeleton className="h-20 w-52 shrink-0 rounded-2xl" />
-                    <Skeleton className="h-20 w-52 shrink-0 rounded-2xl" />
-                </div>
-            </div>
-
             <div className="flex flex-col gap-2">
                 {Array.from({ length: count }).map((_, index) => (
                     <div

@@ -305,7 +305,7 @@ const Fasting = ({ fasting }) => {
             </Hint>
 
             {(fasting.title || fasting.tone) && (
-                <p className="text-center text-base text-muted-foreground/50 italic font-light font-sans">
+                <p className="text-center text-base text-muted-foreground/50 italic font-light">
                     {[fasting.title, fasting.tone ? `Tone ${fasting.tone}` : null]
                         .filter(Boolean)
                         .join(" · ")}

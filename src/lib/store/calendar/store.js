@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
 import { API_ENDPOINTS } from '@/lib/constants'
+import { haptic } from '@/lib/native'
 import { dateFromKey, dayKey, monthGrid, startOfMonth, toErrorList } from '@/lib/utils'
 
 /* The compiled calendar: one group, its months, and whichever day is open.
@@ -46,9 +47,15 @@ const INIT = {
     month: null,
     monthKey: null,
 
-    /* "YYYY-MM": { items, hasCalendar }. Every window this session has resolved for the
-     * selected group. */
+    /* "YYYY-MM": the window's entries. Every window this session has resolved for the selected
+     * group. */
     months: {},
+
+    /* Whether the selected group has a calendar feed at all — "nothing on in March" and "this
+     * parish keeps no calendar" are two empty grids wanting different words. It belongs to the
+     * group rather than to a month, so it has to be declared here for `reset` to clear it on a
+     * switch. */
+    hasCalendar: false,
 
     /* The day the day view is showing, and which of the two surfaces is on screen. */
     selected: null,
@@ -186,29 +193,35 @@ const useStore = create(immer((set, get) => ({
      * leaving the month behind would show an empty day for a date that has events. Setting
      * `month` is what the hook's effect turns into a load — which is usually a cache hit,
      * because the neighbour was warmed when this month opened. */
-    stepDay: (delta) => set(state => {
-        const from = dateFromKey(state.selected) ?? new Date()
-        const next = new Date(from)
-        next.setDate(from.getDate() + delta)
-        state.selected = dayKey(next)
+    stepDay: (delta) => {
+        haptic('light')
+        set(state => {
+            const from = dateFromKey(state.selected) ?? new Date()
+            const next = new Date(from)
+            next.setDate(from.getDate() + delta)
+            state.selected = dayKey(next)
 
-        const window = monthGrid(state.month ?? next)
-        if (next < window[0] || next > window[window.length - 1]) {
-            const target = startOfMonth(next)
-            state.month = target
-            state.monthKey = monthKeyOf(target)
-            state.ready = state.months[monthKeyOf(target)] !== undefined
-        }
-    }),
+            const window = monthGrid(state.month ?? next)
+            if (next < window[0] || next > window[window.length - 1]) {
+                const target = startOfMonth(next)
+                state.month = target
+                state.monthKey = monthKeyOf(target)
+                state.ready = state.months[monthKeyOf(target)] !== undefined
+            }
+        })
+    },
 
     /* Pages a month. The load is left to the hook's effect, which re-runs on the month this
      * just set — so the fetch (or the cache hit) stays in one place. */
-    step: (delta) => set(state => {
-        const next = startOfMonth(state.month ?? new Date(), delta)
-        state.month = next
-        state.monthKey = monthKeyOf(next)
-        state.ready = state.months[monthKeyOf(next)] !== undefined
-    }),
+    step: (delta) => {
+        haptic('light')
+        set(state => {
+            const next = startOfMonth(state.month ?? new Date(), delta)
+            state.month = next
+            state.monthKey = monthKeyOf(next)
+            state.ready = state.months[monthKeyOf(next)] !== undefined
+        })
+    },
 
     /* Back to the month containing today. The one navigation that names a destination rather
      * than a direction, and the surface only offers it when the reader is somewhere else. */

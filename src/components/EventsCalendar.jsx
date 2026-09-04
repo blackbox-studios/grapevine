@@ -14,7 +14,7 @@ import { CALENDAR_ENTRY, MONTHS } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useCalendar } from "@/lib/store/calendar/hook"
-import { cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange } from "@/lib/utils"
+import { cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange, slotTally } from "@/lib/utils"
 
 /* The parish's month, and one of its days — never both at once.
  *
@@ -214,7 +214,6 @@ const useRail = (entries) => useMemo(() => {
  * place — and a parish event is not, because there is nothing to do to it. */
 const RailEntry = ({ entry, top, height, lane, lanes, onOpen }) => {
     const signup = entry.kind === CALENDAR_ENTRY.SIGNUP
-    const full = signup && entry.spotsLeft === 0
 
     const body = (
         <span
@@ -241,12 +240,7 @@ const RailEntry = ({ entry, top, height, lane, lanes, onOpen }) => {
                         ? "Cancelled"
                         : entry.mine
                             ? "You are signed up"
-                            : full
-                                ? "Full"
-                                /* Taken, never left: a rota is published because it needs
-                                 * people, and the number that moves somebody is the one that
-                                 * is still short. */
-                                : `${entry.taken} of ${entry.capacity} taken`
+                            : slotTally(entry)
                     : formatTimeRange(entry.startsAt, entry.endsAt)}
             </span>
         </span>
@@ -277,37 +271,37 @@ const RailEntry = ({ entry, top, height, lane, lanes, onOpen }) => {
     )
 }
 
+/* A band of badges across the top of the day, for the entries that have no hour to be drawn
+ * in: a feast is true of the whole day rather than of a stretch of it.
+ *
+ * **Colour-hashed from the title**, through the same `<Badge/>` a vocation uses. One flat
+ * colour for all of them says only "this is an all-day thing", which the position already says;
+ * hashing means a feast and a fast on the same day are visibly two different things, and the
+ * same feast is the same colour every year somebody looks at it. */
+const AllDayBand = ({ entries }) => {
+    const allDay = entries.filter((entry) => entry.allDay)
+    if (allDay.length === 0) return null
+
+    return (
+        <div className="flex flex-col gap-2">
+            {allDay.map((entry) => (
+                /* Full width, and left-aligned rather than centred: it is a band across the day
+                   in the same way the blocks below are bands across their hours, and a pill
+                   hugging its own text reads as a tag on something rather than as the thing
+                   itself. */
+                <Badge key={entry.id} className="h-8 w-full justify-start px-4 text-xs">
+                    {entry.title}
+                </Badge>
+            ))}
+        </div>
+    )
+}
+
 const DayRail = ({ entries, onOpen }) => {
     const runs = useRail(entries)
-    const allDay = entries.filter((entry) => entry.allDay)
 
     return (
         <div className="flex flex-col gap-6">
-            {/* All-day entries have no place on the rail — they are true of the whole day
-                rather than of an hour in it — so they sit above it as badges.
-                
-                **Colour-hashed from the title**, through the same `<Badge/>` a vocation uses.
-                One flat colour for all of them said only "this is an all-day thing", which the
-                position already says; hashing means a feast and a fast on the same day are
-                visibly two different things, and the same feast is the same colour every year
-                somebody looks at it. */}
-            {allDay.length > 0 && (
-                <div className="flex flex-col gap-2 pb-1">
-                    {allDay.map((entry) => (
-                        /* Full width, and left-aligned rather than centred: it is a band across
-                           the day in the same way the blocks below are bands across their hours,
-                           and a pill hugging its own text reads as a tag on something rather
-                           than as the thing itself. */
-                        <Badge
-                            key={entry.id}
-                            className="h-8 w-full justify-start px-4 text-xs"
-                        >
-                            {entry.title}
-                        </Badge>
-                    ))}
-                </div>
-            )}
-
             {/* The runs butt together — no gap on *this* box, which is what puts the dashed
                 line exactly where the solid hour line would have been. A fold is marked by the
                 hour's own rule being dashed rather than by a second rule drawn above it, so the
@@ -374,6 +368,41 @@ const DayRail = ({ entries, onOpen }) => {
     )
 }
 
+/* What the viewer themselves is standing for on this day, said in words above the rail.
+ *
+ * A claimed block is drawn differently down on the rail, but that is a property of one block
+ * among several and is only found by reading every block on the day. The question somebody
+ * opens a date to answer is "am I on for anything", so the day answers it by name, under the
+ * heading that has just said which day it is.
+ *
+ * Cancelled claims are left out. The block keeps them, struck through, because a volunteer has
+ * to see that the thing they promised is off, and a line at the top saying they are signed up
+ * for it would say the opposite. */
+const ClaimedNotice = ({ entries }) => {
+    const titles = entries
+        .filter((entry) => entry.mine && !entry.canceled)
+        .map((entry) => entry.title)
+
+    if (titles.length === 0) return null
+
+    /* Hand-joined rather than `Intl.ListFormat`, which would make this the one string on the
+     * surface that changes with the device's locale while everything around it stays as
+     * written. */
+    const names = titles.length === 1
+        ? titles[0]
+        : `${titles.slice(0, -1).join(", ")} and ${titles[titles.length - 1]}`
+
+    return (
+        <div className="flex items-center gap-3 rounded-xl bg-brand/10 px-4 py-3">
+            <Icon size="lg" className="shrink-0 text-brand">check_circle</Icon>
+            <p className="text-sm text-muted-foreground">
+                You are signed up for{" "}
+                <span className="font-semibold text-foreground">{names}</span>
+            </p>
+        </div>
+    )
+}
+
 /* One day: its heading, the way back to the month, and the rail.
  *
  * A component rather than a branch of the render, because it registers Android's back gesture —
@@ -412,7 +441,13 @@ const DayView = ({ selected, entries, onBack, onPrevious, onNext, onOpen }) => {
                             <p className="text-sm text-muted-foreground">Nothing on this day.</p>
                         </div>
                     ) : (
-                        <DayRail entries={entries} onOpen={onOpen} />
+                        <div className="flex flex-col gap-6">
+                            {/* Inside the cross-fade with the rail, so stepping to the next
+                                day carries all three across together. */}
+                            <AllDayBand entries={entries} />
+                            <ClaimedNotice entries={entries} />
+                            <DayRail entries={entries} onOpen={onOpen} />
+                        </div>
                     )}
                 </Transition>
             </AnimatePresence>
@@ -502,9 +537,6 @@ const EventsCalendar = () => {
     }, [])
 
     return (
-        /* `pb-14` is the room `<CalendarLegend/>` no longer takes in the flow — it is pinned to
-           the viewport, so the last row of a grid or the foot of a rail would otherwise scroll
-           under it. */
         <div className="flex flex-col pb-14">
             <AnimatePresence mode="wait" initial={false}>
                 {skeleton ? (

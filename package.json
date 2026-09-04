@@ -58,7 +58,6 @@
     "capacitor-native-settings": "^8.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "cn": "^0.2.5",
     "copy-to-clipboard": "^4.0.2",
     "date-fns": "^4.4.0",
     "firebase": "^12.18.0",

@@ -307,6 +307,25 @@ export const summarize = (slots = [], now = 0) => {
     }
 }
 
+/* How full one date is, as the reader is told it.
+ *
+ * **Taken, never left**, and "Full" instead of a count once it is: a rota is published because
+ * it needs people, so the number that moves somebody is the one still short, and "4 of 4 taken"
+ * is a sum they have to do to learn there is nothing to do.
+ *
+ * Written out at each surface that says it, the rule survives only as long as nobody forgets
+ * half of it. `slotTallyParts` is the sentence in pieces, for a surface that sets the count
+ * apart from the words round it; `slotTally` joins them back for one that does not. */
+export const slotTallyParts = (slot) =>
+    slot.spotsLeft === 0
+        ? { full: true, taken: "", rest: "Full" }
+        : { full: false, taken: String(slot.taken), rest: `of ${slot.capacity} taken` }
+
+export const slotTally = (slot) => {
+    const { taken, rest } = slotTallyParts(slot)
+    return [taken, rest].filter(Boolean).join(" ")
+}
+
 /* A title, reduced to the part worth comparing.
  *
  * **The parish keeps one event in two places and neither spelling is wrong.** The Google
@@ -363,13 +382,6 @@ export const dateFromKey = (key) => {
     if (!match) return null
     const [year, month, day] = match.slice(1).map(Number)
     return new Date(year, month - 1, day)
-}
-
-/* Midnight local on the day containing `date`. */
-export const startOfDay = (date) => {
-    const value = new Date(date)
-    value.setHours(0, 0, 0, 0)
-    return value
 }
 
 /* The first instant of a month, and of the month `offset` months away. Constructed from parts

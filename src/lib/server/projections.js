@@ -1,6 +1,7 @@
 import "server-only"
 
 import { canDeleteOrg } from "@/lib/server/auth"
+import { SIGNUP_STATUS } from "@/lib/constants"
 import { documentType, formatBytes } from "@/lib/utils"
 
 /* Database rows → wire shapes.
@@ -368,7 +369,7 @@ export const projectCalendarSlot = (slot, viewerId) => ({
     taken: slot.claims.length,
     spotsLeft: slot.canceledAt ? 0 : Math.max(0, slot.capacity - slot.claims.length),
     canceled: slot.canceledAt !== null,
-    open: slot.sheet.status === "OPEN",
+    open: slot.sheet.status === SIGNUP_STATUS.OPEN,
     /* The viewer's own claim on this date, or null — solid ring on the grid, and the row the
      * Give up button deletes. Answered off the claims already joined, so it costs nothing. */
     mine: slot.claims.find((claim) => claim.profileId === viewerId)?.id ?? null,

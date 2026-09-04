@@ -85,10 +85,8 @@ import { cn, todayLocal, WEEKDAY_NAMES } from "@/lib/utils"
  *
  * ── Extending is the same form with the sheet's half removed ─────────────────
  *
- * A rota that has run out of Sundays is extended rather than replaced, so the record of who
- * did what survives. `mode="extend"` drops the title and description (the sheet already has
- * them) and keeps the schedule, and the endpoint is idempotent — asking for a range that
- * overlaps what is already there adds only the missing dates.
+ * `mode="extend"` drops the title and description (the sheet already has them) and keeps the
+ * schedule. Asking twice is harmless, which is `addSlots`'s property rather than this form's.
  */
 
 const schema = z.object({

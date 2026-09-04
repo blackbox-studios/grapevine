@@ -127,6 +127,15 @@ export const instantToZoned = (instantMs, timeZone) => {
     }
 }
 
+/* Which local day an instant falls on, in a given zone, as `YYYY-MM-DD`.
+ *
+ * A day is a reading of a clock rather than a span of the timeline — 9 PM in Chicago and 3 AM in
+ * London can be one instant and are not one day — so anything grouping events by day has to ask
+ * in a named zone. One spelling of it, because two would disagree about which day an event fell
+ * on depending on which caller asked. */
+export const dayIn = (date, timeZone) =>
+    new Date(instantToZoned(date.getTime(), timeZone)).toISOString().slice(0, 10)
+
 /* ---------------------------------------------------------------------------
  * Parsing
  * ------------------------------------------------------------------------- */
@@ -380,9 +389,8 @@ const addMonths = (wallMs, months) => {
     const day = date.getUTCDate()
     date.setUTCDate(1)
     date.setUTCMonth(date.getUTCMonth() + months)
-    /* A 31st rolled into a short month would otherwise land in the next one. Clamping is what
-     * every calendar does with "monthly on the 31st" in February: the occurrence is skipped,
-     * which `startOfDay(day) === day` below detects. */
+    /* Clamped so a 31st never rolls into the following month: this value names a month, and the
+     * day it happens to land on is not an occurrence — `candidatesAt` decides that. */
     const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
     date.setUTCDate(Math.min(day, lastDay))
     return date.getTime()
@@ -472,23 +480,30 @@ const occurrencesOf = (event, from, to) => {
                         .filter(Boolean)
                         .sort((a, b) => a - b)
                 }
-                if (rule.byMonthDay.length > 0) {
-                    const date = new Date(wallMs)
-                    const last = new Date(
-                        Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-                    ).getUTCDate()
-                    return rule.byMonthDay
-                        .map((day) => (day > 0 ? day : last + day + 1))
-                        .filter((day) => day >= 1 && day <= last)
-                        .map((day) =>
-                            Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), day) + hours,
-                        )
-                        .sort((a, b) => a - b)
-                }
-                return [wallMs]
+                /* No BYMONTHDAY means the day comes from DTSTART (RFC 5545 §3.3.10) — the same
+                 * rule with an implicit list of one, so it takes the same filter, and a month
+                 * with no such day yields nothing rather than the nearest thing to it. */
+                const monthDays = rule.byMonthDay.length > 0
+                    ? rule.byMonthDay
+                    : [new Date(start.wallMs).getUTCDate()]
+                const date = new Date(wallMs)
+                const last = new Date(
+                    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+                ).getUTCDate()
+                return monthDays
+                    .map((day) => (day > 0 ? day : last + day + 1))
+                    .filter((day) => day >= 1 && day <= last)
+                    .map((day) =>
+                        Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), day) + hours,
+                    )
+                    .sort((a, b) => a - b)
             }
-            case "YEARLY":
-                return [wallMs]
+            case "YEARLY": {
+                /* A 29 February series happens in leap years only, so a year the cursor has
+                 * been clamped into yields nothing. */
+                const startDay = new Date(start.wallMs).getUTCDate()
+                return new Date(wallMs).getUTCDate() === startDay ? [wallMs] : []
+            }
             default:
                 return []
         }
@@ -525,11 +540,13 @@ const occurrencesOf = (event, from, to) => {
             case "WEEKLY":
                 cursor = addDays(cursor, 7 * rule.interval)
                 break
+            /* Anchored on DTSTART rather than on the previous cursor, so a clamped month cannot
+             * accumulate into a drift. */
             case "MONTHLY":
-                cursor = addMonths(cursor, rule.interval)
+                cursor = addMonths(start.wallMs, steps * rule.interval)
                 break
             case "YEARLY":
-                cursor = addMonths(cursor, 12 * rule.interval)
+                cursor = addMonths(start.wallMs, 12 * steps * rule.interval)
                 break
             default:
                 return out

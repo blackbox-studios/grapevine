@@ -71,35 +71,14 @@ export const useSignups = () => {
             .sort((a, b) => rank(a) - rank(b))
     }, [items, now])
 
-    /* Everything this person is standing for, across every rota on screen, soonest first.
-     *
-     * **Derived rather than fetched**, which is what the rows carrying their own dates buys:
-     * there is no second endpoint to keep in step, and a claim made anywhere — the accordion,
-     * the day's timeline — moves this strip by the same slot replacement that moves everything
-     * else. The bound is the loaded page, which for a parish running a handful of rotas is all
-     * of them. */
-    const mine = useMemo(
-        () =>
-            items
-                .flatMap(sheet =>
-                    sheet.slots
-                        .filter(slot => slot.mine && !slot.canceled)
-                        .map(slot => ({ ...slot, sheetTitle: sheet.title })),
-                )
-                .filter(slot => new Date(slot.endsAt).getTime() >= now)
-                .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
-        [items, now],
-    )
-
     return useMemo(() => ({
         sheets,
-        mine,
         hasMore,
         loadingMore,
         loadMore,
         refresh,
         skeleton: resolvingOrg || !ready,
-    }), [sheets, mine, hasMore, loadingMore, loadMore, refresh, resolvingOrg, ready])
+    }), [sheets, hasMore, loadingMore, loadMore, refresh, resolvingOrg, ready])
 }
 
 /* Which half of the Events page is showing, and whether an admin is reading or editing it.

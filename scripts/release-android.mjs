@@ -4,11 +4,13 @@
  *   npm run release:android                     # ...and publish to the internal track
  *   npm run release:android -- --track alpha
  *   npm run release:android -- --draft --notes "Fixes the comment ordering"
+ *   npm run release:android -- --no-bump        # release the version already in package.json
  *
- * The version comes from package.json and nothing here writes it — `npm version patch` is the
- * bump, and android/app/build.gradle derives versionName and versionCode by reading that file.
- * So this script passes Gradle no version properties at all, and an interrupted run leaves the
- * working tree exactly as it found it.
+ * The version lives in package.json, and android/app/build.gradle derives versionName and
+ * versionCode by *reading* that file — so this script passes Gradle no version properties, and
+ * the only thing it writes is the bump itself, through `npm version patch`. Play refuses a
+ * versionCode it has seen before, and that code is a pure function of the version, so bumping is
+ * part of releasing rather than something to remember beforehand.
  *
  * ── Why this talks to Google directly ───────────────────────────────────────
  *
@@ -62,6 +64,7 @@ const option = (name, fallback) => {
 const DRY = flag("dry")
 const SKIP_BUILD = flag("skip-build")
 const SKIP_PROBE = flag("skip-probe")
+const NO_BUMP = flag("no-bump")
 const TRACK = option("track", "internal")
 const NOTES = option("notes", null)
 /* A completed release goes live on the track; a draft waits in the console. Internal testing
@@ -82,6 +85,32 @@ const run = (command, args, cwd = ROOT) =>
 /* ---------------------------------------------------------------------------
  * Preflight — everything that can fail must fail before the three-minute build
  * ------------------------------------------------------------------------- */
+
+/* Play rejects a versionCode it has already seen, and `versionCode` here is a pure function of
+ * the version in package.json — so an upload without a bump is refused by the store rather than
+ * by anything local, after the build has already run. Bumping first turns that into a
+ * non-event.
+ *
+ * **`--dry` bumps too**, because a dry run still produces a real, signed, uploadable bundle, and
+ * the console upload is exactly where a repeated code is rejected. Skipping the bump there would
+ * leave the manual path — which is the whole first-release workflow — hitting the error this
+ * exists to prevent.
+ *
+ * `npm version` writes package.json, commits, and tags. It refuses on a dirty tree, which is a
+ * feature: a release should name a commit that exists. `--no-bump` is for re-uploading a version
+ * deliberately, and it is implied by `--skip-build`, where the bundle on disk was built from
+ * whatever the version was *then* and moving it now would only make the two disagree. */
+if (!NO_BUMP && !SKIP_BUILD) {
+    console.log("  → bumping the patch version")
+    try {
+        run("npm", ["version", "patch"])
+    } catch {
+        die(
+            "`npm version patch` failed. It refuses to run with uncommitted changes —\n" +
+                "  commit them, or pass --no-bump to release the version already in package.json.",
+        )
+    }
+}
 
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"))
 const versionName = pkg.version

@@ -216,40 +216,66 @@ export const AccountDeletion = () => (
         <P>Last updated {UPDATED}.</P>
 
         <P>
-            You can have your {APP_NAME} account and everything in it permanently deleted. There is
-            no button for this inside the app, because accounts here are created by a group
-            administrator rather than by signing yourself up, so deletion is a request rather than
-            a self&#8209;service action.
+            This page explains how to have your {APP_NAME} account, and the data held with it,
+            permanently deleted. {APP_NAME} is operated by Blackbox Studios.
         </P>
 
-        <H>How to ask</H>
         <P>
-            Email <Mail /> <strong>from the email address on your account</strong> and say that you
-            want your account deleted. Sending from that address is how we confirm the request is
-            yours. If you no longer have access to it, write anyway and we will find another way to
-            verify you.
+            There is no delete button inside the app, because accounts here are created by a
+            group administrator rather than by signing yourself up, so deletion is a request
+            rather than a self&#8209;service action.
+        </P>
+
+        <H>How to request deletion</H>
+        <List>
+            <li>
+                Email <Mail /> <strong>from the email address on your {APP_NAME} account</strong>.
+            </li>
+            <li>Say that you want your account and data deleted.</li>
+            <li>
+                We reply to confirm, and complete the deletion within 30 days. It is usually done
+                within a few days.
+            </li>
+        </List>
+        <P>
+            Sending from the address on your account is how we confirm the request is yours. If
+            you no longer have access to it, write anyway and we will find another way to verify
+            you.
         </P>
 
         <H>What is deleted</H>
         <List>
             <li>
-                Your profile, including name, @handle, picture, date of birth and parish details.
+                Your profile: name, Christian name, @handle, profile picture, vocation, date of
+                birth, name day and ordination date.
             </li>
-            <li>Everything you have written, including posts, comments and uploaded photos.</li>
-            <li>Your likes, follows, group memberships and direct messages.</li>
+            <li>Your email address and the sign&#8209;in credential attached to it.</li>
+            <li>Everything you have written: posts, comments and uploaded photos.</li>
+            <li>Your likes, your follows, and your direct messages.</li>
+            <li>Your group memberships.</li>
             <li>Your push notification tokens.</li>
-            <li>Your sign&#8209;in credential, so the address can no longer be used to sign in.</li>
         </List>
+
+        <H>What is kept, and for how long</H>
         <P>
-            Nothing is retained afterwards except where the law requires it. This cannot be undone,
-            and because {APP_NAME} is invite&#8209;only, returning means an administrator adding
-            you again from scratch.
+            Once we action your request the data above is removed from the live app immediately.
+        </P>
+        <P>
+            Residual copies may remain in our encrypted database backups for up to{" "}
+            <strong>30 days</strong>, after which they are overwritten and cannot be recovered.
+            Backups are not readable from the app and are used only to restore service after a
+            failure.
+        </P>
+        <P>
+            We keep nothing else, except where the law requires it, such as a minimal record that
+            a deletion request was made and actioned.
         </P>
 
-        <H>How long it takes</H>
+        <H>This cannot be undone</H>
         <P>
-            We action requests within 30 days and normally much sooner, and we will confirm by
-            email when it is done.
+            Deletion is permanent. Because {APP_NAME} is invite&#8209;only, returning later means
+            a group administrator adding you again from scratch, and nothing you previously wrote
+            comes back.
         </P>
 
         <H>If you only want to leave one group</H>

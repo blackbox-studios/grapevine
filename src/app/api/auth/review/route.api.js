@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto"
 
+import { OTP_LENGTH } from "@/lib/constants"
 import { preflight, route } from "@/lib/server/handler"
 import { invalid, notFound } from "@/lib/server/errors"
 import { sendResource } from "@/lib/server/respond"
@@ -36,13 +37,23 @@ import { supabaseAdmin } from "@/lib/server/supabase"
 const REVIEW_EMAIL = process.env.REVIEW_EMAIL?.trim().toLowerCase()
 const REVIEW_OTP = process.env.REVIEW_OTP?.trim()
 
-/* Short enough to type off a submission form, long enough that guessing it is not a strategy.
- * Asserted rather than documented, because a four-character code here would be a real hole and
- * the person setting it is not thinking about attackers. */
-const MIN_OTP_LENGTH = 12
+/* **The shape is dictated by the code field, not chosen here.** `<InputOTP maxLength={OTP_LENGTH}>`
+ * on the login screen is exactly `OTP_LENGTH` slots, so a code of any other length simply cannot
+ * be typed — the route would be unreachable and the failure would look like a broken app to the
+ * one person who must not see that. (`codeSchema` accepts 6-10 digits, but that slack exists so a
+ * change to the Supabase dashboard setting cannot lock real users out; it is not licence to use a
+ * longer code here.) Derived from the constant so the two cannot drift.
+ *
+ * **Six digits is only a million combinations, and that is the whole reason this must be
+ * temporary.** The attempt cap below is per-process, which on a serverless deploy means an
+ * attacker gets a fresh allowance per cold instance, so it slows guessing rather than stopping
+ * it. What actually bounds the damage is that the account is an ordinary member of a demo group
+ * with no privileges, and that both variables are unset the moment review finishes. Leaving this
+ * configured indefinitely is the misuse to avoid. */
+const REVIEW_OTP_PATTERN = new RegExp(`^\\d{${OTP_LENGTH}}$`)
 
 const configured = () =>
-    Boolean(REVIEW_EMAIL && REVIEW_OTP && REVIEW_OTP.length >= MIN_OTP_LENGTH)
+    Boolean(REVIEW_EMAIL && REVIEW_OTP && REVIEW_OTP_PATTERN.test(REVIEW_OTP))
 
 /* Length is compared first because `timingSafeEqual` throws on a mismatch rather than
  * returning false, and the length of a secret is not the secret. */

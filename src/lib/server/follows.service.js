@@ -160,15 +160,19 @@ export const toggleFollow = async (viewer, handle) => {
                 prisma.follow.create({ data: key }),
                 notifyFollow(notification),
             ])
+
+            /* Only a new follow buzzes. An unfollow has a row to retract but nothing to
+             * announce, and the retraction cannot reach a banner already on a lock screen
+             * anyway. Inside the try because the P2002 swallowed below means somebody else's
+             * write landed and this transaction rolled back: the follow is real, but this is
+             * not the request that made it, and buzzing here is a second banner for one
+             * follow. */
+            pushFollow({ recipientId: profile.id, actor: viewer })
         } catch (error) {
             const duplicate =
                 error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
             if (!duplicate) throw error
         }
-
-        /* Only a new follow buzzes. An unfollow has a row to retract but nothing to announce,
-         * and the retraction cannot reach a banner already on a lock screen anyway. */
-        pushFollow({ recipientId: profile.id, actor: viewer })
     }
 
     const followers = await prisma.follow.count({ where: { followingId: profile.id } })

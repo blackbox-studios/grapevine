@@ -16,6 +16,20 @@ export const ROUTES = {
     PROLOGUE: "/prologue",
     POST: "/p",
     NOTIFICATIONS: "/notifications",
+    /* What is happening in this parish, and what it needs hands for. Two tabs over one
+     * subject rather than two destinations: the parish's own calendar and its sign-up sheets
+     * are the same question asked twice, and a rota nobody can see next to the feast it
+     * serves is a rota nobody signs up for. Scoped to the selected group like everything
+     * else, which is why there is no id in the path. */
+    EVENTS: "/events",
+    /* One sign-up sheet, by id — a real, shareable URL, which is the whole reason it exists: a
+     * priest posting "sign up for coffee hour" needs a link that lands on that rota, and a
+     * reminder should open the thing it is reminding you about.
+     *
+     * **Nested under `/events` on purpose.** `isRouteActive` is a segment-safe prefix test, so a
+     * rota keeps the Events tab lit in the nav; a sibling `/s` would leave the rail dark on a
+     * page that is plainly part of Events. */
+    SIGNUP: "/events/s",
     /* The account surface, and the index of the settings tree: who the viewer is, and every
      * destination that hangs off them. A route rather than a menu, because it is where the
      * settings sub-pages and the roster are reached from — see
@@ -88,18 +102,26 @@ export const RUNTIME_ROUTES = [
     /* No dynamic segment on this one — the resolver simply reports a null `param`, which the
      * surface ignores. A runtime route is a way of resolving a URL, not a shape of URL. */
     { prefix: ROUTES.NOTIFICATIONS, slide: true, base: ROUTES.DEFAULT },
-    /* No `slide: false` route exists yet. The presentation stays registered and wired
-     * (<RuntimeRoute/> draws one in the shell's page slot) because the split is what keeps the
-     * overlay from being the only thing this mechanism can express. The first screen that
-     * genuinely needs a linkable URL carrying a runtime id adds a line here and one in
-     * RUNTIME_SURFACES — and most surfaces that look like they need one do not, because an id
-     * only has to be *addressable* if somebody would share or bookmark it. */
+    /* The first `slide: false` route, and the shape the split was wired for. A rota is a
+     * *place* — reached from a list, from a notification, from a link somebody sent — rather
+     * than something you peek at over the feed and come back from, so it cross-fades into the
+     * page slot like any other route instead of sliding over one. `base` is meaningless without
+     * a surface underneath and is therefore absent. */
+    { prefix: ROUTES.SIGNUP, slide: false },
 ]
 
 /* Route trees that must collapse to a single top-level page-transition key, because a
  * nested layout underneath runs its own <PageTransition/> for its sub-routes. Without
  * this the shell would cross-fade the whole pane on every sub-tab change. */
-export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS, ROUTES.GROUP]
+/* Route trees that collapse to a single top-level page-transition key.
+ *
+ * `/settings` and `/group` are here because a nested layout underneath runs its own
+ * `<PageTransition/>` for its sub-routes. `/events` is here for the same *effect* by a different
+ * route: a rota is `/events/s/:sheetId`, and it is a level inside the Events surface rather than
+ * a page of its own — the header and the tab bar stay put and only the sign-ups panel changes,
+ * which it fades itself. Without the collapse the shell would cross-fade the whole screen on the
+ * way into a rota, which is the tell that a place has been mistaken for a destination. */
+export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS, ROUTES.GROUP, ROUTES.EVENTS]
 
 /* Simulated network latency for what is *still* mocked.
  *
@@ -192,6 +214,29 @@ export const API_ENDPOINTS = {
     /* Today's reading, or `?date=YYYY-MM-DD` for another day. The client sends its own
      * local date so the reading turns over at the reader's midnight, not the server's. */
     PROLOGUE: "/prologue",
+    /* The compiled calendar for one group and one window: the parish's own events, read out
+     * of its Google Calendar, and its sign-up slots, in one collection. **One endpoint rather
+     * than two**, because the month grid needs both before it can draw a single square, and
+     * two requests would mean two skeletons and a grid that fills in twice. */
+    EVENTS: "/events",
+    /* GET the group's sign-up sheets (`?orgId=`); POST to publish one, which only an admin
+     * may do. */
+    SIGNUPS: "/signups",
+    /* GET one sheet with its slots and who is in them; PATCH its title, description or
+     * status; DELETE it. */
+    SIGNUP: (sheetId) => `/signups/${sheetId}`,
+    /* POST more dates onto an existing sheet — the same generator the sheet was created
+     * with, run again. A rota that runs out of Sundays is extended, not replaced. */
+    SIGNUP_SLOTS: (sheetId) => `/signups/${sheetId}/slots`,
+    /* PATCH one slot's capacity, note, or cancellation; DELETE one nobody has taken. */
+    SLOT: (slotId) => `/slots/${slotId}`,
+    /* POST to take a spot in this slot. Not a toggle like a like: taking one carries a body
+     * (who you are standing for, whether to remind you) and giving one up does not, so they
+     * are a POST and a DELETE rather than one endpoint answering both. */
+    SLOT_CLAIMS: (slotId) => `/slots/${slotId}/claims`,
+    /* DELETE — give up your own spot, or, for an admin of the group, take somebody off a
+     * slot they can no longer make. */
+    CLAIM: (claimId) => `/claims/${claimId}`,
 }
 
 /* How many items a page pulls, per collection. The server clamps to its own maximum. */
@@ -204,6 +249,11 @@ export const PAGE_SIZE = {
     /* A follow row is one line, so a page has to overfill the modal it is read in for the
      * scroll that fetches the next one to exist at all. */
     FOLLOWS: 20,
+    /* Sheets are collapsed accordions, so a page of them is a page of single lines — and a
+     * parish runs a handful of rotas, not a feed of them. This is deliberately more than any
+     * parish will have, so the second page is a contract that exists rather than a thing
+     * anybody reaches. */
+    SIGNUPS: 20,
 }
 
 /* How often a client push cannot reach re-checks the notification tally — see
@@ -357,6 +407,121 @@ export const OTP_LENGTH = 6
  * guaranteed error. Configurable in the dashboard under Authentication → Rate Limits; if
  * you change it there, change it here. */
 export const OTP_RESEND_SECONDS = 60
+
+/* ---------------------------------------------------------------------------
+ * Events and sign-ups
+ *
+ * Read from both sides, like the upload limits above: the create form enforces these so a
+ * sheet that could not be accepted is refused while it is being typed, and
+ * `lib/server/signups.service.js` enforces them again because the client is not a control.
+ * ------------------------------------------------------------------------- */
+
+/* Whether a sheet is still taking volunteers. Mirrors the `SignupStatus` enum. Closing is not
+ * deleting: a closed rota still says who did what, which is most of the reason a parish keeps
+ * one. */
+export const SIGNUP_STATUS = {
+    OPEN: "OPEN",
+    CLOSED: "CLOSED",
+}
+
+/* How an admin describes the dates a sheet covers. Two shapes, and between them they cover
+ * every rota a parish actually runs:
+ *
+ *   WEEKLY  the same weekday, week after week — coffee hour after every Liturgy, the soup
+ *           kitchen every Saturday. The open-ended kind, extended when it runs out.
+ *   DATES   one span of consecutive days — the festival's parking lot over one weekend.
+ *
+ * Both then take the same time window and the same optional split, which is what makes six
+ * two-hour shifts from 4pm to 10pm the *same* form as one 11am-to-12:30 slot rather than a
+ * second mode of it. */
+export const SIGNUP_PATTERNS = {
+    WEEKLY: "WEEKLY",
+    DATES: "DATES",
+}
+
+/* How far ahead of a shift somebody is reminded. Two nudges, and the pair is the point: the
+ * week is when you can still find a replacement, and the day is when you actually put it in
+ * your bag. One of either alone fails a different half of the parish.
+ *
+ * Milliseconds because that is what the arithmetic wants (`startsAt - offset`), and because
+ * days are not a unit that survives a daylight-saving boundary intact — a reminder an hour
+ * out on the Sunday the clocks change is nobody's problem, and pretending otherwise would
+ * cost a timezone conversion per claim.
+ *
+ * Changing these re-schedules nothing that already exists: the rows are written at claim time
+ * from these numbers, so a re-tune reaches only sign-ups made after it. That is the same
+ * trade `src/lib/rank.js` documents, and it is accepted for the same reason — the alternative
+ * is a nightly job rewriting rows nobody asked it to touch. */
+export const SIGNUP_REMINDER_OFFSETS = [
+    7 * 24 * 60 * 60 * 1000,
+    24 * 60 * 60 * 1000,
+]
+
+/* How long a sign-up sheet's title and description may be. The title has to fit an accordion
+ * header on a phone; the description is one paragraph of instructions, not a document. */
+export const MAX_SIGNUP_TITLE_LENGTH = 80
+export const MAX_SIGNUP_DESCRIPTION_LENGTH = 500
+
+/* An admin's word about one date ("Bring bread, not a full meal"), and a volunteer's about
+ * their own spot ("I will bring the coffee"). Short on purpose: a slot row shows this in
+ * full, so anything longer would turn a list of dates into a wall of text.
+ *
+ * The body somebody is standing for is shorter still and for the same reason — "OCF -
+ * Orthodox Christian Fellowship" is 30 characters and is about as long as a name that has to
+ * sit where a person's name would. */
+export const MAX_SLOT_NOTE_LENGTH = 140
+export const MAX_CLAIM_NOTE_LENGTH = 140
+export const MAX_ON_BEHALF_OF_LENGTH = 60
+
+/* How many people one slot may hold. Four cooks, six pairs of hands on a parking lot; the
+ * ceiling is here to catch a typed 400, not to express a rule about parishes. */
+export const MAX_SLOT_CAPACITY = 99
+
+/* How many dates one run of the generator may write, and how many a sheet may hold in total.
+ *
+ * The first is what stops "every Sunday" from meaning "every Sunday until the heat death of
+ * the universe" — a year of weekly slots is 52, and six two-hour shifts across a fortnight is
+ * 84, so 120 admits every real rota and refuses the runaway. The second is the ceiling that
+ * matters, because the generator can be run again: a sheet extended once a year forever is
+ * still a sheet somebody has to scroll. */
+export const MAX_GENERATED_SLOTS = 120
+export const MAX_SHEET_SLOTS = 520
+
+/* How far ahead an **ongoing** rota keeps dates open.
+ *
+ * Eight weeks is the span a parish plans in: far enough that somebody can see the Saturday
+ * they will be away for and take a different one, short enough that a rota nobody is watching
+ * has not written a year of rows nobody wanted. It is a horizon rather than a total — the rota
+ * is topped back up to it whenever it is read, so it never runs out. */
+export const SIGNUP_HORIZON_DAYS = 56
+
+/* The longest a generated shift may be, and the shortest. A slot is a shift somebody stands
+ * for, so a 24-hour one is a mistake in the form rather than a rota, and a 5-minute one is a
+ * split length typed into the wrong box. */
+export const MIN_SLOT_MINUTES = 15
+export const MAX_SLOT_HOURS = 14
+
+/* How wide a window the calendar endpoint will expand at once.
+ *
+ * The month grid asks for the six weeks it draws, so this is generous rather than tight — but
+ * it is a real ceiling, because the window is what bounds the recurrence expansion of a feed
+ * this app does not control. A year of a daily event is 365 rows; ten years of one is a
+ * response nobody asked for. */
+export const MAX_CALENDAR_DAYS = 120
+
+/* What the two kinds of entry on the compiled calendar are called on the wire.
+ *
+ * The one thing a square on the grid has to know about an entry is which of these it is,
+ * because that is what the ring's colour means. Everything else about the two shapes differs
+ * — a parish event has a location and no capacity, a slot has capacity and no location — and
+ * that is why they are one collection with a discriminator rather than two collections the
+ * client would have to merge and re-sort itself. */
+export const CALENDAR_ENTRY = {
+    /* From the group's own Google Calendar, read as an iCalendar feed. Read-only, always. */
+    PARISH: "PARISH",
+    /* A slot on one of the group's sign-up sheets. */
+    SIGNUP: "SIGNUP",
+}
 
 /* ---------------------------------------------------------------------------
  * Roles and vocations

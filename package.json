@@ -34,6 +34,7 @@
     "reviewer": "node scripts/provision-reviewer.mjs",
     "erase": "node scripts/erase-account.mjs",
     "comments:rescore": "node scripts/rescore-comments.mjs",
+    "signups:remind": "node scripts/send-reminders.mjs",
     "dev:login": "node scripts/dev-login.mjs",
     "dev:reset-member": "node scripts/dev-reset-member.mjs",
     "icons": "node scripts/generate-icons.mjs"
@@ -57,6 +58,7 @@
     "capacitor-native-settings": "^8.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cn": "^0.2.5",
     "copy-to-clipboard": "^4.0.2",
     "date-fns": "^4.4.0",
     "firebase": "^12.18.0",

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 
+import CalendarIcon from "@/assets/svg/icons/calendar-outline.svg"
 import SettingsIcon from "@/assets/svg/icons/settings.svg"
 import UsersIcon from "@/assets/svg/icons/users.svg"
 import Icon from "@/components/Icon"
@@ -9,6 +10,7 @@ import { SettingsRow } from "@/components/Settings"
 import { OrgAvatar } from "@/components/Widgets"
 import { ROLES, ROUTES } from "@/lib/constants"
 import { useCurrentOrg } from "@/lib/store/org/hook"
+import { useManageEvents } from "@/lib/store/signups/hook"
 import { roleLabel } from "@/lib/utils"
 
 /* Administering a group: the index of the group tree, and deliberately the same shape as
@@ -30,6 +32,7 @@ import { roleLabel } from "@/lib/utils"
 
 const GroupPage = () => {
     const { current } = useCurrentOrg()
+    const { manageEvents } = useManageEvents()
     const router = useRouter()
 
     return (
@@ -72,6 +75,15 @@ const GroupPage = () => {
             <nav className="flex flex-col gap-1 border-t pt-4">
                 <SettingsRow icon={SettingsIcon} label="Group settings" href={ROUTES.GROUP_INFO} />
                 <SettingsRow icon={UsersIcon} label="Users" href={ROUTES.GROUP_USERS} />
+                {/* **Not a page of its own.** Administering rotas is a mode of the sign-ups
+                    tab, so this row turns that mode on and goes there — a priest who notices
+                    nobody has signed up for Sunday can then fix it without coming back here.
+                    It is a row rather than a link for that reason: it does two things. */}
+                <SettingsRow
+                    icon={CalendarIcon}
+                    label="Manage events"
+                    onClick={manageEvents}
+                />
             </nav>
         </div>
     )

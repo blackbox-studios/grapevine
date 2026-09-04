@@ -8,6 +8,8 @@ import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
 import BookIcon from "@/assets/svg/icons/book.svg"
 import BookOutlineIcon from "@/assets/svg/icons/book-outline.svg"
+import CalendarIcon from "@/assets/svg/icons/calendar.svg"
+import CalendarOutlineIcon from "@/assets/svg/icons/calendar-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook";
@@ -40,6 +42,12 @@ const NAV = [
         href: ROUTES.DEFAULT,
         Outline: HomeOutlineIcon,
         Filled: HomeIcon,
+    },
+    {
+        title: "Events",
+        href: ROUTES.EVENTS,
+        Outline: CalendarOutlineIcon,
+        Filled: CalendarIcon,
     },
     {
         title: "Daily Read",

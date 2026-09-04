@@ -54,7 +54,7 @@ Reference files:
 │   ├── app/                         # Next.js App Router — routes are folders
 │   │   ├── layout.jsx               # Root layout: <html>/<body>, globals.css, viewport/metadata,
 │   │   │                            #   the native boot guard; renders <Providers> + <App/>
-│   │   ├── providers.jsx            # "use client": next-themes ThemeProvider + Tooltip/Scroll + <Toaster/>
+│   │   ├── providers.jsx            # "use client": next-themes ThemeProvider + Scroll + <Toaster/>
 │   │   ├── App.jsx                  # "use client", renders null: initAuthorizedStores + useErrorListener
 │   │   ├── (public)/                # Route group (no URL segment) — unauthenticated
 │   │   │   ├── layout.jsx           # <PublicGate> + <Grain/> + <PageTransition/>
@@ -69,7 +69,9 @@ Reference files:
 │   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
 │   │       │   ├── general/page.jsx # /settings/general
 │   │       │   └── info/page.jsx    # /settings/info — the viewer's own details
-│   │       ├── group/               # admin-only tree: index, info/, users/ (gated in its layout)
+│   │       ├── events/page.jsx      # /events — the parish's calendar and its sign-up sheets
+│   │       ├── group/               # admin-only tree: index, info/, users/, events/
+│   │       │                        #   (gated once in its layout)
 │   │       └── [...not-found]/page.jsx  # Catch-all → in-shell 404 (old `path: '*'`)
 │   ├── globals.css                  # Tailwind v4 + theme tokens (only file to change theme vars)
 │   ├── assets/
@@ -91,6 +93,8 @@ Reference files:
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
 │   │   ├── Hyperlink.jsx
+│   │   ├── Hint.jsx                 # "use client": a sentence over whatever it wraps — hover on
+│   │   │                            #   a fine pointer, tap on touch; the app has no tooltips
 │   │   ├── Linkify.jsx              # Author text with its URLs live — the only link out of the app
 │   │   ├── Breadcrumb.jsx
 │   │   ├── Notifications.jsx
@@ -121,15 +125,15 @@ Reference files:
 │   │   │   ├── useDebounce.hook.jsx
 │   │   │   ├── useMounted.hook.js
 │   │   │   ├── useIsDesktop.hook.js
+│   │   │   ├── useHasHover.hook.js    # can the primary pointer hover — not the breakpoint
 │   │   │   ├── useNow.hook.jsx
 │   │   │   ├── useSlideRoute.hook.js  # Interceptor ↔ shell bridge for slide routes
 │   │   │   ├── useScroll.hook.js      # useVibing + usePullToRefresh (container-targeted)
 │   │   │   └── useErrorListener.hook.jsx
 │   │   ├── providers/
 │   │   │   ├── Theme.jsx            # Thin re-export of next-themes ThemeProvider/useTheme
-│   │   │   ├── Tooltip.jsx          # re-exports shadcn TooltipProvider
 │   │   │   ├── Scroll.jsx           # shell scroll container ref + scrollToTop (useScroll)
-│   │   │   └── index.jsx            # barrel (ThemeProvider, TooltipProvider, ScrollProvider)
+│   │   │   └── index.jsx            # barrel (ThemeProvider, ScrollProvider)
 │   │   └── store/                   # Zustand stores (one folder per domain)
 │   │       ├── global.store.js      # Orchestrates init/reset/clearErrors across stores
 │   │       ├── global.hook.js       # useErrors() aggregator (+ useReady() when stores grow)
@@ -141,6 +145,10 @@ Reference files:
 │   │       ├── comments/            # { store.js, hook.js } — the one open thread
 │   │       ├── profile/             # { store.js, hook.js } — the one open profile + every follow write
 │   │       ├── follows/             # { store.js, hook.js } — the one open follower/following list
+│   │       ├── calendar/            # { store.js, hook.js } — a group's months, cached +
+│   │       │                        #   prefetched, and whichever day is open
+│   │       ├── signups/             # { store.js, hook.js } — the group's rotas, as summaries
+│   │       ├── sheet/               # { store.js, hook.js } — the one open rota + slot writes
 │   │       ├── notifications/       # { store.js, hook.js } — the bell's tally + the panel's list
 │   │       └── push/                # { store.js, hook.js } — FCM permission + this device's token
 └── app/api/**/route.api.js          # the API. `.api.js`, NOT `route.js` — see backend-architecture.md
@@ -431,6 +439,26 @@ The order in `lib/store/post/store.js` → `load` is the whole feature:
 4. **Cold load takes the same path.** No cache means step 1 finds nothing, the readiness
    flag stays false, and the surface shows its skeleton until the fetch lands. Same action,
    same endpoint, both ways in.
+
+`signups` / `sheet` are the same split a **third** time, and by now that is the point: `signups`
+owns the rotas, `sheet` owns the one the reader expanded and every write to a slot inside it.
+The endpoint ships each rota **with its dates**, so `sheet.load` promotes the listed copy
+synchronously and refreshes behind it — the same three steps `post.load` takes, so opening an
+accordion is not a request. Its arrows out are two and both narrow: `signups.applySlot` replaces
+the slot inside its row, and `calendar.patchSlot` moves the ring on the month grid and the block
+on the day's timeline. Both exist because the same slot is on screen in more than one place at
+once — the calendar tab and the sign-ups tab are two halves of one page, so a Take pressed on one
+has to be true on the other the moment the reader flips.
+
+**Nothing on that surface is a stored tally.** "4 dates need people" and "what have I signed up
+for" are both counted off the slots in hand (`summarize` in `lib/utils.js`), which is what lets
+`applySlot` be the only write the list needs: there is no summary to move by a delta, and no way
+for a count to disagree with the dates it is a count of.
+
+**Writes there are deliberately not optimistic**, unlike a like. The last place on a rota goes to
+whoever's transaction commits first, and telling somebody they have a place and then taking it
+back is worse than a spinner on one button — it is also the failure that matters, because the
+person who was told they had a place is the person who does not turn up.
 
 `profile` / `follows` are the same split applied a second time, which is what makes it a
 pattern rather than a one-off: `profile` owns the person the open card is about *and* every
@@ -831,7 +859,7 @@ Adding one is two lines — an entry in `RUNTIME_ROUTES` declaring how it presen
 | Page transition | suppressed (`pageTransitionKey` → base) | ordinary cross-fade |
 | Nav highlight | stays on the base route | none |
 | Cold load | `<SlidePage/>` from the catch-all | same component as in-app |
-| Example | `/p/:postId`, `/notifications` | *(none yet — registered and waiting)* |
+| Example | `/p/:postId`, `/notifications` | `/events/s/:sheetId` |
 
 Pick `slide: false` for anything that is a *place you go* rather than something you peek at and come back from.
 
@@ -940,6 +968,12 @@ The shorter half of the above: **the registry entry and the surface, and nothing
 into the shell's page slot and `<PageTransition/>` cross-fades it like any other route. Reach it
 with `pushRoute` (the same `history.pushState` primitive without the overlay bookkeeping), never
 `router.push`, which has no segment to resolve in the export.
+
+`/events/s/:sheetId` is the worked example of the second column, and of the note above it: a rota
+is a *place*, reached from a list, from a notification and from a link somebody sent, so it
+cross-fades into the page slot rather than sliding over one. Its prefix is nested under `/events`
+because `isRouteActive` is a segment-safe prefix test — a sibling `/s` would leave the nav rail
+dark on a page that is plainly part of Events.
 
 **Choosing between the two matters, and the wrong choice is visible rather than merely untidy.**
 `slide: true` is for something you peek at and come back from, where the surface behind must
@@ -1619,7 +1653,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="grapevine-ui-theme"`, `disableTransitionOnChange`) → `TooltipProvider` → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
+**`app/providers.jsx`** (`"use client"`) — the context tree only: `next-themes` `ThemeProvider` (configured `attribute="class"`, `defaultTheme="dark"`, `enableSystem`, `storageKey="grapevine-ui-theme"`, `disableTransitionOnChange`) → `ScrollProvider` (shares the shell scroll container's ref + `scrollToTop`; the vibing/pull-to-refresh hooks in `lib/hooks/useScroll.hook.js` read that container), plus the global `<Toaster/>`.
 
 **`app/App.jsx`** (`"use client"`, renders `null`) — the app-wide side effects, mounted explicitly by the layout so they're visible rather than buried in the provider tree. Because the stores are module-level Zustand (not React context), it doesn't need to sit inside any provider:
 

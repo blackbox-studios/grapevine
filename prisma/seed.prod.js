@@ -299,6 +299,90 @@ Catechism - George Krstev - Starting All Saints Sunday, HTC has consistently off
  * reserve the card's aspect-ratio box before the image decodes; a wrong number here is a layout
  * shift on every cold load. Avatars are square and ignore them.
  */
+/* The parish's standing rota, and deliberately the only one.
+ *
+ * **Coffee hour is the one that fits the model as it stands.** The other two the Cathedral runs
+ * do not, for two different reasons, and seeding them would be shipping a wrong answer:
+ *
+ *  - **The Cathedral's kitchen is open to people outside the parish.** Everything here is
+ *    scoped to an APPROVED membership — `requireMembership` gates the sheet, the slot and the
+ *    claim — so a volunteer who is not in the group cannot see it, let alone take a date. That
+ *    is not a gap to seed around: it is a question about who a sign-up sheet is for, and it
+ *    wants an answer (a public rota? a guest membership? a link that admits?) before it wants a
+ *    fixture.
+ *  - **Do Division is a one-off.** A festival weekend is published when it is being run and
+ *    removed when it is over, which is a thing a priest does in the app rather than a thing a
+ *    seed asserts. Seeding it would put a dead weekend on the surface every time this ran.
+ *
+ * `repeats` is what makes it match the parish: coffee hour is every Sunday and does not stop,
+ * so the sheet is topped up to the horizon on every read rather than running out of Sundays.
+ * See `topUpRecurring`. */
+const ROTA = {
+    id: "prod-rota-coffee-hour",
+    title: "Coffee hour",
+    description:
+        "Bring something for after Liturgy. Nothing that needs cooking on site, and please label anything with nuts in it.",
+    /* The Cathedral's clock. Written down rather than taken from whichever machine runs the
+     * seed, because the dates it generates are the parish's and a laptop in another timezone
+     * would put coffee hour at the wrong hour for everybody. */
+    timezone: "America/Chicago",
+    /* Sunday. `Date.prototype.getDay()`'s numbering, which is what the generator uses. */
+    weekday: 0,
+    startMinutes: 11 * 60,
+    endMinutes: 12 * 60 + 30,
+    capacity: 1,
+    /* Enough Sundays to be useful on the first day; `topUpRecurring` keeps it stocked from
+     * then on, so this number is a starting point rather than a limit. */
+    weeks: 8,
+}
+
+/* Writes the rota, or leaves the existing one alone.
+ *
+ * The existence check is on the id, exactly as `ensurePost`'s is, and it does the same job: once
+ * this sheet is in the table nothing here looks at its title, its times or its dates again — so
+ * a capacity the priest raised, a date he cancelled and a description he rewrote all survive
+ * every future run. This file guarantees the rota *exists*; what is on it belongs to the parish.
+ */
+const ensureRota = async ({ org, author }) => {
+    if (await prisma.signupSheet.findUnique({ where: { id: ROTA.id }, select: { id: true } })) {
+        return "already present"
+    }
+
+    /* The first Sunday on or after today, then one a week. Stepped as *dates* with the time of
+     * day applied to each — never by adding seven days to an instant, which walks an hour off
+     * on the Sunday the clocks change. Same rule `generateSlots` follows, and the reason
+     * `timezone` is on the sheet at all. */
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const first = new Date(today)
+    first.setDate(today.getDate() + ((ROTA.weekday - today.getDay() + 7) % 7))
+
+    const slots = Array.from({ length: ROTA.weeks }, (_, week) => {
+        const day = new Date(first)
+        day.setDate(first.getDate() + week * 7)
+        const startsAt = new Date(day)
+        startsAt.setMinutes(ROTA.startMinutes)
+        const endsAt = new Date(day)
+        endsAt.setMinutes(ROTA.endMinutes)
+        return { startsAt, endsAt, capacity: ROTA.capacity }
+    })
+
+    await prisma.signupSheet.create({
+        data: {
+            id: ROTA.id,
+            orgId: org.id,
+            title: ROTA.title,
+            description: ROTA.description,
+            timezone: ROTA.timezone,
+            repeats: true,
+            createdById: author.id,
+            slots: { create: slots },
+        },
+    })
+
+    return `created with ${slots.length} Sundays`
+}
+
 const uploadAsset = async (supabase, { file, prefix, ownerId }) => {
     const bytes = await readFile(path.join(ASSETS, file))
     const { width, height, format } = await sharp(bytes).metadata()
@@ -525,17 +609,23 @@ const main = async () => {
         console.log(`  post     ${post.id}  ${post.title.slice(0, 40).padEnd(40)} ${note}`)
     }
 
+    const rota = await ensureRota({ org, author })
+    console.log(`  rota     ${ROTA.id}  ${ROTA.title.padEnd(40)} ${rota}`)
+
     /* Counted rather than assumed. If this prints anything other than the two admins and the
      * six posts, the database is not in the state this file describes and somebody should know
      * before the parish does. */
-    const [members, admins, posts, orgs] = await Promise.all([
+    const [members, admins, posts, rotas, orgs] = await Promise.all([
         prisma.membership.count({ where: { orgId: org.id, status: "APPROVED" } }),
         prisma.membership.count({ where: { orgId: org.id, status: "APPROVED", role: "ADMIN" } }),
         prisma.post.count({ where: { orgId: org.id, deletedAt: null } }),
+        prisma.signupSheet.count({ where: { orgId: org.id, deletedAt: null } }),
         prisma.organization.count(),
     ])
 
-    console.log(`\n✓ ${org.name}: ${members} members, ${admins} admins, ${posts} posts`)
+    console.log(
+        `\n✓ ${org.name}: ${members} members, ${admins} admins, ${posts} posts, ${rotas} sign-up sheet${rotas === 1 ? "" : "s"}`,
+    )
     console.log(`  ${orgs} group${orgs === 1 ? "" : "s"} in the database.`)
 
     if (orgs > 1) {

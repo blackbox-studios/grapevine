@@ -4,6 +4,7 @@ import { create } from 'zustand'
 
 import useAppStore from '@/lib/store/app/store'
 import useAuthStore from '@/lib/store/auth/store'
+import useCalendarStore from '@/lib/store/calendar/store'
 import useFeedStore from '@/lib/store/feed/store'
 import useFollowsStore from '@/lib/store/follows/store'
 import usePostStore from '@/lib/store/post/store'
@@ -14,6 +15,8 @@ import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
 import usePrologueStore from '@/lib/store/prologue/store'
 import usePushStore from '@/lib/store/push/store'
+import useSheetStore from '@/lib/store/sheet/store'
+import useSignupsStore from '@/lib/store/signups/store'
 import useUploadsStore from '@/lib/store/uploads/store'
 
 /* `uploads` holds no remote state — it is a write path with a loading flag — so it has
@@ -26,6 +29,11 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * open. `members` is additionally admin-only, so booting it eagerly would fire a 403 for every
  * ordinary member on every sign-in. All five still participate in reset/clearErrors and error
  * aggregation.
+ *
+ * `calendar`, `signups` and `sheet` are out for the two reasons above between them.
+ * `calendar` and `signups` are scoped to the selected group, exactly as `feed` is, and their
+ * hooks drive the load off `useCurrentOrg`. `sheet` is transient — it holds the one rota the
+ * reader has expanded — so it is the `post` case a second time.
  *
  * `feed` is out of it too, for a different reason: it is scoped to the selected group, so
  * it has no request to make until one is resolved. That resolution happens in
@@ -58,6 +66,9 @@ const useStore = create(() => ({
     reset: () => {
         useAppStore.getState().reset()
         useAuthStore.getState().reset()
+        useCalendarStore.getState().reset()
+        useSignupsStore.getState().reset()
+        useSheetStore.getState().reset()
         useOrgStore.getState().reset()
         useFeedStore.getState().reset()
         usePostStore.getState().reset()
@@ -73,6 +84,9 @@ const useStore = create(() => ({
     clearErrors: () => {
         useAppStore.getState().clearErrors()
         useAuthStore.getState().clearErrors()
+        useCalendarStore.getState().clearErrors()
+        useSignupsStore.getState().clearErrors()
+        useSheetStore.getState().clearErrors()
         useOrgStore.getState().clearErrors()
         useFeedStore.getState().clearErrors()
         usePostStore.getState().clearErrors()

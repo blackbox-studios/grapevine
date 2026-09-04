@@ -206,11 +206,13 @@ const useStore = create(immer((set, get) => ({
      * The list is re-read regardless. The reader is arriving at the app *because* of a
      * notification, so the panel is certainly behind — this is the moment the notifications
      * store's header describes as the gap push closes. */
-    openFromPush: ({ postId = null, handle = null } = {}) => {
+    openFromPush: ({ postId = null, handle = null, sheetId = null } = {}) => {
         useNotificationsStore.getState().sync()
         clearPushNotifications()
 
-        if (postId || handle) set(state => { state.pending = { postId, handle } })
+        if (postId || handle || sheetId) {
+            set(state => { state.pending = { postId, handle, sheetId } })
+        }
     },
 
     /* Consumes the parked destination, or null. Called by the hook once there is somewhere

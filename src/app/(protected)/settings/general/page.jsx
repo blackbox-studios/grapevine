@@ -1,11 +1,10 @@
 "use client"
 
 import { BackHeader } from "@/components/BackHeader"
-import { Button } from "@/components/ui/button"
-import Ripple from "@/assets/svg/ripple.svg"
 import { ROUTES } from "@/lib/constants"
 import { useTheme } from "@/lib/providers/Theme"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
+import PushOffer from "@/components/PushOffer"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { appPath, cn } from "@/lib/utils"
 
@@ -82,20 +81,16 @@ const SettingsGeneralPage = () => {
     )
 }
 
-/* The standing offer to turn push on.
+/* The account's notifications section: a heading, and the offer.
  *
- * **A button, not a switch.** A switch promises it can be moved back, and turning push off is
- * a trip to the OS's own settings whatever this screen does; turning it on is the one
- * direction the app can act in.
+ * The offer itself is `<PushOffer/>`, which owns the whole three-state rule — unsupported,
+ * granted, refused — because the sign-up surface makes the same offer and a second copy of that
+ * rule is where the states start disagreeing. This screen only supplies the words.
  *
- * **Offered in every state short of granted, a spent refusal included** — there the tap opens
- * the OS's notification settings rather than prompting, which is `turnOn`'s decision to make.
- * So the Ripple appears only on the prompt path, `enabling` being that store action's flag.
- *
- * Absent entirely on the web, where `pushSupported()` is false: an empty "Notifications"
- * heading over a control that does nothing is worse than no section. */
+ * Absent entirely on a platform with no push: `<PushOffer/>` renders nothing there, and an
+ * empty "Notifications" heading over nothing is worse than no section. */
 const PushSection = () => {
-    const { supported, permission, enabling, turnOn } = usePushPermission()
+    const { supported } = usePushPermission()
 
     if (!supported) return null
 
@@ -106,35 +101,15 @@ const PushSection = () => {
         <div className="flex flex-col items-start gap-3">
             <h3 className="text-lg font-medium text-foreground">Notifications</h3>
 
-            {permission === "granted" ? (
-                <p className="text-sm text-muted-foreground">
-                    Notifications are on for this device. Turn them off in your device
-                    settings.
-                </p>
-            ) : (
-                <>
+            <PushOffer
+                description="Get a notification when your parish posts, or when someone likes something you wrote."
+                granted={
                     <p className="text-sm text-muted-foreground">
-                        Get a notification when your parish posts, or when someone likes
-                        something you wrote.
+                        Notifications are on for this device. Turn them off in your device
+                        settings.
                     </p>
-                    <Button
-                        variant="outline"
-                        size="lg"
-                        onClick={turnOn}
-                        disabled={enabling}
-                        className="px-8"
-                    >
-                        {enabling ? (
-                            <Ripple
-                                aria-label="Turning on notifications"
-                                className="size-8 [&_circle]:stroke-current"
-                            />
-                        ) : (
-                            "Turn on notifications"
-                        )}
-                    </Button>
-                </>
-            )}
+                }
+            />
         </div>
     )
 }

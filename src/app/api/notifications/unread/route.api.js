@@ -1,4 +1,5 @@
 import { requireViewer } from "@/lib/server/auth"
+import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
 import { unreadCount } from "@/lib/server/notifications.service"
@@ -25,6 +26,16 @@ export const dynamic = "force-dynamic"
 
 export const GET = route(async (request) => {
     const viewer = await requireViewer(request)
+
+    /* **The app's closest thing to a clock, borrowed.** Sign-up reminders have to go out on
+     * time, and a deploy with no cron behind `POST /api/signups/reminders` would otherwise never
+     * send one — so this endpoint, which every client asks on boot, on every foreground, and on
+     * a thirty-second poll where push cannot reach it, kicks a throttled sweep on the way past.
+     *
+     * Not awaited and unable to fail this request: it is fire-and-forget, throttled to once
+     * every few minutes per process, and idempotent against other instances. See
+     * `sweepDueReminders`, which carries the whole argument. */
+    sweepDueReminders()
     return sendResource({ unread: await unreadCount(viewer) })
 })
 

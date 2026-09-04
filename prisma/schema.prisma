@@ -277,6 +277,8 @@ model Profile {
   followers        Follow[]                  @relation("FollowFollowing")
   participations   ConversationParticipant[]
   messages         Message[]
+  sheetsCreated    SignupSheet[]             @relation("SheetCreator")
+  claims           SignupClaim[]
 
   /// Serves the name-day digest — "whose feast falls in this window" — which is the only
   /// reason the two name-day columns are split the way they are. Nothing else reads them.
@@ -363,14 +365,34 @@ enum Vocation {
 /// rather than a migration — walk `children` and widen the `orgId IN (...)` set in
 /// `listFeed`.
 model Organization {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   /// URL-safe identifier, e.g. "holy-trinity-cathedral".
-  slug      String   @unique
+  slug      String  @unique
   name      String
-  kind      OrgKind  @default(PARISH)
-  avatarUrl String?  @map("avatar_url")
+  kind      OrgKind @default(PARISH)
+  avatarUrl String? @map("avatar_url")
   /// Short description shown on the Groups surface.
   bio       String?
+
+  /// The parish's own calendar, as a **public** Google Calendar the parish already keeps —
+  /// pasted by an admin as whatever URL they had to hand (the embed link off the calendar's
+  /// settings page is what they will actually have).
+  ///
+  /// **Stored exactly as it was typed, and normalized on read** by `icsFeedUrl` in
+  /// `lib/utils.js`. Two different strings name the same calendar — the `.../embed?src=…`
+  /// link and the `.../ical/…/public/basic.ics` feed — and the one a person can find is not
+  /// the one a server can fetch. Storing the raw value means the settings form shows back
+  /// what was pasted rather than a machine-readable rewrite of it, and a normalization rule
+  /// that turns out to be wrong is a code fix rather than a data migration.
+  ///
+  /// Null means the group has no calendar, which is the ordinary state: the Events surface
+  /// then shows sign-ups alone and says so, rather than showing an error.
+  ///
+  /// **It is a feed, not an embed.** Nothing renders this URL in an iframe — the events are
+  /// fetched as iCalendar and drawn by the app, which is what lets a parish service and a
+  /// sign-up slot sit on the same day of the same grid. See `lib/server/calendar.service.js`.
+  calendarUrl String? @map("calendar_url")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -398,6 +420,7 @@ model Organization {
   memberships Membership[]
   posts       Post[]
   invites     Invite[]
+  sheets      SignupSheet[]
 
   @@index([parentId])
   /// Serves "which groups does this owner own", which is the delete authorization check and
@@ -725,20 +748,39 @@ model Notification {
   /// Who did it. Never the recipient: `notify` writes nothing for a self-like.
   actorId     String @map("actor_id") @db.Uuid
 
-  type      NotificationType
+  type          NotificationType
   /// What the event is about — the post or comment that was liked, the comment that was
   /// written, or the follower themselves; `type` says which.
-  subjectId String           @map("subject_id")
+  subjectId     String           @map("subject_id")
   /// The post the event happened inside, and null for a FOLLOW. See the header note.
-  postId    String?          @map("post_id")
+  postId        String?          @map("post_id")
+  /// The rota a SIGNUP_PUBLISHED is about, and null for everything else.
+  ///
+  /// Separate from `signupSlotId` below because the two events happen at different
+  /// granularities and pretending otherwise costs the truth: a reminder and a cancellation are
+  /// about **one date**, and publishing is about **the rota**. Pointing a publication at the
+  /// sheet's first slot would read fine until an admin removed that date, at which point the
+  /// cascade would take the announcement of the whole rota with it.
+  signupSheetId String?          @map("signup_sheet_id")
+  /// The slot a SIGNUP_REMINDER or SIGNUP_CANCELED is about, and null for everything else.
+  ///
+  /// A second nullable subject column beside `postId`, which the header argues against — and
+  /// the argument holds, which is why this is **not** where the subject lives. `subjectId`
+  /// still carries it (the reminder row's id, the slot's id), so the unique key below stays
+  /// real. This column does the two jobs `postId` does and that `subjectId` cannot: it carries
+  /// the foreign key, so cancelling or deleting a slot takes its notifications with it, and it
+  /// is what the panel joins to name the sign-up a row is about without a second query.
+  signupSlotId  String?          @map("signup_slot_id")
 
   /// Null until the viewer opens the panel — this is what the bell's dot counts.
   readAt    DateTime? @map("read_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  recipient Profile @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  actor     Profile @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
-  post      Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  recipient   Profile      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor       Profile      @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  post        Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  signupSlot  SignupSlot?  @relation(fields: [signupSlotId], references: [id], onDelete: Cascade)
+  signupSheet SignupSheet? @relation(fields: [signupSheetId], references: [id], onDelete: Cascade)
 
   @@unique([recipientId, actorId, type, subjectId])
   /// The panel's one query: this viewer's notifications, newest first, paged by keyset.
@@ -751,6 +793,8 @@ model Notification {
   /// ON DELETE CASCADE into a sequential scan.
   @@index([actorId])
   @@index([postId])
+  @@index([signupSlotId])
+  @@index([signupSheetId])
   @@map("notification")
 }
 
@@ -769,6 +813,20 @@ enum NotificationType {
   /// identified by the pair and has no object of its own — so keying on the follower is
   /// what makes one row per follower, and it is also what the panel row opens.
   FOLLOW
+  /// A shift you signed up for is coming up. The subject is the **reminder row**, not the
+  /// claim — one claim produces a reminder a week out and another a day out, and keying on
+  /// the claim would collapse the two into one row under the unique key below.
+  ///
+  /// The only kind whose actor is the recipient themselves: nobody did this to you, the
+  /// clock did. See `notifySignupReminder`.
+  SIGNUP_REMINDER
+  /// An admin called off a slot you had signed up for. The subject is the **slot**, because
+  /// there is one cancellation per slot however many reminders were pending on it.
+  SIGNUP_CANCELED
+  /// An admin published a new rota into a group you belong to. A **fan-out**, like NEW_POST and
+  /// for the same reason: a rota nobody knows about gets no volunteers. The subject is the
+  /// sheet, and it is the only sign-up notification that is not about a date.
+  SIGNUP_PUBLISHED
 
   @@map("notification_type")
 }
@@ -863,6 +921,235 @@ model Follow {
   @@index([followingId, createdAt(sort: Desc), followerId(sort: Desc)])
   @@index([followerId, createdAt(sort: Desc), followingId(sort: Desc)])
   @@map("follow")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sign-ups
+//
+// A parish runs on rotas: somebody brings the food after Liturgy, four people cook at the
+// soup kitchen, six two-hour shifts cover the festival's parking lot over one weekend. All
+// three are the same shape — an admin publishes a list of dated slots, each with room for
+// some number of people, and members take one.
+//
+// ── Three tables, and the middle one is why ──────────────────────────────────
+//
+// `SignupSheet` is the rota ("Coffee hour"). `SignupSlot` is one dated opening on it, and
+// `SignupClaim` is a person in it. The slots are **materialized rows, not a recurrence rule
+// evaluated at read time**, and that is the decision the whole feature rests on: an admin
+// has to be able to say "no soup kitchen on the 24th, and we need six people on the 31st".
+// A rule cannot hold an exception without growing a second table of exceptions, which is the
+// slot table with extra steps — and every read would then have to expand a rule before it
+// could join a claim to it. The generator in `signups.service.js` is what keeps the rule's
+// convenience: it writes the rows, and after that they are ordinary rows an admin can edit
+// one at a time.
+//
+// (The parish's *own* calendar is the opposite case and is deliberately not modeled here at
+// all. It is a Google Calendar the parish already keeps, read as an iCalendar feed and
+// expanded per request — see `Organization.calendarUrl`. Copying it into these tables would
+// make Grapevine a second place the same events have to be corrected.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A rota published into one group: a title, and the dated slots below it.
+///
+/// Always scoped to an organization, exactly as a `Post` is, and only an ADMIN of that
+/// organization may publish or edit one — enforced in the service, not here.
+///
+/// **`timezone` is the parish's clock, and it is stored because the generator needs it.**
+/// The slots below hold absolute instants, so nothing *reads* this column to render a time.
+/// What needs it is writing them: "every Sunday at 11:00" across twelve weeks crosses a
+/// daylight-saving boundary, and generating those from a fixed offset puts half the autumn
+/// on the hour it is not. Captured from the admin's own device at creation, which is the
+/// parish's clock by construction, since the person publishing the parish's rota is standing
+/// in the parish.
+model SignupSheet {
+  id          String  @id @default(cuid())
+  orgId       String  @map("org_id")
+  title       String
+  description String?
+  /// IANA zone name, e.g. "America/Chicago". See the note above.
+  timezone    String  @default("UTC")
+
+  /// The title this rota appears under on the parish's own calendar, when it is not the
+  /// title above.
+  ///
+  /// **The parish keeps one event in two places and neither is wrong.** "Cathedral's Kitchen"
+  /// is on the Google Calendar because it is a thing that happens; "Cathedral kitchen" is a
+  /// rota because it needs hands. A reader should see one entry, not two — so `mergeCalendar`
+  /// matches a slot to a parish event by normalized title on the same day, and folds them.
+  ///
+  /// Null means "match on `title`", which is what the automatic case does and what almost
+  /// every sheet will hold. This column is the **escape hatch**: it is for the rota the parish
+  /// calls something else in its calendar ("Coffee hour" against "Fellowship Hour"), where no
+  /// string rule could be expected to guess. Setting it to a title that matches nothing is
+  /// also how an admin switches merging off for one sheet.
+  calendarTitle String?      @map("calendar_title")
+  status        SignupStatus @default(OPEN)
+
+  /// Whether this rota goes on indefinitely — "every Saturday, forever", which is what most of
+  /// a parish's standing rotas actually are. A festival's car park is the other kind: a fixed
+  /// span of dates that finishes and is done.
+  ///
+  /// **It does not store a rule, and that is the point.** Extending a weekly rota needs one
+  /// thing the rows already hold: the last day on it. The next occurrence is that day's slots a
+  /// week later, at the same wall-clock time in `timezone` — so a flag is enough, and there is
+  /// no second copy of the schedule to disagree with the dates it produced. It also means an
+  /// admin who moves the rota to ten o'clock has moved every future one, without editing a rule
+  /// they never saw.
+  ///
+  /// Topped up to `SIGNUP_HORIZON_DAYS` by `topUpRecurring` when the rota is read. See that
+  /// function for why a read writes, and for the ceiling: `MAX_SHEET_SLOTS` is about ten years
+  /// of a weekly rota, after which it stops extending and wants a prune rather than a raise.
+  repeats     Boolean @default(false)
+  createdById String  @map("created_by_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  /// Soft delete, for the reason a post has one: a removed sheet must not take the record of
+  /// who volunteered with it, and every read filters on `deletedAt: null`.
+  deletedAt DateTime? @map("deleted_at")
+
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy     Profile        @relation("SheetCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  slots         SignupSlot[]
+  notifications Notification[]
+
+  /// The one list read: a group's live sheets, newest first, paged by keyset — sort columns
+  /// in the order the cursor compares them.
+  @@index([orgId, status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([createdById])
+  @@map("signup_sheet")
+}
+
+/// Open or closed to new volunteers. Closing is not deleting: the slots and the people in
+/// them stay readable, which is what a rota for last weekend is for.
+enum SignupStatus {
+  OPEN
+  CLOSED
+
+  @@map("signup_status")
+}
+
+/// One dated opening on a sheet — "Sunday 7 June, 11:00–12:30, room for 4".
+///
+/// **`capacity` is per slot rather than per sheet**, because the number moves within one rota:
+/// the soup kitchen wants four cooks most weeks and six at Pascha, and the festival's Friday
+/// evening needs more hands than its Sunday morning. The sheet's create form supplies one
+/// number to every slot it generates; after that each row is the admin's to change.
+///
+/// **`canceledAt` rather than a delete**, and the distinction is the volunteers'. Deleting the
+/// row would silently drop the people who had already claimed it — they would simply stop
+/// seeing it, having been told nothing. Cancelling keeps the claims, notifies everyone in
+/// them (`notifySignupCanceled`), and leaves the day visibly struck through, which is the
+/// honest picture of "we are not doing it that week". Deleting a slot is still possible and is
+/// for a slot nobody has taken.
+model SignupSlot {
+  id      String @id @default(cuid())
+  sheetId String @map("sheet_id")
+
+  startsAt DateTime @map("starts_at")
+  endsAt   DateTime @map("ends_at")
+
+  /// How many people this slot has room for. One for coffee hour, four for the kitchen.
+  capacity Int     @default(1)
+  /// An admin's word about this one date — "Bring bread, not a full meal".
+  note     String?
+
+  canceledAt DateTime? @map("canceled_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  sheet         SignupSheet    @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  claims        SignupClaim[]
+  notifications Notification[]
+
+  /// One slot per start time per sheet, and the constraint earns its keep at the point a
+  /// rota is **extended**: "add another twelve Sundays" is the same generator run again over
+  /// an overlapping range, and `createMany({ skipDuplicates: true })` turns that into "add
+  /// the ones that are not there yet" for free. Without it, an admin who taps Extend twice
+  /// gets two coffee hours on every Sunday and no way to tell which one people signed up for.
+  ///
+  /// It also says something true about the domain: two openings at the same moment on the
+  /// same rota is what `capacity` is for.
+  @@unique([sheetId, startsAt])
+  /// The sheet's slots in date order, and the calendar's "which slots fall in this month".
+  /// The second read is across a group rather than a sheet, so it joins through `sheet` —
+  /// which is what the leading `sheetId` here serves.
+  @@index([sheetId, startsAt])
+  /// The compiled calendar's window read, which asks for a date range across every sheet in a
+  /// group and then narrows by the sheets it already resolved.
+  @@index([startsAt])
+  @@map("signup_slot")
+}
+
+/// One person in one slot.
+///
+/// **`onBehalfOf` is why this is not just a join row.** A parish rota is routinely taken by a
+/// body rather than a person: the Orthodox Christian Fellowship signs up for coffee hour and
+/// sends whoever it sends. One member still claims it — somebody has to be answerable, and
+/// the reminder has to reach an inbox — but the calendar should read "OCF" where it would
+/// otherwise read a name. Free text rather than a foreign key to `Organization`: the bodies a
+/// parish's volunteers stand for are mostly not groups in this app, and making them be one
+/// would mean creating a Grapevine group before you can bring biscuits.
+///
+/// `@@unique([slotId, profileId])` is one spot per person per slot, settled at the database
+/// level rather than in application code — the same argument as `PostLike`'s composite key.
+/// Signing up twice for the same shift on behalf of two bodies is not a thing a parish means
+/// to do; it is a double tap.
+model SignupClaim {
+  id         String  @id @default(cuid())
+  slotId     String  @map("slot_id")
+  profileId  String  @map("profile_id") @db.Uuid
+  /// The body this person is standing for, if any. See the note above.
+  onBehalfOf String? @map("on_behalf_of")
+  /// What they are bringing, or anything else the rest of the parish should know.
+  note       String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  slot      SignupSlot       @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  profile   Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  reminders SignupReminder[]
+
+  @@unique([slotId, profileId])
+  /// "My sign-ups" — this person's claims, soonest first. The slot's date lives on the slot,
+  /// so this index gets the rows and the join orders them.
+  @@index([profileId])
+  @@map("signup_claim")
+}
+
+/// One scheduled nudge for one claim: send this reminder at this instant, and here is when it
+/// went.
+///
+/// **A row per reminder, rather than a flag on the claim**, because there are two of them per
+/// sign-up (a week out and a day out — `SIGNUP_REMINDER_OFFSETS` in `lib/constants.js`) and
+/// they have to be individually idempotent. `sentAt` is the marker: the sender claims rows
+/// with a conditional update, so a cron that runs twice, or two of them running at once,
+/// cannot send the same nudge twice.
+///
+/// Turning reminders off is deleting the pending rows, which is why "remind me" needs no
+/// column of its own — a claim with no unsent reminders is a claim nobody will be nudged
+/// about, and that is the same state as one made with the toggle off.
+///
+/// Nothing here is sent by the web request that created it. Delivery is
+/// `npm run signups:remind`, run on a schedule — see `scripts/send-reminders.mjs`.
+model SignupReminder {
+  id      String @id @default(cuid())
+  claimId String @map("claim_id")
+
+  /// When this should go out — the slot's start minus one of the offsets.
+  sendAt DateTime  @map("send_at")
+  /// When it actually did. Null is "pending", and the only thing the sender looks for.
+  sentAt DateTime? @map("sent_at")
+
+  claim SignupClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  /// One reminder per claim per instant, so re-running the generator for a claim is a no-op
+  /// rather than a second nudge.
+  @@unique([claimId, sendAt])
+  /// The sender's one query: everything unsent and due. `sentAt` leads because it is the
+  /// selective column — almost every row in this table has been sent — and Postgres can range
+  /// scan `send_at` inside the null group.
+  @@index([sentAt, sendAt])
+  @@map("signup_reminder")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

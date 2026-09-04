@@ -151,6 +151,10 @@ export const appPath = (route) =>
  * ROUTES.POST so the path prefix lives in one place. */
 export const postPath = (id) => `${ROUTES.POST}/${id}`
 
+/* One sign-up sheet's URL. A real, shareable one — see `ROUTES.SIGNUP`. */
+export const signupPath = (id) => `${ROUTES.SIGNUP}/${id}`
+
+
 /* "03-09" → "9 March". A name day has no year, so nothing here invents one.
  *
  * Spelled out from `MONTHS` rather than through `toLocaleDateString`, for the reason
@@ -212,6 +216,237 @@ export const addDays = (iso, days) => {
 export const postImages = (post) => post?.images ?? (post?.image ? [post.image] : [])
 
 /* ---------------------------------------------------------------------------
+ * Calendars
+ *
+ * Shared by both sides on purpose. The group form validates a pasted calendar link with the
+ * same function `calendar.service.js` fetches through, so a URL the server cannot read is
+ * refused at the keystroke rather than by an empty month three taps later.
+ * ------------------------------------------------------------------------- */
+
+/* A calendar link a person could plausibly paste → the iCalendar feed behind it, or null.
+ *
+ * **The link somebody can find and the link a server can fetch are two different strings**,
+ * and that mismatch is the whole reason this exists. Google's calendar settings page offers a
+ * `.../embed?src=…` snippet under "Integrate calendar" — that is what an admin will have to
+ * hand, and it is an HTML page. The feed is `.../ical/<id>/public/basic.ics`, further down the
+ * same settings page, past the part most people stop reading. Accepting either, plus the bare
+ * address of the calendar, is the difference between a feature that works and one that is
+ * technically correct.
+ *
+ * Four accepted forms:
+ *
+ *   .../embed?src=office@parish.org        the embed link (also `?src=…` on any Google URL)
+ *   .../ical/<id>/public/basic.ics         the feed itself, unchanged
+ *   https://anything.example/feed.ics      any other iCalendar feed
+ *   office@parish.org                      the calendar's address on its own
+ *
+ * **https only, and that is a rule rather than a default.** This URL is fetched by the server,
+ * so a http one is a request an admin can point anywhere the server can reach — see the
+ * refusals in `calendar.service.js`, which is where the rest of that argument lives. */
+export const icsFeedUrl = (value) => {
+    const raw = String(value ?? "").trim()
+    if (!raw) return null
+
+    let url
+    try {
+        url = new URL(raw)
+    } catch {
+        /* Not a URL at all. A bare calendar address is the one other thing worth accepting —
+         * Google names its own calendars that way, and it is exactly what the `src` parameter
+         * below carries, so the shortest thing a person can paste ends up on the same feed as
+         * the longest.
+         *
+         * **Tried second, not first.** An embed link contains an `@` and no whitespace, so an
+         * address pattern loose enough to accept `office@parish.org` also swallows the whole
+         * embed URL and encodes it as a calendar name — which fetches a 404 and shows an empty
+         * month. Parsing as a URL is what tells the two apart, and it is unambiguous: an
+         * address has no scheme, so `new URL` throws on it. */
+        return /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/.test(raw)
+            ? `https://calendar.google.com/calendar/ical/${encodeURIComponent(raw)}/public/basic.ics`
+            : null
+    }
+    if (url.protocol !== "https:") return null
+
+    const src = url.searchParams.get("src")
+    if (src) {
+        return `https://calendar.google.com/calendar/ical/${encodeURIComponent(src)}/public/basic.ics`
+    }
+
+    if (/\.ics$/i.test(url.pathname)) return url.toString()
+
+    /* A Google calendar URL with no `src` — the `/calendar/u/0/r` view of somebody's own
+     * calendar, which names no calendar at all and is private to them. Refused rather than
+     * guessed at. */
+    return null
+}
+
+/* A rota's dates, counted into the sentence a collapsed row says.
+ *
+ * **The one place this arithmetic lives.** The server ships a sheet's slots and nothing derived
+ * from them, so this runs on the list, on a sheet just opened, and on the row that has to move
+ * the instant somebody signs up — from one function, off whatever slots are in hand. Two copies
+ * of it (one projected, one recomputed after a write) is two things to keep in step.
+ *
+ * `now` is passed in rather than read, because reading the clock during render is impure and the
+ * React compiler rejects it; the caller holds a `useNow()`. It also makes "next" mean the
+ * reader's next rather than the server's.
+ *
+ * Cancelled dates count for nothing here — not as a date, not as one needing people, not as one
+ * of yours. They are still rendered, struck through, because the parish needs to see that the
+ * soup kitchen is off; they are simply not a commitment. */
+export const summarize = (slots = [], now = 0) => {
+    const upcoming = slots.filter(
+        (slot) => !slot.canceled && new Date(slot.endsAt).getTime() >= now,
+    )
+
+    return {
+        dates: upcoming.length,
+        needed: upcoming.filter((slot) => slot.spotsLeft > 0).length,
+        mine: upcoming.filter((slot) => slot.mine).length,
+        nextAt: upcoming[0]?.startsAt ?? null,
+    }
+}
+
+/* A title, reduced to the part worth comparing.
+ *
+ * **The parish keeps one event in two places and neither spelling is wrong.** The Google
+ * Calendar says "Cathedral's Kitchen" because that is what it is called; the sign-up sheet says
+ * "Cathedral kitchen" because that is what somebody typed into a form. A reader should see one
+ * entry on the day, so the two have to be recognised as the same thing.
+ *
+ * The rules are the smallest set that closes that gap and no more: fold case, drop a possessive
+ * (`'s`, and the curly apostrophe a phone actually types), drop a leading "the", reduce
+ * everything else to single spaces. Deliberately **not** fuzzy — no edit distance, no stemming,
+ * no dropping of short words. A near-miss matcher folding "Vespers" into "Vigil" would hide a
+ * service, which is a worse failure than showing two entries, and it would be impossible for a
+ * priest to predict or correct. When the rule genuinely cannot see it, `SignupSheet.calendarTitle`
+ * is the escape hatch, and it exists because this function is intentionally literal.
+ *
+ * Shared by both sides: the server merges with it, and the group form uses it to show an admin
+ * what their rota will match before they save. */
+export const normalizeTitle = (value) =>
+    String(value ?? "")
+        .toLowerCase()
+        .replace(/[\u2019']s\b/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/^the\s+/, "")
+        .trim()
+
+/* ---------------------------------------------------------------------------
+ * Dates, for the calendar grid
+ *
+ * Everything here works in the **reader's own timezone**, deliberately. The wire carries
+ * instants and the grid asks a question about clocks — "which square does this belong in" —
+ * so the conversion has to happen somewhere, and the reader's clock is the one they are
+ * looking at. For a parish, where everyone is local, that is also the parish's clock.
+ * ------------------------------------------------------------------------- */
+
+/* A date → `YYYY-MM-DD` in local time. The key every calendar surface buckets on, and the same
+ * shape `todayLocal()` returns, so the two compare directly. */
+export const dayKey = (date) => {
+    const value = date instanceof Date ? date : new Date(date)
+    if (Number.isNaN(value.getTime())) return ""
+    return [
+        value.getFullYear(),
+        String(value.getMonth() + 1).padStart(2, "0"),
+        String(value.getDate()).padStart(2, "0"),
+    ].join("-")
+}
+
+/* `YYYY-MM-DD` → the local Date it names.
+ *
+ * Constructed from the three numbers rather than handed to `new Date(string)`, which reads a
+ * bare date as **UTC midnight** — so every reader west of Greenwich would get the previous
+ * day back. The same trap `todayLocal` exists to avoid, coming the other way. */
+export const dateFromKey = (key) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key ?? ""))
+    if (!match) return null
+    const [year, month, day] = match.slice(1).map(Number)
+    return new Date(year, month - 1, day)
+}
+
+/* Midnight local on the day containing `date`. */
+export const startOfDay = (date) => {
+    const value = new Date(date)
+    value.setHours(0, 0, 0, 0)
+    return value
+}
+
+/* The first instant of a month, and of the month `offset` months away. Constructed from parts
+ * rather than by adding days, so a 31st never rolls into the following month. */
+export const startOfMonth = (date, offset = 0) => {
+    const value = new Date(date)
+    return new Date(value.getFullYear(), value.getMonth() + offset, 1)
+}
+
+/* The squares of a month grid: six rows of seven, Sunday first, with the neighbouring months
+ * filling the corners.
+ *
+ * **Always six rows, never five.** A month that fits in five would leave the grid a row
+ * shorter, and since the grid sits above the day's events, every such month would move
+ * everything below it up by a row — a jump the reader reads as the page having reloaded. A
+ * fixed height costs one greyed-out row and buys a calendar that does not move when it is
+ * paged.
+ *
+ * **Sunday leads**, which is the American convention and, here, the liturgical one: the week
+ * begins with the Resurrection, and a parish calendar whose Sundays sat in the last column
+ * would put the most important day of the week in the corner. */
+export const monthGrid = (date) => {
+    const first = startOfMonth(date)
+    const start = new Date(first)
+    start.setDate(1 - first.getDay())
+
+    return Array.from({ length: 42 }, (_, index) => {
+        const day = new Date(start)
+        day.setDate(start.getDate() + index)
+        return day
+    })
+}
+
+/* "11:00 AM". Twelve-hour, because that is how an American parish says a time, and built from
+ * the parts rather than `toLocaleTimeString` for the reason `formatNameDay` is: this app
+ * prerenders to static HTML, and a locale-formatted time differs between the build machine and
+ * the reader's browser, which is a hydration mismatch on a screen nobody has touched. */
+export const formatTime = (value) => {
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) return ""
+
+    const hours = date.getHours()
+    const minutes = date.getMinutes()
+    const hour = hours % 12 === 0 ? 12 : hours % 12
+
+    return minutes === 0
+        ? `${hour} ${hours < 12 ? "AM" : "PM"}`
+        : `${hour}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`
+}
+
+/* "11 AM to 12:30 PM", or the start alone when there is no meaningful end.
+ *
+ * The word rather than an en dash: this is read aloud in a parish hall as often as it is read
+ * on a screen, and a range with a dash in it is the one place a screen reader says nothing at
+ * all where a person would say "to". */
+export const formatTimeRange = (start, end) => {
+    const from = formatTime(start)
+    if (!end) return from
+    const to = formatTime(end)
+    if (!to || to === from) return from
+    return `${from} to ${to}`
+}
+
+/* "Sunday, 6 September". The heading over a day's events. */
+export const formatDayHeading = (date) => {
+    const value = date instanceof Date ? date : new Date(date)
+    if (Number.isNaN(value.getTime())) return ""
+    return `${WEEKDAY_NAMES[value.getDay()]}, ${value.getDate()} ${MONTHS[value.getMonth()]}`
+}
+
+/* Weekday names, spelled out, for the same reason `MONTHS` is a constant rather than a locale
+ * call. Sunday first, matching `Date.prototype.getDay()` so an index is a lookup. */
+export const WEEKDAY_NAMES = [
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+]
+
+/* ---------------------------------------------------------------------------
  * Route resolution
  *
  * Every "this pathname is special" question the shell asks is answered here, off
@@ -236,6 +471,16 @@ export const runtimeRouteFor = (pathname) => {
     if (!route) return null
     const param = pathname.slice(route.prefix.length + 1).split("/")[0] || null
     return { ...route, param }
+}
+
+/* …and back: the sheet a pathname names, or null on `/events` itself.
+ *
+ * The Events surface reads this rather than being handed an id, which is what lets one component
+ * serve both entrances — the page and the runtime route — without either of them knowing about
+ * the other. */
+export const signupIdFor = (pathname) => {
+    const route = runtimeRouteFor(pathname ?? "")
+    return route?.prefix === ROUTES.SIGNUP ? route.param : null
 }
 
 /* The subset that presents as a sliding overlay.

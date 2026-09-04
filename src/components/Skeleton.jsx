@@ -271,4 +271,121 @@ export function NotificationsSkeleton({ count = 6 }) {
     )
 }
 
+/* The Events surface's month grid, painted on the first frame.
+ *
+ * It reproduces the **shape** of the month and nothing under it, because there is nothing under
+ * it: the day is a separate surface, reached by tapping a square. A skeleton that drew a panel
+ * the real screen does not have would collapse by that much at the moment the content arrives,
+ * which is precisely the moment a skeleton exists to smooth.
+ *
+ * Six rows for the same reason the real grid is fixed at six: a February that fitted in five
+ * would make the legend under it jump.
+ *
+ * Only ever seen once. Months are cached and their neighbours prefetched, so paging is a
+ * lookup — this is the cold open of the tab and nothing else. */
+export function CalendarSkeleton() {
+    return (
+        <div className="flex flex-col gap-6">
+            <div className="flex items-center justify-between">
+                <Skeleton className="h-8 w-44" />
+                <Skeleton className="h-8 w-20 rounded-full" />
+            </div>
+
+            <div>
+                <div className="grid grid-cols-7">
+                    {Array.from({ length: 7 }).map((_, index) => (
+                        <div key={index} className="flex justify-center pb-2">
+                            <Skeleton className="h-2.5 w-2.5" />
+                        </div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-7 gap-y-1">
+                    {Array.from({ length: 42 }).map((_, index) => (
+                        <div key={index} className="grid aspect-square place-items-center">
+                            <Skeleton className="size-9 rounded-full" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-5">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-3 w-16" />
+            </div>
+        </div>
+    )
+}
+
+/* The sign-ups tab: the strip of the viewer's own dates, then the rotas as collapsed rows.
+ *
+ * Each row is one line, because that is what a collapsed accordion is — and the rows are what
+ * this is mostly made of, since the strip is absent for anybody who has not signed up for
+ * anything. Drawn anyway: a skeleton that guessed the strip away would leave the list jumping
+ * down for the readers who do have one, which is the majority of the people who open this tab
+ * on purpose. */
+export function SignupsSkeleton({ count = 3 }) {
+    return (
+        <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+                <Skeleton className="h-3 w-28" />
+                <div className="flex gap-3">
+                    <Skeleton className="h-20 w-52 shrink-0 rounded-2xl" />
+                    <Skeleton className="h-20 w-52 shrink-0 rounded-2xl" />
+                </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+                {Array.from({ length: count }).map((_, index) => (
+                    <div
+                        key={index}
+                        className="flex items-center gap-4 rounded-3xl border px-5 py-4"
+                    >
+                        <div className="flex flex-1 flex-col gap-2">
+                            <Skeleton className="h-4 w-40" />
+                            <Skeleton className="h-3 w-32" />
+                        </div>
+                        <Skeleton className="size-6 rounded-full" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+/* One rota, arriving. The shape of `<RotaPage/>` and not of the list it is usually reached
+ * from: a back arrow and a title, a line or two of instructions, then dates.
+ *
+ * It exists because the two are only both plausible on one path — a link opened cold, with no
+ * list behind it to promote a copy from. Everywhere else the rota paints on the frame the tap
+ * happened, so this is the arrival that has nothing to show and the one that must not show the
+ * wrong thing: a list skeleton resolving into a rota is a screen visibly changing its mind. */
+export function RotaSkeleton({ count = 4 }) {
+    return (
+        <div className="flex flex-col gap-6">
+            <div className="flex items-center gap-2">
+                <Skeleton className="size-9 shrink-0 rounded-full" />
+                <Skeleton className="h-5 w-48" />
+            </div>
+
+            <div className="flex flex-col gap-2">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-2/3" />
+            </div>
+
+            <div className="flex flex-col divide-y">
+                {Array.from({ length: count }).map((_, index) => (
+                    <div key={index} className="flex items-center gap-4 px-2 py-6">
+                        <div className="flex flex-1 flex-col gap-2">
+                            <Skeleton className="h-4 w-44" />
+                            <Skeleton className="h-3 w-32" />
+                        </div>
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-8 w-16 rounded-full" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 export default Skeleton

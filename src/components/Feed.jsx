@@ -80,6 +80,21 @@ const Caption = ({ label, text, limit = CAPTION_LIMIT, className }) => {
      * see `captionPreview`. */
     const { preview, truncated } = captionPreview(text, limit)
 
+    /* The whole truncated paragraph expands, not just the word. "more" is four characters on a
+     * phone, and missing it taps the card behind — so the text itself is the target and the word
+     * is only the label naming what the tap does. It stays a real button because that is the
+     * focusable, announced control; the paragraph around it is a plain click handler, so a
+     * screen reader is offered one affordance rather than a paragraph pretending to be one.
+     *
+     * Anything already interactive inside the body answers for its own tap: a handle opens the
+     * person, a URL opens the browser, and neither should also expand the post underneath. A
+     * held link is the case that makes this a guard rather than a convention — the hold cancels
+     * the link's own navigation, and the click it leaves behind would otherwise land here. */
+    const expand = (event) => {
+        if (event.target.closest("a, button")) return
+        setOpen(true)
+    }
+
     return (
         /* `className` may set the type scale but must not add padding: the animated height is
          * the paragraph's own, and with `border-box` any padding here would be subtracted from
@@ -90,7 +105,14 @@ const Caption = ({ label, text, limit = CAPTION_LIMIT, className }) => {
             animate={{ height: height || "auto" }}
             transition={{ duration: 0.4, ease: [0, 0.4, 0, 1] }}
         >
-            <p ref={ref} className="whitespace-pre-line">
+            <p
+                ref={ref}
+                onClick={truncated && !open ? expand : undefined}
+                className={cn(
+                    "whitespace-pre-line",
+                    truncated && !open && "cursor-pointer",
+                )}
+            >
                 {label && (
                     <>
                         <span className="font-semibold">{label}</span>{" "}

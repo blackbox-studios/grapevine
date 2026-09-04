@@ -15,12 +15,12 @@ import { SlidePage } from "@/components/SlideRouter"
  * Resolving the path here instead means ids are only ever known at runtime, which is what
  * lets the feed be genuinely live/paginated.
  *
- * Note this file only handles the *slide* half. An ordinary (`slide: false`) runtime route is
- * substituted into the page slot by <RuntimeRoute/> in the shell's layout, which runs above
- * this — so a cold load of one renders the surface and never reaches the fallback below.
- * None is registered today; the path is wired and waiting. Interception (`@modal/(.)p/[postId]`) is not
- * an option either — the export rejects it outright ("Intercepting routes are not
- * supported with static export"). See native-architecture.md.
+ * Note this file only handles the *slide* half. An ordinary (`slide: false`) runtime route —
+ * `/events/s/:sheetId`, one sign-up sheet — is substituted into the page slot by <RuntimeRoute/>
+ * in the shell's layout, which runs above this, so a cold load of one renders the surface and
+ * never reaches the fallback below. Interception (`@modal/(.)p/[postId]`) is not an option
+ * either — the export rejects it outright ("Intercepting routes are not supported with static
+ * export"). See native-architecture.md.
  *
  * A catch-all matches infinitely many paths, so there is nothing to enumerate here
  * either — the single sentinel below is the minimum `output: "export"` accepts for the

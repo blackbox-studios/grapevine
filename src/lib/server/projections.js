@@ -1,6 +1,7 @@
 import "server-only"
 
 import { canDeleteOrg } from "@/lib/server/auth"
+import { SIGNUP_STATUS } from "@/lib/constants"
 import { documentType, formatBytes } from "@/lib/utils"
 
 /* Database rows → wire shapes.
@@ -192,6 +193,32 @@ export const projectNotification = (notification) => ({
     },
     postId: notification.postId,
     orgName: notification.post?.org?.name ?? null,
+    /* Where a SIGNUP_REMINDER or SIGNUP_CANCELED points, and absent on every other kind — the
+     * "not applicable to this representation" rule rather than a null. It carries the sheet's
+     * title and the slot's start because that is the whole of what the line says ("Coffee hour
+     * is on Sunday at 11"), and joining it here is what keeps the panel from having to fetch a
+     * sheet to render one row. */
+    ...(notification.signupSlot
+        ? {
+              signup: {
+                  slotId: notification.signupSlot.id,
+                  sheetId: notification.signupSlot.sheetId,
+                  title: notification.signupSlot.sheet.title,
+                  startsAt: notification.signupSlot.startsAt.toISOString(),
+                  canceled: notification.signupSlot.canceledAt !== null,
+              },
+          }
+        : notification.signupSheet
+            ? {
+                  /* A publication names the rota and no date — there is no one date it is
+                   * about. The row's copy branches on that rather than on the type, so a
+                   * missing `startsAt` is the shape of the thing rather than a gap in it. */
+                  signup: {
+                      sheetId: notification.signupSheet.id,
+                      title: notification.signupSheet.title,
+                  },
+              }
+            : {}),
     createdAt: notification.createdAt.toISOString(),
     read: notification.readAt !== null,
 })
@@ -216,6 +243,11 @@ export const projectOrg = (org, membership, { canDelete = false } = {}) => ({
     kind: org.kind,
     avatar: org.avatarUrl,
     bio: org.bio,
+    /* The parish's own calendar, exactly as an admin typed it. Shipped to every member rather
+     * than to admins alone: it is the address of a calendar the parish publishes to the world,
+     * so there is nothing in it to withhold, and the group settings form seeds from the same
+     * `user.orgs` row every other field on it does. */
+    calendarUrl: org.calendarUrl ?? null,
     role: membership?.role ?? null,
     status: membership?.status ?? null,
     canDelete,
@@ -289,6 +321,147 @@ export const projectProfile = (profile, { following = false, isSelf = false } = 
     followingCount: profile._count?.following ?? 0,
     following,
     isSelf,
+})
+
+/* ---------------------------------------------------------------------------
+ * Events
+ * ------------------------------------------------------------------------- */
+
+/* One entry on the compiled calendar, from the group's own feed.
+ *
+ * **`id` is composed rather than stored**, because there is nothing to store: a parish event
+ * is expanded out of an iCalendar feed on every request, so the only stable name an
+ * occurrence has is its series plus the instant it falls on. That pair is exactly what a
+ * moved occurrence changes, which is correct — a Vespers pushed to 5pm is a different entry
+ * from the one it replaced, and React should treat it as one.
+ *
+ * `kind` is what the grid colours a ring by, and it is the one field both shapes share. */
+export const projectCalendarEntry = (event) => ({
+    kind: "PARISH",
+    id: `parish:${event.uid ?? event.title}:${event.startsAt.toISOString()}`,
+    title: event.title,
+    description: event.description,
+    location: event.location,
+    startsAt: event.startsAt.toISOString(),
+    endsAt: event.endsAt.toISOString(),
+    allDay: event.allDay,
+})
+
+/* A sign-up slot as the calendar reads it — the same window a parish event occupies, plus the
+ * two numbers that make it a rota rather than an appointment.
+ *
+ * Thinner than `projectSignupSlot` — no list of who signed up, because a square on a month grid
+ * and a block on a day's timeline have no room for one. It carries **`mine` as the viewer's own
+ * claim id** rather than as a boolean, though, and that is what lets the day view act: tapping a
+ * block opens the sign-up surface, and giving up a place needs the claim to delete. A boolean
+ * would mean loading the whole sheet to find out which row it was. */
+export const projectCalendarSlot = (slot, viewerId) => ({
+    kind: "SIGNUP",
+    id: `signup:${slot.id}`,
+    slotId: slot.id,
+    sheetId: slot.sheetId,
+    title: slot.sheet.title,
+    note: slot.note,
+    startsAt: slot.startsAt.toISOString(),
+    endsAt: slot.endsAt.toISOString(),
+    allDay: false,
+    capacity: slot.capacity,
+    taken: slot.claims.length,
+    spotsLeft: slot.canceledAt ? 0 : Math.max(0, slot.capacity - slot.claims.length),
+    canceled: slot.canceledAt !== null,
+    open: slot.sheet.status === SIGNUP_STATUS.OPEN,
+    /* The viewer's own claim on this date, or null — solid ring on the grid, and the row the
+     * Give up button deletes. Answered off the claims already joined, so it costs nothing. */
+    mine: slot.claims.find((claim) => claim.profileId === viewerId)?.id ?? null,
+    /* The bodies standing for this slot, so the calendar can read "OCF" where it would
+     * otherwise read a person's name. Names only, deduped — the square has room for one line.
+     * See `SignupClaim.onBehalfOf`. */
+    onBehalfOf: [
+        ...new Set(slot.claims.map((claim) => claim.onBehalfOf).filter(Boolean)),
+    ],
+})
+
+/* One person in one slot.
+ *
+ * `person` is the name in parts, like every other byline in the app, so `displayName()`
+ * addresses a volunteer exactly as it addresses an author. `onBehalfOf` sits *beside* it
+ * rather than replacing it: the parish should be able to see both that the Fellowship has
+ * coffee hour and who to ring about it.
+ *
+ * `canRemove` composes two rules the client would otherwise re-derive — your own spot is
+ * yours to give up, and an admin may take somebody off a slot they can no longer make. Same
+ * argument as a comment's `canDelete`: a re-derived rule can disagree with the one the server
+ * enforces, and here it would show a button that 403s. */
+export const projectClaim = (claim, { viewerId, canManage = false } = {}) => ({
+    id: claim.id,
+    person: claim.profile ? projectAuthor(claim.profile) : null,
+    onBehalfOf: claim.onBehalfOf,
+    note: claim.note,
+    createdAt: claim.createdAt.toISOString(),
+    isSelf: claim.profileId === viewerId,
+    canRemove: canManage || claim.profileId === viewerId,
+})
+
+/* One dated opening on a sheet, as the sign-ups tab reads it.
+ *
+ * **`spotsLeft` is shipped rather than left as `capacity - taken`.** Not because the
+ * subtraction is hard, but because a cancelled slot has no spots left and is not full either,
+ * and every surface that did the arithmetic itself had to remember that. One number, one
+ * meaning: how many people this slot can still take.
+ *
+ * `mine` is the viewer's own claim id, not a boolean, because the button that appears when it
+ * is set is the one that deletes it. A boolean would mean finding the claim again in a list
+ * the row already has in hand. */
+export const projectSignupSlot = (slot, { viewerId, canManage = false } = {}) => {
+    const claims = slot.claims ?? []
+    const canceled = slot.canceledAt !== null
+    const mine = claims.find((claim) => claim.profileId === viewerId) ?? null
+
+    return {
+        id: slot.id,
+        sheetId: slot.sheetId,
+        startsAt: slot.startsAt.toISOString(),
+        endsAt: slot.endsAt.toISOString(),
+        capacity: slot.capacity,
+        note: slot.note,
+        canceled,
+        taken: claims.length,
+        spotsLeft: canceled ? 0 : Math.max(0, slot.capacity - claims.length),
+        mine: mine?.id ?? null,
+        claims: claims.map((claim) => projectClaim(claim, { viewerId, canManage })),
+    }
+}
+
+/* A sign-up sheet: the rota, and its dates.
+ *
+ * **The slots always ride along, and the tallies deliberately do not.** A collapsed row says
+ * "4 dates need people", which is a count over slots — and the client has to be able to redo
+ * that count the moment somebody signs up, without re-reading the list. Counting it here as
+ * well would put the same arithmetic in two places, and the copy that drifts is the one nobody
+ * is looking at. So the slots go over and the client counts them (`summarize` in
+ * `lib/utils.js`), which is only affordable because the slots are shipped anyway — see
+ * `listSheets` for why they are.
+ *
+ * It also puts "the next date" in the right hands: that is a question about *now*, and the
+ * server's now is not the reader's. */
+export const projectSignupSheet = (sheet, { viewerId, canManage = false } = {}) => ({
+    id: sheet.id,
+    orgId: sheet.orgId,
+    title: sheet.title,
+    description: sheet.description,
+    status: sheet.status,
+    timezone: sheet.timezone,
+    /* Whether this rota keeps going. The form reads it back, and the row says "ongoing" rather
+     * than counting down to a last date that does not exist. */
+    repeats: sheet.repeats,
+    /* The title this rota is matched to on the parish calendar, or null for "use the title
+     * above". Shipped so the manage surface can edit it; see `mergeCalendar`. */
+    calendarTitle: sheet.calendarTitle,
+    createdAt: sheet.createdAt.toISOString(),
+    /* Composed from the same `requireMembership` the writes run, so a member never sees an
+     * Edit affordance and an admin demoted mid-session loses it on the next read. */
+    canManage,
+    slots: (sheet.slots ?? []).map((slot) => projectSignupSlot(slot, { viewerId, canManage })),
 })
 
 /* Whether this viewer may use the app, and if not, why.

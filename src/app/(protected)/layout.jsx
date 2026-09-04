@@ -8,6 +8,8 @@ import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
 import BookIcon from "@/assets/svg/icons/book.svg"
 import BookOutlineIcon from "@/assets/svg/icons/book-outline.svg"
+import CalendarIcon from "@/assets/svg/icons/calendar.svg"
+import CalendarOutlineIcon from "@/assets/svg/icons/calendar-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook";
@@ -42,12 +44,26 @@ const NAV = [
         Filled: HomeIcon,
     },
     {
+        title: "Events",
+        href: ROUTES.EVENTS,
+        Outline: CalendarOutlineIcon,
+        Filled: CalendarIcon,
+    },
+    {
         title: "Daily Read",
         href: ROUTES.PROLOGUE,
         Outline: BookOutlineIcon,
         Filled: BookIcon,
     },
 ]
+
+/* Where the composer sits among the mobile bar's entries, counting itself and the profile
+ * trigger: the middle. The plus is the only thing on that bar that acts rather than
+ * navigates, and the centre is both where a thumb rests and where every phone app a
+ * parishioner already uses puts it. Derived rather than written down, so a fourth
+ * destination re-centres the plus instead of shunting it off-centre. The desktop rail is a
+ * column with no equivalent position, and keeps the plus below the destinations. */
+const COMPOSE_SLOT = Math.floor((NAV.length + 2) / 2)
 
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
@@ -273,10 +289,13 @@ const ProtectedShell = ({ children }) => {
                     wherever the reader is — and on a phone the trigger belongs at the top
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
-                {NAV.map((item, idx) => (
-                    <NavItem key={idx} item={item} route={route} />
+                {NAV.slice(0, COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} />
                 ))}
                 <Compose />
+                {NAV.slice(COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} />
+                ))}
                 <ProfileTrigger route={route} />
             </motion.nav>
 

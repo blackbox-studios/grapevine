@@ -10,6 +10,7 @@ import { AvatarPicker } from "@/components/AvatarPicker"
 import { BackHeader } from "@/components/BackHeader"
 import DatePicker from "@/components/DatePicker"
 import { HandleField, useHandleCheck } from "@/components/HandleField"
+import Hint from "@/components/Hint"
 import Icon from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,7 +23,6 @@ import {
     FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
     HANDLE_MAX,
     HANDLE_MIN,
@@ -99,21 +99,26 @@ const schema = z.object({
  *
  * **The lock is the notice.** A line of prose under every private field said the same sentence
  * three times down one page; a glyph says it once per field, in the place the eye is already
- * looking, and the sentence is a hover away for anyone who wants it. The tooltip is the label's
+ * looking, and the sentence is a gesture away for anyone who wants it. The hint is the label's
  * — not the input's — so the thing being explained is the *field*, which is what "private"
  * describes. */
 const PrivateLabel = ({ children }) => (
     <FormLabel className="gap-1.5">
         {children}
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <span tabIndex={0} className="cursor-help text-muted-foreground">
-                    <Icon size="xs">lock</Icon>
-                    <span className="sr-only">Private</span>
-                </span>
-            </TooltipTrigger>
-            <TooltipContent>Only you can see this.</TooltipContent>
-        </Tooltip>
+        <Hint content="Only you can see this.">
+            {/* A click inside a <label> is forwarded to the field it names, so without this
+                the tap that asks what the padlock means also opens the date picker under it.
+                Stopping propagation keeps the event off the label while leaving the hint's own
+                handler, which sits on this span, to run. */}
+            <span
+                tabIndex={0}
+                onClick={(event) => event.stopPropagation()}
+                className="cursor-help text-muted-foreground"
+            >
+                <Icon size="xs">lock</Icon>
+                <span className="sr-only">Private</span>
+            </span>
+        </Hint>
     </FormLabel>
 )
 

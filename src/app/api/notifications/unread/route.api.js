@@ -1,4 +1,5 @@
 import { requireViewer } from "@/lib/server/auth"
+import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
 import { unreadCount } from "@/lib/server/notifications.service"
@@ -25,6 +26,12 @@ export const dynamic = "force-dynamic"
 
 export const GET = route(async (request) => {
     const viewer = await requireViewer(request)
+
+    /* **The app's closest thing to a clock, borrowed** — this is the endpoint every client asks
+     * on boot, on every foreground, and on a thirty-second poll, which is what makes it the one
+     * worth hanging a sweep off. Not awaited, and it cannot fail this request; see
+     * `sweepDueReminders` for why that is safe. */
+    sweepDueReminders()
     return sendResource({ unread: await unreadCount(viewer) })
 })
 

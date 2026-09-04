@@ -74,7 +74,68 @@ const ORG = {
     name: "Holy Trinity Cathedral",
     kind: "PARISH",
     bio: "The Cathedral parish community — announcements, feasts, and parish life.",
+    /* The Cathedral's real, public calendar, so the Events surface has something on it from
+     * the first run — and so the iCalendar path is exercised against a feed somebody else
+     * maintains rather than one written to suit the parser.
+     *
+     * Stored as the embed link, which is the form an admin would actually paste; `icsFeedUrl`
+     * normalizes it to the feed. A dev machine with no network reads it as a group with no
+     * calendar, which is a state the surface handles rather than an error. */
+    calendarUrl:
+        "https://calendar.google.com/calendar/u/0/embed?src=chicagocathedraloffice@gmail.com&ctz=America/Chicago",
 }
+
+/* ── The rotas ───────────────────────────────────────────────────────────── *
+ *
+ * The three shapes a parish actually runs, seeded so that all three are visible without
+ * anybody having to publish one first — and so that a regression in the generator shows up as
+ * a wrong date on screen rather than as nothing at all.
+ *
+ * They are described the way the create form describes them, and the dates are generated from
+ * that description here rather than being written out: a fixture holding literal timestamps
+ * would drift out of the future within a month of being written and the whole surface would
+ * seed empty.
+ *
+ * `capacity` is what makes them different from each other, and it is the point: one person
+ * brings the food, four cook, four take a two-hour shift on the car park. */
+const SHEETS = [
+    {
+        id: "seed-sheet-coffee",
+        title: "Coffee hour",
+        description:
+            "Bring something for after Liturgy. Nothing that needs cooking on site, and please label anything with nuts in it.",
+        capacity: 1,
+        weekday: 0,
+        weeks: 10,
+        startTime: 11 * 60,
+        endTime: 12 * 60 + 30,
+        split: null,
+    },
+    {
+        id: "seed-sheet-kitchen",
+        title: "Cathedral kitchen",
+        description: "Saturday morning at the soup kitchen. Doors at 8:30, we serve from 9.",
+        capacity: 4,
+        weekday: 6,
+        weeks: 8,
+        startTime: 9 * 60,
+        endTime: 12 * 60,
+        split: null,
+    },
+    {
+        id: "seed-sheet-festival",
+        title: "Do Division Festival parking",
+        description:
+            "Two-hour shifts collecting for the lot over the festival weekend. Cash box and a float are in the office.",
+        capacity: 4,
+        /* A dated rota rather than a weekly one — the whole reason `SIGNUP_PATTERNS` has two
+         * values. Seeded a few weeks out so it is always in the future. */
+        dates: { fromDaysAhead: 24, days: 2 },
+        startTime: 16 * 60,
+        endTime: 22 * 60,
+        split: 120,
+    },
+]
 
 /* ── The diocese ─────────────────────────────────────────────────────────── *
  *
@@ -283,7 +344,7 @@ const main = async () => {
     console.log("→ Organization")
     const org = await prisma.organization.upsert({
         where: { slug: ORG.slug },
-        update: { name: ORG.name, kind: ORG.kind, bio: ORG.bio },
+        update: { name: ORG.name, kind: ORG.kind, bio: ORG.bio, calendarUrl: ORG.calendarUrl },
         create: ORG,
     })
 
@@ -619,6 +680,94 @@ const main = async () => {
         })
     }
 
+    /* ── Rotas ──────────────────────────────────────────────────────────────
+     *
+     * Deleted and rewritten by fixture id every run, like the posts above, so anything
+     * published through the app keeps its cuid and is left alone. Deleting the sheet takes its
+     * slots and claims with it by cascade.
+     *
+     * Dates are generated here rather than stored, for the reason `SHEETS` gives — and in the
+     * seed's own timezone, which is the machine's. That is honest for a dev fixture: whoever
+     * runs this is looking at the app on the same machine. The real generator takes the
+     * parish's zone from the admin publishing the rota. */
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const midnight = (daysAhead) => {
+        const day = new Date()
+        day.setHours(0, 0, 0, 0)
+        day.setDate(day.getDate() + daysAhead)
+        return day
+    }
+
+    for (const sheet of SHEETS) {
+        await prisma.signupSheet.deleteMany({ where: { id: sheet.id } })
+
+        /* Which days, then which shifts inside each — the same two questions the create form
+         * asks, in the same order. */
+        const days = []
+        if (sheet.dates) {
+            for (let index = 0; index < sheet.dates.days; index++) {
+                days.push(midnight(sheet.dates.fromDaysAhead + index))
+            }
+        } else {
+            const first = midnight(0)
+            first.setDate(first.getDate() + ((sheet.weekday - first.getDay() + 7) % 7))
+            for (let index = 0; index < sheet.weeks; index++) {
+                const day = new Date(first)
+                day.setDate(first.getDate() + index * 7)
+                days.push(day)
+            }
+        }
+
+        const span = sheet.endTime - sheet.startTime
+        const shifts = []
+        for (let from = 0; from < span; from += sheet.split ?? span) {
+            shifts.push({ from, length: Math.min(sheet.split ?? span, span - from) })
+        }
+
+        const slots = days.flatMap((day) =>
+            shifts.map(({ from, length }) => {
+                const startsAt = new Date(day)
+                startsAt.setMinutes(sheet.startTime + from)
+                const endsAt = new Date(startsAt)
+                endsAt.setMinutes(endsAt.getMinutes() + length)
+                return { startsAt, endsAt, capacity: sheet.capacity }
+            }),
+        )
+
+        await prisma.signupSheet.create({
+            data: {
+                id: sheet.id,
+                orgId: org.id,
+                title: sheet.title,
+                description: sheet.description,
+                timezone: zone,
+                createdById: byHandle.get("cathedraldean"),
+                slots: { create: slots },
+            },
+        })
+    }
+
+    /* One claim on the nearest coffee hour, standing for a body rather than a person — so the
+     * "on behalf of" path is on screen from the first run, and so the calendar has a filled
+     * ring to draw. The seeded member is the one signed up, which is also what puts something
+     * in *their* "Your sign-ups" strip. */
+    const firstCoffee = await prisma.signupSlot.findFirst({
+        where: { sheetId: "seed-sheet-coffee" },
+        orderBy: { startsAt: "asc" },
+        select: { id: true },
+    })
+    const claimantId = byHandle.get("j.rivera")
+    if (firstCoffee && claimantId) {
+        await prisma.signupClaim.create({
+            data: {
+                slotId: firstCoffee.id,
+                profileId: claimantId,
+                onBehalfOf: "OCF - Orthodox Christian Fellowship",
+                note: "Bringing the coffee and cups",
+            },
+        })
+    }
+
     const [posts, comments, parishMembers, dioceseMembers] = await Promise.all([
         prisma.post.count(),
         prisma.comment.count(),
@@ -635,6 +784,10 @@ const main = async () => {
     }
     console.log(`\n  Both are MEMBERs of ${DIOCESE.name} — switch groups to watch the`)
     console.log("  admin controls appear and disappear.")
+    console.log(`\n  ${SHEETS.length} sign-up sheets on ${ORG.name}, under Events:`)
+    for (const sheet of SHEETS) console.log(`    ${sheet.title}`)
+    console.log(`\n  ${ORG.name}'s public calendar is on the other tab; change it under`)
+    console.log("  Group settings.")
 }
 
 main()

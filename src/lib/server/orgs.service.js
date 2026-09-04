@@ -20,8 +20,10 @@ import {
 } from "@/lib/server/auth"
 import { forbidden, invalid, notFound } from "@/lib/server/errors"
 import { projectOrg } from "@/lib/server/projections"
+import { forgetCalendar } from "@/lib/server/calendar.service"
 import { isOwnedUrl } from "@/lib/server/storage"
 import { uploadPrefix } from "@/lib/server/uploads.service"
+import { icsFeedUrl } from "@/lib/utils"
 
 /* Groups: listing the viewer's, editing one, and bringing one into or out of existence.
  *
@@ -89,6 +91,12 @@ export const listOrgs = async (viewer) => {
  * the Groups surface, and beside every post the group has ever published, so changing one is
  * an act of administration rather than a member's preference.
  *
+ * **`calendarUrl` is edited here and not on the Events surface**, which is the same call the
+ * roster makes: a group's calendar is a fact about the group, not a preference of whoever is
+ * reading it, so it belongs with the name and the picture rather than beside the month grid it
+ * feeds. It is stored exactly as it was typed and normalized on read — see the column's note
+ * in `schema.prisma`.
+ *
  * **`slug` and `kind` are deliberately not editable here.** The slug is the natural key the
  * seeds upsert on and the only stable handle anything outside the database has on a group;
  * letting it move would break every such reference for a cosmetic gain, since nothing in the
@@ -101,8 +109,8 @@ export const listOrgs = async (viewer) => {
  * explicitly null `bio` does clear it — that is the one way to remove a description, and it
  * is distinguishable from absence because `undefined` is what Prisma ignores.
  */
-export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
-    requireMembership(viewer, orgId, { role: "ADMIN" })
+export const updateOrg = async (viewer, orgId, { name, bio, avatar, calendarUrl } = {}) => {
+    const membership = requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const data = {}
 
@@ -147,11 +155,43 @@ export const updateOrg = async (viewer, orgId, { name, bio, avatar } = {}) => {
         data.avatarUrl = url
     }
 
+    if (calendarUrl !== undefined) {
+        const url = String(calendarUrl ?? "").trim()
+
+        /* Cleared, which is how a parish removes its calendar. Distinguishable from absence
+         * because `undefined` is what Prisma ignores — the same rule `bio` follows. */
+        if (!url) {
+            data.calendarUrl = null
+        } else {
+            /* Checked with the function that will later *fetch* it, rather than with a looser
+             * pattern of its own. A URL this refuses is a URL the Events surface would answer
+             * with an empty month and no explanation, so the refusal belongs at the keystroke
+             * that caused it. See `icsFeedUrl`, which also carries the https rule. */
+            if (!icsFeedUrl(url)) {
+                throw invalid(
+                    "That does not look like a calendar. Paste the address of a public Google Calendar.",
+                    { calendarUrl: "Invalid" },
+                )
+            }
+            data.calendarUrl = url
+        }
+    }
+
     if (Object.keys(data).length === 0) {
         throw invalid("Nothing to update.", { name: "Required" })
     }
 
     const org = await prisma.organization.update({ where: { id: orgId }, data })
+
+    /* The feed cache is keyed by URL and holds failures as well as successes, so an admin who
+     * has just fixed a mistyped address would otherwise wait out the negative entry before
+     * seeing their own correction. Both the old value and the new one are dropped: the old
+     * because it may have been the broken one, the new because it may have been fetched and
+     * failed while it belonged to somebody else's group. */
+    if (calendarUrl !== undefined) {
+        forgetCalendar(membership.org?.calendarUrl)
+        forgetCalendar(data.calendarUrl)
+    }
 
     /* Projected with the viewer's own membership, so the response carries the same `role`
      * and `status` shape every other org the client holds does — the store swaps this row

@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment } from "react"
 
 import CrossVine from "@/assets/svg/monograms/cross-vine.svg"
 import DairyIcon from "@/assets/svg/icons/fast-dairy.svg"
@@ -8,11 +8,10 @@ import FishIcon from "@/assets/svg/icons/fast-fish.svg"
 import MeatIcon from "@/assets/svg/icons/fast-meat.svg"
 import OilIcon from "@/assets/svg/icons/fast-oil.svg"
 import WineIcon from "@/assets/svg/icons/fast-wine.svg"
+import Hint from "@/components/Hint"
 import Icon from "@/components/Icon"
 import Skeleton from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { haptic } from "@/lib/native"
 import { cn } from "@/lib/utils"
 
@@ -267,56 +266,6 @@ const fastingSentence = ({ allowed, forbidden }) => {
  * **Lit means permitted.** The glyphs are ornaments rather than controls — nothing here is
  * tappable — so the whole row is one labelled image to a screen reader, and the sentence
  * below carries the same fact in words for anyone the colour does not reach. */
-/* Reveals the rule in words, over whatever it wraps.
- *
- * One surface for both pointers, rather than a tooltip on desktop and a popover on touch:
- * two primitives meant two sets of type and colour for one sentence, and the popover's are
- * the ones that belong on this page.
- *
- * What differs by pointer is only what *opens* it. A mouse gets hover, so desktop anchors the
- * surface without a trigger at all — `PopoverAnchor` positions but binds no click, which is
- * what keeps a click from toggling shut something the pointer is still resting on. Touch has
- * no hover, so it gets the real trigger and opens on a tap.
- *
- * Hover and focus travel together on the anchor branch, and *only* there. An anchor binds
- * nothing of its own, so it needs both to open at all. The trigger already opens on tap and
- * on Enter — adding focus to it means a tap opens on focus and then the trigger's own toggle
- * closes it again in the same gesture, which reads as a flash and leaves the second tap to
- * do the opening.
- *
- * `onOpenAutoFocus` is prevented because a popover ordinarily takes focus when it opens, and
- * a surface that appears on hover must not pull the caret out of whatever the reader was
- * doing. Nothing inside it is interactive, so there is nothing in there to focus anyway. */
-const FastingSummary = ({ sentence, children }) => {
-    const isDesktop = useIsDesktop()
-    const [open, setOpen] = useState(false)
-
-    const Trigger = isDesktop ? PopoverAnchor : PopoverTrigger
-    const reveal = isDesktop
-        ? {
-            onMouseEnter: () => setOpen(true),
-            onMouseLeave: () => setOpen(false),
-            onFocus: () => setOpen(true),
-            onBlur: () => setOpen(false),
-        }
-        : {}
-
-    return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <Trigger asChild {...reveal}>
-                {children}
-            </Trigger>
-            <PopoverContent
-                side="bottom"
-                onOpenAutoFocus={(event) => event.preventDefault()}
-                className="w-auto max-w-64 rounded-2xl p-3 text-center font-reading text-sm"
-            >
-                {sentence}
-            </PopoverContent>
-        </Popover>
-    )
-}
-
 const Fasting = ({ fasting }) => {
     if (!fasting) return null
 
@@ -334,7 +283,7 @@ const Fasting = ({ fasting }) => {
                 The glyphs are the label — there is no text beside them to name them — so the
                 row has to answer to the keyboard and to a screen reader on its own, and a
                 <ul> could not be the trigger without nesting flow content in a button. */}
-            <FastingSummary sentence={sentence}>
+            <Hint content={sentence} className="font-reading">
                 <button
                     type="button"
                     aria-label={sentence}
@@ -353,10 +302,10 @@ const Fasting = ({ fasting }) => {
                         />
                     ))}
                 </button>
-            </FastingSummary>
+            </Hint>
 
             {(fasting.title || fasting.tone) && (
-                <p className="text-center text-base text-muted-foreground/50 italic font-light font-sans">
+                <p className="text-center text-base text-muted-foreground/50 italic font-light">
                     {[fasting.title, fasting.tone ? `Tone ${fasting.tone}` : null]
                         .filter(Boolean)
                         .join(" · ")}

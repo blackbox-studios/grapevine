@@ -3,6 +3,7 @@
 import { useState } from "react"
 
 import NotificationsView from "@/components/NotificationsView"
+import EventsView from "@/components/EventsView"
 import PostView from "@/components/PostView"
 import { ROUTES } from "@/lib/constants"
 import { useRuntimePage } from "@/lib/hooks/useSlideRoute.hook"
@@ -31,6 +32,11 @@ import { useRuntimePage } from "@/lib/hooks/useSlideRoute.hook"
 export const RUNTIME_SURFACES = {
     [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
     [ROUTES.NOTIFICATIONS]: (param, variant) => <NotificationsView variant={variant} />,
+    /* A page route, so it takes no `variant` — there is one presentation. It also takes no
+     * `param`: `<EventsView/>` reads the pathname itself, which is what lets the *page* at
+     * `/events` and this surface be the same component, so a rota reached by a link lands on
+     * exactly the screen a rota reached by tapping one does. */
+    [ROUTES.SIGNUP]: () => <EventsView />,
 }
 
 /* The shell's page slot: an ordinary (`slide: false`) runtime route if the URL names one,

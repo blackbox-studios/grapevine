@@ -3,7 +3,7 @@ import "server-only"
 import { createRemoteJWKSet, jwtVerify } from "jose"
 
 import { prisma } from "@/lib/db"
-import { AppError, ERROR_CODES, forbidden, notFound } from "@/lib/server/errors"
+import { AppError, forbidden, notFound, unauthenticated, unavailable } from "@/lib/server/errors"
 import { supabaseAnon } from "@/lib/server/supabase"
 
 /* Authentication and authorization for the API.
@@ -42,11 +42,6 @@ const bearerToken = (request) => {
     if (!/^bearer$/i.test(scheme ?? "") || !token) return null
     return token.trim() || null
 }
-
-const unauthenticated = (message = "Sign in to continue.") =>
-    new AppError(ERROR_CODES.UNAUTHENTICATED, message)
-
-const unavailable = (message) => new AppError(ERROR_CODES.UNAVAILABLE, message)
 
 /* Did the token verification fail, or did it never happen?
  *

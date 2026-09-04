@@ -5,6 +5,7 @@ import { AnimatePresence } from "motion/react"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import HeartIcon from "@/assets/svg/icons/heart-outline.svg"
+import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
 import { NOTIFICATION_ROW, NotificationsSkeleton } from "@/components/Skeleton"
 import { Avatar, FollowButton } from "@/components/Widgets"
@@ -12,10 +13,11 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
-import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { openSlide, pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useNotifications, useUnreadCount } from "@/lib/store/notifications/hook"
 import { useOpenProfile } from "@/lib/store/profile/hook"
-import { cn, postPath, timeAgoCompact } from "@/lib/utils"
+import { useEventsView } from "@/lib/store/signups/hook"
+import { cn, formatDayHeading, postPath, signupPath, timeAgoCompact } from "@/lib/utils"
 
 /* The notifications panel, and the bell that opens it.
  *
@@ -43,6 +45,27 @@ const LINES = {
     FOLLOW: () => "followed you",
     NEW_POST: (item) =>
         item.orgName ? `posted in ${item.orgName}` : "shared a new post",
+}
+
+/* The two kinds nobody did to you.
+ *
+ * A reminder comes from a clock and a cancellation comes from the parish, so neither has an
+ * actor worth naming — the row would otherwise read "@robpaul is coming up", the reader's own
+ * handle in front of a sentence about a rota. See `notifySignupReminder` for why the column
+ * points at the recipient anyway.
+ *
+ * So these get a **whole sentence** rather than a predicate appended to a handle, and a glyph
+ * rather than a face. They are written here with the rest of the copy, and they are the reason
+ * the row below branches at all. */
+const SIGNUP_LINES = {
+    SIGNUP_REMINDER: (item) =>
+        item.signup
+            ? `${item.signup.title} on ${formatDayHeading(item.signup.startsAt)}. You signed up.`
+            : "You have a sign-up coming up.",
+    SIGNUP_CANCELED: (item) =>
+        item.signup
+            ? `${item.signup.title} on ${formatDayHeading(item.signup.startsAt)} was cancelled.`
+            : "A date you signed up for was cancelled.",
 }
 
 /* The corner radius one row takes, given the rows around it.
@@ -97,6 +120,7 @@ const runRadius = (items, index) => {
  * decision, not this component's. */
 const NotificationRow = ({ item, now, onOpen, onOpenActor, className }) => {
     const line = LINES[item.type]
+    const signupLine = SIGNUP_LINES[item.type]
 
     return (
         /* A wrapper around the targets rather than one button around everything: a button
@@ -118,14 +142,33 @@ const NotificationRow = ({ item, now, onOpen, onOpenActor, className }) => {
                 className,
             )}
         >
-            <button
-                type="button"
-                aria-label={`Open @${item.actor.handle}`}
-                onClick={() => onOpenActor(item)}
-                className="shrink-0 cursor-pointer rounded-full"
-            >
-                <Avatar person={item.actor} className="size-10" />
-            </button>
+            {/* A glyph where a face would be, for the rows that have no actor. The disc is the
+                avatar's size so the column does not shift between one kind of row and the next,
+                and it is not a button: there is nobody behind it to open. */}
+            {signupLine ? (
+                <span
+                    aria-hidden="true"
+                    className={cn(
+                        "grid size-10 shrink-0 place-items-center rounded-full",
+                        item.type === "SIGNUP_CANCELED"
+                            ? "bg-destructive/12 text-destructive"
+                            : "bg-brand/15 text-foreground",
+                    )}
+                >
+                    <Icon size="md">
+                        {item.type === "SIGNUP_CANCELED" ? "event_busy" : "event_available"}
+                    </Icon>
+                </span>
+            ) : (
+                <button
+                    type="button"
+                    aria-label={`Open @${item.actor.handle}`}
+                    onClick={() => onOpenActor(item)}
+                    className="shrink-0 cursor-pointer rounded-full"
+                >
+                    <Avatar person={item.actor} className="size-10" />
+                </button>
+            )}
 
             <button
                 type="button"
@@ -133,8 +176,14 @@ const NotificationRow = ({ item, now, onOpen, onOpenActor, className }) => {
                 className="min-w-0 flex-1 cursor-pointer text-left"
             >
                 <p className="text-sm leading-snug text-foreground">
-                    <span className="font-semibold">@{item.actor.handle}</span>{" "}
-                    {line ? line(item) : "did something"}{" "}
+                    {signupLine ? (
+                        signupLine(item)
+                    ) : (
+                        <>
+                            <span className="font-semibold">@{item.actor.handle}</span>{" "}
+                            {line ? line(item) : "did something"}
+                        </>
+                    )}{" "}
                     <span className="text-xs font-medium text-muted-foreground tabular-nums">
                         {timeAgoCompact(now, new Date(item.createdAt).getTime())}
                     </span>
@@ -168,15 +217,22 @@ const EmptyState = () => (
 export const NotificationList = ({ className, onOpened }) => {
     const { items, skeleton, hasMore, loadingMore, loadMore } = useNotifications()
     const { openProfile } = useOpenProfile()
+    const { setTab } = useEventsView()
     const now = useNow()
 
     const openSubject = useCallback((item) => {
-        if (item.postId) openSlide(postPath(item.postId))
+        if (item.signup) {
+            /* Straight to the rota's own URL. `pushRoute`, not `openSlide`: a rota is a page
+             * runtime route rather than an overlay — see `<EventsView/>`. The tab is set too,
+             * so backing out of the rota lands on the sign-ups half rather than the calendar. */
+            setTab("signups")
+            pushRoute(signupPath(item.signup.sheetId))
+        } else if (item.postId) openSlide(postPath(item.postId))
         else if (item.actor?.handle) openProfile(item.actor.handle)
         else return
 
         onOpened?.()
-    }, [onOpened, openProfile])
+    }, [onOpened, openProfile, setTab])
 
     /* The picture, which goes to the person whatever the row is about. */
     const openActor = useCallback((item) => {

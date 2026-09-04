@@ -1,0 +1,12 @@
+-- The title a rota appears under on the parish's own calendar, when it is not the rota's own.
+--
+-- A parish keeps one event in two places and neither is wrong: "Cathedral's Kitchen" is on the
+-- Google Calendar because it happens, and "Cathedral kitchen" is a sign-up sheet because it
+-- needs hands. The reader should see one entry. `mergeCalendar` matches the two by normalized
+-- title on the same day, which handles that pair on its own — this column is the escape hatch
+-- for the pair no string rule could guess ("Coffee hour" against "Fellowship Hour"), and the
+-- way to switch merging off for one sheet.
+--
+-- Nullable, and null means "match on the sheet's own title". No backfill: that is the state
+-- every existing row wants.
+ALTER TABLE "signup_sheet" ADD COLUMN "calendar_title" TEXT;

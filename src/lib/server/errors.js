@@ -49,3 +49,24 @@ export const forbidden = (message) => new AppError(ERROR_CODES.PERMISSION_DENIED
 
 export const invalid = (message, fields) =>
     new AppError(ERROR_CODES.VALIDATION_FAILED, message, { fields })
+
+/* Conflicts with the state the resource is actually in — a slot that filled up between the
+ * page being drawn and the button being pressed, a person already signed up for it. Distinct
+ * from a validation failure on purpose: nothing about the request was malformed, and the
+ * client's response to it is to re-read rather than to correct a field. */
+export const conflict = (message) => new AppError(ERROR_CODES.CONFLICT, message)
+
+/* A dependency this app does not own could not be reached — the auth service, a parish's
+ * calendar feed. **Never a 500**, and never a 401: those say the caller did something, and a
+ * third party being down is not something a caller did. `lib/api.js` signs a viewer out on a
+ * 401, which is why the distinction is load-bearing rather than pedantic. */
+export const unavailable = (message, { retryAfter } = {}) =>
+    new AppError(ERROR_CODES.UNAVAILABLE, message, { retryAfter })
+
+/* No credentials, or credentials that do not check out. Reached from `auth.js` on every
+ * ordinary request and from the reminders endpoint, which authenticates a schedule rather than
+ * a person. **A 401 signs the viewer out** (`lib/api.js` calls `expire()` on one), so it must
+ * mean "your credentials are wrong" and never "the check could not run" — that is
+ * `unavailable`. */
+export const unauthenticated = (message = "Sign in to continue.") =>
+    new AppError(ERROR_CODES.UNAUTHENTICATED, message)

@@ -1,7 +1,7 @@
 {
   "name": "grapevine",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.6",
   "type": "module",
   "scripts": {
     "dev": "next dev",
@@ -34,6 +34,7 @@
     "reviewer": "node scripts/provision-reviewer.mjs",
     "erase": "node scripts/erase-account.mjs",
     "comments:rescore": "node scripts/rescore-comments.mjs",
+    "signups:remind": "node scripts/send-reminders.mjs",
     "dev:login": "node scripts/dev-login.mjs",
     "dev:reset-member": "node scripts/dev-reset-member.mjs",
     "icons": "node scripts/generate-icons.mjs"

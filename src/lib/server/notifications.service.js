@@ -9,11 +9,12 @@ import { pushConfigured, sendPush } from "@/lib/server/push"
 
 /* Notifications: the panel behind the bell, and the writes that fill it.
  *
- * Four kinds of event: somebody liked something you wrote (split by `type` into a like on a
- * post and a like on a comment), somebody commented on your post, somebody started following
- * you, and an admin published into a group you belong to. The read side is a plain keyset page
- * of the viewer's own rows, identical for all of them; the write side is a builder per event,
- * spliced into the transaction the write it accompanies was already running.
+ * Two families of event. Something somebody did to something of yours — a like on a post or a
+ * comment, a comment on your post, a follow — and something a group did that you should know
+ * about: an admin published a post or a rota, a date you signed up for is coming up or has been
+ * called off. The read side is a plain keyset page of the viewer's own rows, identical for all
+ * of them; the write side is a builder per event, spliced into the transaction the write it
+ * accompanies was already running.
  *
  * ── Why the writes are builders and not functions that write ─────────────────
  *
@@ -115,6 +116,22 @@ const notificationInclude = (viewerId) => ({
         },
     },
     post: { select: { orgId: true, deletedAt: true, org: { select: { name: true } } } },
+    /* The date a reminder or a cancellation is about. Null on every other kind, and joined
+     * unconditionally because the alternative is a second read for a row the panel is already
+     * assembling — under the join strategy an always-null left join costs nothing worth
+     * measuring. */
+    signupSlot: {
+        select: {
+            id: true,
+            sheetId: true,
+            startsAt: true,
+            canceledAt: true,
+            sheet: { select: { title: true } },
+        },
+    },
+    /* The rota a publication is about. A reminder reaches its sheet through the slot above; a
+     * publication has no slot, because it is about the rota rather than about a date on it. */
+    signupSheet: { select: { id: true, title: true } },
 })
 
 /* The rows a panel and a bell may count: everything except an event inside a post that has
@@ -349,6 +366,114 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
 }
 
 /* ---------------------------------------------------------------------------
+ * Sign-ups
+ *
+ * The two kinds of event a rota produces, and they are shaped differently from everything
+ * above for one reason: **nobody did them to you**. A like has an actor; a reminder has a
+ * clock, and a cancellation has an admin acting on the parish's behalf rather than on yours.
+ * See the note on `actorId` below, which is where that shows up in the schema.
+ * ------------------------------------------------------------------------- */
+
+/* "Coffee hour is on Sunday. You signed up."
+ *
+ * **The actor is the recipient**, and that is the least-bad answer to a column that cannot be
+ * null. `Notification.actorId` is non-null and carries a foreign key, and every other kind
+ * genuinely has somebody behind it; a reminder does not. Pointing it at the reader keeps the
+ * unique key below meaningful, keeps the cascade correct, and costs nothing at render time
+ * because the panel draws a calendar glyph for this type rather than an avatar — see
+ * `<NotificationRow/>`. The alternative, making the column nullable, would put a null check
+ * into every read of the hottest notification query in the app to serve the rarest kind.
+ *
+ * **The subject is the reminder row, not the claim.** One sign-up produces a nudge a week out
+ * and another a day out; keying both on the claim would collapse them into one row under
+ * `@@unique([recipientId, actorId, type, subjectId])`, and the second reminder — the one that
+ * actually gets somebody to turn up — would silently overwrite the first instead of arriving.
+ *
+ * A builder, like the like ones: it returns the operation so `sendDueReminders` can commit the
+ * rows in the same transaction that marks the reminders sent. A notification for a reminder
+ * that was then not marked sent is a notification a second run would write again. */
+export const notifySignupReminder = (reminders) => {
+    if (reminders.length === 0) return null
+
+    return prisma.notification.createMany({
+        data: reminders.map((reminder) => ({
+            recipientId: reminder.claim.profileId,
+            actorId: reminder.claim.profileId,
+            type: "SIGNUP_REMINDER",
+            subjectId: reminder.id,
+            signupSlotId: reminder.claim.slotId,
+        })),
+        /* The unique key already says one row per reminder, so a re-run is a no-op rather than
+         * a 500 — the same reason `notifyNewPost` carries it. */
+        skipDuplicates: true,
+    })
+}
+
+/* "There is a new sign-up sheet: Coffee hour."
+ *
+ * A fan-out over the group, like `notifyNewPost` and for the same reason — a rota nobody knows
+ * about gets no volunteers, and a parish should not have to go looking for one. The recipients
+ * come from `newPostRecipients`, which is already "every approved member except the person who
+ * did it" and has nothing post-specific in it.
+ *
+ * Takes the transaction client rather than being a builder, because it needs the id of the sheet
+ * created alongside it — the same dependency that makes `notifyNewPost` interactive. */
+export const notifySignupPublished = (tx, { recipients, actorId, sheetId }) => {
+    if (recipients.length === 0) return null
+
+    return tx.notification.createMany({
+        data: recipients.map((recipientId) => ({
+            recipientId,
+            actorId,
+            type: "SIGNUP_PUBLISHED",
+            subjectId: sheetId,
+            signupSheetId: sheetId,
+        })),
+        skipDuplicates: true,
+    })
+}
+
+
+/* "The soup kitchen on Saturday has been cancelled."
+ *
+ * A fan-out like `notifyNewPost`, over the people who had signed up rather than over the
+ * group: cancelling a date is only news to somebody who was going to be there.
+ *
+ * The subject is the **slot**, because there is one cancellation per date however many
+ * reminders were pending on it — so an admin who cancels, restores and cancels again leaves
+ * one row rather than three, which is what the unique key is for.
+ *
+ * Returns an **array** rather than a single operation, so the caller can spread it into the
+ * `$transaction([...])` it was already running whether or not there is anybody to tell. */
+export const notifySignupCanceled = ({ recipients, actorId, slot }) => {
+    if (recipients.length === 0) return []
+
+    return [
+        prisma.notification.createMany({
+            data: recipients.map((recipientId) => ({
+                recipientId,
+                actorId,
+                type: "SIGNUP_CANCELED",
+                subjectId: slot.id,
+                signupSlotId: slot.id,
+            })),
+            skipDuplicates: true,
+        }),
+        /* A cancellation is worth interrupting somebody for even if they have already read a
+         * notification about this slot, so a repeat clears the read mark the way `notifyFollow`
+         * does. Cheap: it touches the rows just written plus at most one stale one per person. */
+        prisma.notification.updateMany({
+            where: {
+                recipientId: { in: recipients },
+                type: "SIGNUP_CANCELED",
+                subjectId: slot.id,
+            },
+            data: { readAt: null, createdAt: new Date() },
+        }),
+    ]
+}
+
+/* ---------------------------------------------------------------------------
  * Delivery — the push half. See the header for why these run after the commit.
  * ------------------------------------------------------------------------- */
 
@@ -406,16 +531,33 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
  * failure apart precisely because it is not recoverable by retrying. */
 const pushableImage = (url) => (/^https?:\/\//i.test(url ?? "") ? url : null)
 
-const message = ({ title, body, postId = null, handle = null, image = null, type }) => ({
+const message = ({
+    title,
+    body,
+    postId = null,
+    handle = null,
+    sheetId = null,
+    image = null,
+    type,
+}) => ({
     notification: { title, body, ...(image ? { image } : {}) },
-    data: { type, ...(postId ? { postId } : {}), ...(handle ? { handle } : {}) },
+    data: {
+        type,
+        ...(postId ? { postId } : {}),
+        ...(handle ? { handle } : {}),
+        /* A sign-up's destination is the Events surface, which is a static route — so unlike a
+         * post there is no id in the path to open. The sheet's id travels anyway, because the
+         * surface can then expand the right rota rather than dropping the reader at the top of
+         * a list of them. */
+        ...(sheetId ? { sheetId } : {}),
+    },
     android: {
         /* `high` is what wakes a dozing device; the default is `normal`, which Android is
          * free to hold until the next maintenance window — minutes to hours later. */
         priority: "high",
         /* The tag collapses repeats about the same subject into one banner, so it follows
          * whichever destination this message carries. */
-        notification: { sound: "default", tag: postId ?? handle },
+        notification: { sound: "default", tag: postId ?? handle ?? sheetId },
     },
     apns: {
         payload: { aps: { sound: "default", ...(image ? { "mutable-content": 1 } : {}) } },
@@ -546,6 +688,71 @@ export const pushNewPost = ({ recipients, actor, orgName, postId }) => {
                 body: `${displayName(actor)} posted`,
                 postId,
                 type: "NEW_POST",
+            }),
+        ),
+    )
+}
+
+/* "Coffee hour — Sunday at 11 AM". The nudge itself.
+ *
+ * Titled with the rota rather than with a person, like `pushNewPost` and for the same reason:
+ * there is nobody to name. The body carries the date because a banner read on a lock screen is
+ * often the whole of what somebody sees — a reminder they have to open the app to understand
+ * is a reminder that has not reminded them of anything.
+ *
+ * One `deliver` per recipient rather than one for all of them, unlike the fan-outs above: a
+ * batch of reminders is a batch of *different* shifts, and every banner has to name its own. */
+export const pushSignupReminder = ({ recipientId, title, sheetId, when }) => {
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title,
+                body: `You signed up for ${when}`,
+                sheetId,
+                type: "SIGNUP_REMINDER",
+            }),
+        ),
+    )
+}
+
+/* "Cancelled: soup kitchen, Saturday."
+ *
+ * The one push in the app that is *more* urgent than the row it delivers, which is why it says
+ * "Cancelled" first: somebody who reads only the first word of the banner has still been told
+ * the thing that matters, and somebody who reads none of it and turns up has been failed. */
+export const pushSignupCanceled = ({ recipients, title, sheetId, when }) => {
+    if (recipients.length === 0) return
+
+    detach(
+        deliver(
+            recipients,
+            message({
+                title: `Cancelled: ${title}`,
+                body: when ? `${when} is not happening` : "This date is not happening",
+                sheetId,
+                type: "SIGNUP_CANCELED",
+            }),
+        ),
+    )
+}
+
+/* "Coffee hour — a new sign-up sheet."
+ *
+ * Titled with the group rather than with the admin, exactly as `pushNewPost` is: the parish is
+ * asking, and the person who typed it is not the point. The body names the rota, because that is
+ * what decides whether somebody opens it. */
+export const pushSignupPublished = ({ recipients, orgName, title, sheetId }) => {
+    if (recipients.length === 0) return
+
+    detach(
+        deliver(
+            recipients,
+            message({
+                title: orgName || "New sign-up sheet",
+                body: `${title} needs people`,
+                sheetId,
+                type: "SIGNUP_PUBLISHED",
             }),
         ),
     )

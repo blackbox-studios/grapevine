@@ -203,12 +203,31 @@ completed (offline, DNS, CORS, aborted connection).
 | `GET` | `/api/notifications?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's notifications, newest first |
 | `GET` | `/api/notifications/unread` | viewer | `{ unread }` — the number the bell's dot stands for |
 | `POST` | `/api/notifications/read` | viewer | `{ unread }` — marks them all read, so this is always `0` |
+| `GET` | `/api/events?orgId=&from=&to=` | member of that group | the compiled calendar: `{ items, nextCursor, hasCalendar }` — the group's own calendar events and its sign-up slots, in one window, discriminated by `kind`, with an event and the rota of the same name folded into one entry |
+| `GET` | `/api/signups?orgId=&limit=&cursor=` | member of that group | `{ items, nextCursor }` — the group's rotas, each **with its dates**, so opening one is not a request |
+| `POST` | `/api/signups` | **group admin** | `201` + the created sheet with its generated dates, `Location` set |
+| `GET` | `/api/signups/:sheetId?all=` | member of its group | the sheet, its dates, and who is on them |
+| `PATCH` | `/api/signups/:sheetId` | **group admin** | the updated sheet — title, description, open/closed |
+| `DELETE` | `/api/signups/:sheetId` | **group admin** | `204`. Soft, like a post |
+| `POST` | `/api/signups/:sheetId/slots` | **group admin** | the whole sheet — runs the generator again over a new range, idempotent |
+| `PATCH` | `/api/slots/:slotId` | **group admin** | the updated slot — capacity, note, cancellation |
+| `DELETE` | `/api/slots/:slotId` | **group admin** | `204`. Refused (`409`) once anybody has signed up |
+| `POST` | `/api/slots/:slotId/claims` | member of its group | the updated slot — takes a place. `409` if it filled up |
+| `DELETE` | `/api/claims/:claimId` | its owner, **or** an admin of the sheet's group | `200` + the updated slot |
+| `POST` | `/api/signups/reminders` | **a shared secret**, not a viewer | `{ sent }` — sends every reminder that has come due. `404` unless `REMINDERS_SECRET` is set |
 | `POST` | `/api/devices` | viewer | `{ registered }` — attaches this installation's FCM token to the viewer |
 | `DELETE` | `/api/devices` | viewer | `204` — detaches it (sign-out). The token travels in the **body**, not the path |
 
 **Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
 not be one — the app is invite-only and its content is a parish's private life. See
 `auth-architecture.md`.
+
+`POST /api/signups/reminders` is the one endpoint with no *viewer*, because a clock is not a
+person — and it is still authenticated, by a shared secret compared with `timingSafeEqual`. It
+is a bounded exception in the same shape as `POST /api/auth/review`, and it holds on two
+properties: it **404s unless `REMINDERS_SECRET` is set**, which is every deploy with no schedule
+behind it, and it **reads nothing and returns a count**, so no viewer's data crosses it in
+either direction. See §12.
 
 Two things about these are load-bearing rather than incidental:
 
@@ -335,6 +354,9 @@ src/lib/server/            # all server-only, all behind `import "server-only"`
   supabase.js              # server Supabase clients (anon for verification, service role)
   storage.js               # the bucket, object paths, and signed upload URLs
   projections.js           # database rows → wire shapes
+  ical.js                  # iCalendar parsing + recurrence expansion (no dependency)
+  calendar.service.js      # the compiled calendar: a group's feed + its sign-up slots
+  signups.service.js       # sign-up sheets, their dates, the people on them, the reminders
   posts.service.js         # posts, comments, likes
   profile.service.js       # the viewer, their own edits, a group's roster, admission
   follows.service.js       # somebody else's profile, and the follow graph
@@ -365,6 +387,14 @@ src/app/api/
   notifications/unread/route.api.js         # GET — the bell's tally
   notifications/read/route.api.js           # POST — mark them all read
   devices/route.api.js                      # POST/DELETE — this installation's FCM token
+  events/route.api.js                       # GET — the compiled calendar for one window
+  signups/route.api.js                      # GET — a group's rotas; POST — publish one
+  signups/[sheetId]/route.api.js            # GET / PATCH / DELETE
+  signups/[sheetId]/slots/route.api.js      # POST — extend the rota
+  signups/reminders/route.api.js            # POST — the cron trigger (secret, not a viewer)
+  slots/[slotId]/route.api.js               # PATCH — capacity, note, cancel; DELETE
+  slots/[slotId]/claims/route.api.js        # POST — take a place
+  claims/[claimId]/route.api.js             # DELETE — give one up
 ```
 
 `projections.js` is the boundary between the schema and the contract. A Prisma model handed
@@ -536,6 +566,10 @@ Reference: `toggleLike` in `lib/store/post/store.js`, `add`/`toggleLike` in
 | Profiles and the follow graph | `src/lib/server/follows.service.js` |
 | Groups: list, create, edit, delete | `src/lib/server/orgs.service.js` |
 | Granting platform ownership (`npm run owner`) | `scripts/grant-owner.mjs` |
+| iCalendar parsing and recurrence expansion | `src/lib/server/ical.js` |
+| The parish's calendar feed: fetching, caching, and the window read | `src/lib/server/calendar.service.js` |
+| Sign-up sheets, slot generation, claims, reminders | `src/lib/server/signups.service.js` |
+| Sending due reminders on a schedule (`npm run signups:remind`) | `scripts/send-reminders.mjs` |
 | Notifications, the builders that write them, and the pushes that deliver them | `src/lib/server/notifications.service.js` |
 | Device tokens (register / detach / prune) | `src/lib/server/devices.service.js` |
 | FCM HTTP v1 transport | `src/lib/server/push.js` |
@@ -910,6 +944,184 @@ and no screen renders it — every group behaves identically. The create form do
 (a permanent decision with no consequence is a bad question) and `updateOrg` refuses to change
 it. It is kept because the rows that predate it genuinely are a parish and a diocese, and this
 column is the only place that is recorded.
+
+---
+
+## 12. Events — a calendar that is read, and rotas that are owned
+
+The Events surface is two halves that meet only on screen, and they are built on opposite
+principles on purpose.
+
+### The parish calendar is a feed, not a table
+
+`Organization.calendarUrl` names a **public Google Calendar the parish already keeps**.
+Grapevine reads it and does not own it: `calendar.service.js` fetches the iCalendar feed per
+request and `ical.js` expands it into the window asked for. Nothing is stored.
+
+**Why not import the events into our own tables.** Because it would make this app a *second*
+place every service has to be corrected, and the first correction that happened in only one of
+them would be the last time anybody trusted either. The parish secretary carries on working the
+way she already does.
+
+**Why not Google's `<iframe>` embed**, which is the obvious answer. Three reasons in ascending
+order: it looks like Google, it is unusable at phone width, and it is **opaque** — a sealed box
+the app cannot read, so a single compiled calendar with a parish service and a sign-up slot on
+the same square is impossible. Reading the feed is what buys that.
+
+**Why a parser and not `ical.js` or `rrule`.** Both would work; what they cost is a dependency
+carried for one consumer, against a specification enormously larger than the slice a Google
+Calendar emits. The supported slice is written down in that file's header and is *checked*
+rather than assumed — an `RRULE` carrying `BYSETPOS` is expanded as its single first occurrence
+rather than guessed at, so an unsupported rule loses one event from a month instead of inventing
+dates the parish never scheduled.
+
+**Recurrence is iterated in wall-clock terms and converted per occurrence**, never by adding
+seven days to an instant, which walks an hour off on the day the clocks change. `zonedToInstant`
+does the conversion with `Intl.DateTimeFormat` and no dependency; it is exported because
+`signups.service.js`'s generator needs exactly the same thing.
+
+**Fetching a URL an admin typed is an SSRF surface**, and three checks stand in front of it, all
+at *fetch* time rather than at write time, because a value written once is fetched forever and
+DNS moves underneath it: https only (`icsFeedUrl`), the resolved address must be public (which is
+what closes a hostname resolving to `169.254.169.254`), and `redirect: "manual"`, since following
+one lands at an address that never passed the second check. Body size and timeout are capped, and
+the body is read as a **stream** rather than with `response.text()` — a `Content-Length` is a
+claim, not a promise.
+
+**Every failure degrades to an empty calendar, never to an error.** The other half of this screen
+is our own data and must not go down with somebody else's. The one place a fetch failure *is* the
+answer is `previewCalendar`, called from the group settings form, where the admin can act on it.
+
+### One event kept in two places is shown once
+
+The parish's calendar says "Cathedral's Kitchen" because it happens; the sheet says "Cathedral
+kitchen" because it needs hands. Left alone that is two blocks on one day describing one thing.
+
+`mergeCalendar` folds them on **same day, same normalized title**. `normalizeTitle` (in
+`lib/utils.js`, shared so the admin form can show what a rota will match) folds case, a
+possessive and a leading "the" — and deliberately nothing else. A fuzzy matcher is the tempting
+version and is the wrong one: folding "Vespers" into "Vigil" hides a service, which is a worse
+failure than showing two entries, and it is impossible for a priest to predict or to correct.
+`SignupSheet.calendarTitle` is the escape hatch for the pair no rule could guess, and pointing
+it at a name nothing uses is how merging is switched off for one sheet.
+
+A parish event is consumed by **at most one** slot, which is what stops a rota split into six
+two-hour shifts from swallowing the same event six times. The merged entry is the **sign-up** —
+the half a reader can act on — wearing the union of the two spans and whatever the parish event
+knew that a rota does not.
+
+### A rota is owned, and its dates are rows
+
+`SignupSheet` → `SignupSlot` → `SignupClaim`, with `SignupReminder` hanging off the claim.
+
+**The slots are materialized, not a recurrence rule evaluated at read time**, and this is the
+decision the feature rests on. An admin has to be able to say "no soup kitchen on the 24th, and
+we need six on the 31st"; a rule cannot hold an exception without a second table of exceptions,
+which is the slot table with extra steps — and a claim has to point at a row that exists before
+anybody can sign up. `generateSlots` keeps the rule's convenience by *writing* the rows, and
+after that they are ordinary rows an admin edits one at a time.
+
+Note the asymmetry with the half above: the calendar is a feed *because* we do not own it, and
+the rotas are rows *because* we do.
+
+**Two questions generate three rotas.** Which days (a weekday repeated, or a span of dates) and
+whether a day is one shift or several. That covers coffee hour, the soup kitchen, and a festival
+car park in two-hour shifts, without a mode per rota.
+
+**The list ships each rota's dates**, which looks like overfetching and is the opposite: a
+collapsed accordion has to count them to say "4 dates need people", and *opening* one must not
+be a request on a surface whose whole shape invites tapping four rows in a row. Shipping them
+lets the `sheet` store promote a rota synchronously and refresh behind it, exactly as `post`
+does with the feed's cached row. It also removed a whole class of drift — the projection ships
+no tallies at all, because the client counts the slots it is already holding (`summarize`), so
+a claim moves a row's sentence by replacing one slot rather than by patching four numbers.
+
+**Capacity is enforced by the database.** `claimSlot` is the second interactive transaction in
+this codebase, and it earns it on the same rule `deleteComment` does — the insert may only happen
+if *this* request found room, which is a statement depending on a previous statement's result.
+The slot row is locked `FOR UPDATE` first, because under READ COMMITTED two people taking the
+last place both read three-of-four. It is an expensive shape for a cheap write and is affordable
+because signing up for coffee hour happens once a month, not once a scroll.
+
+**`@@unique([sheetId, startsAt])` is what makes extending a rota idempotent.** `POST
+/api/signups/:sheetId/slots` runs the same generator over a new range with `skipDuplicates`, so
+an admin who taps Extend twice gets the dates that were missing and nothing else.
+
+**An ongoing rota tops itself up, on read.** `SignupSheet.repeats` is a flag and not a stored
+rule: extending a weekly rota needs one thing the rows already hold, the last day on it, and the
+next occurrence is that day's slots a week later at the same wall-clock time in the sheet's
+timezone. So there is no second copy of the schedule to drift from the dates it produced, and an
+admin who moves the rota to ten o'clock has moved every future one.
+
+`topUpRecurring` runs inside `listSheets`, which is a write on a `GET` — the case for it is in
+that function's header, and briefly: it has to work with no infrastructure (a deploy without the
+optional reminders cron must not silently run out of Saturdays), it is idempotent under the
+unique key, and it fires once a week per rota because the check is arithmetic over slots the read
+already loaded. `createManyAndReturn` hands the new rows straight back into the response rather
+than costing a re-read.
+
+**Cancelling is a state and deleting is refused once anybody is on a date.** A deleted slot drops
+its volunteers having told them nothing, which is the failure the whole feature exists downstream
+of; `canceledAt` keeps the row, notifies everyone in it, deletes their pending reminders, and
+leaves the date struck through.
+
+### Reminders, and why the sender is an endpoint
+
+`SignupReminder` is one row per claim per offset (`SIGNUP_REMINDER_OFFSETS` — a week out and a
+day out), written at claim time. Turning reminders off is deleting the pending rows, which is why
+"remind me" needs no column.
+
+`sendDueReminders` **claims rows before it uses them**: `updateMany` stamps `sentAt` on
+everything due and the run then works from the ids it stamped, so two overlapping runs cannot
+double-nudge. Stamping before writing the notifications is deliberate — a crash between the two
+loses a reminder rather than repeating it, which is the right way round. Anything more than six
+hours overdue is retired rather than delivered.
+
+**Delivery works with no schedule at all.** `sweepDueReminders` hangs off `GET
+/api/notifications/unread` — every client asks it on boot, on every foreground, and every thirty
+seconds where push cannot reach — throttled to once every few minutes per process and never
+awaited. It is the same call `topUpRecurring` makes and for the same reason: a deploy without a
+cron must not silently never remind anybody. The endpoint below is the punctual path, and buys
+minutes rather than function.
+
+**It is `POST /api/signups/reminders` and not a script**, which is the one place this repo's
+"out-of-band work is a script" rule does not hold. Sending a reminder writes a `Notification`
+**and** pushes to FCM, and both live under `src/lib/server/**`, every file of which begins with
+`import "server-only"` — a specifier Next provides to its own bundler and that a plain Node
+process cannot resolve at all. A script would have to carry a second copy of the notification
+write and of the FCM transport, which is two copies of the one thing in this app that must not
+have two. `scripts/send-reminders.mjs` (`npm run signups:remind`) is a dozen lines that POST here;
+a cron can equally just `curl`. See the two properties that bound the endpoint in §5.
+
+### Publishing a rota is a fan-out
+
+`notifySignupPublished` writes a row per approved member but the admin, in the same transaction
+as the sheet, and `pushSignupPublished` follows the commit unawaited — the shape `notifyNewPost`
+established, for the same reason: a rota nobody knows about gets no volunteers. It takes the
+transaction client rather than being a builder, because it needs the id of the sheet created
+alongside it, which is the one dependency the array form of `$transaction` cannot express.
+
+`Notification.signupSheetId` sits beside `signupSlotId` rather than replacing it, because the two
+happen at different granularities: a reminder and a cancellation are about **one date**, a
+publication is about **the rota**. Pointing a publication at the sheet's first slot would read
+fine right up until an admin removed that date, at which point the cascade would take the
+announcement of the whole rota with it.
+
+### `SIGNUP_REMINDER` and `SIGNUP_CANCELED` are the notifications with no actor
+
+`Notification.actorId` is non-null and carries a foreign key; a reminder has nobody behind it.
+It points at the recipient, which keeps the unique key meaningful and the cascade correct, and
+costs nothing at render because the panel draws a glyph rather than a face for these two types
+and a whole sentence rather than a handle plus a predicate. Making the column nullable would put
+a null check into every read of the hottest notification query in the app to serve the rarest
+kind.
+
+The **subject of a reminder is the reminder row**, not the claim: one sign-up produces two
+nudges, and keying both on the claim would collapse them into one row under
+`@@unique([recipientId, actorId, type, subjectId])` — so the day-before reminder, the one that
+actually gets somebody to turn up, would silently overwrite the week-before one instead of
+arriving. `Notification.signupSlotId` carries the foreign key and the join, exactly as `postId`
+does for everything that happens inside a post.
 
 ---
 

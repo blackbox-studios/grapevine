@@ -4,7 +4,8 @@ import { useCallback, useEffect } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { ROUTES } from "@/lib/constants"
-import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { signupPath } from "@/lib/utils"
+import { openSlide, pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { onAppState } from "@/lib/native"
 import {
     onPushReceived,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/push"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import { useOpenProfile } from "@/lib/store/profile/hook"
+import { useEventsView } from "@/lib/store/signups/hook"
 import usePushStore from "./store"
 
 /* The listeners that have to be alive for as long as the app is, mounted once from
@@ -35,6 +37,7 @@ export const usePushListeners = (ready) => {
         useShallow(state => ([state.pending, state.openFromPush, state.takePending])),
     )
     const { openProfile } = useOpenProfile()
+    const { setTab } = useEventsView()
 
     /* A tap, from a banner or from a cold launch. Records the destination only. */
     useEffect(() => {
@@ -48,14 +51,21 @@ export const usePushListeners = (ready) => {
      * at build time and `output: "export"` demands `generateStaticParams` for every dynamic
      * segment. This is the same shallow-history navigation the feed uses — see the Slide
      * routes section of frontend-architecture.md. A follow points at a person instead, and a
-     * card is not a route at all — it is the profile store's `openHandle`. */
+     * card is not a route at all — it is the profile store's `openHandle`. A sign-up is the
+     * third shape: a rota *is* a route (`/events/s/:id`), just a page one rather than an
+     * overlay, so it is reached with `pushRoute` instead. The tab is set alongside it so backing
+     * out of the rota lands on the sign-ups half rather than the calendar. */
     useEffect(() => {
         if (!ready || !pending) return
 
-        const { postId, handle } = takePending() ?? {}
+        const { postId, handle, sheetId } = takePending() ?? {}
         if (postId) openSlide(`${ROUTES.POST}/${postId}`)
         else if (handle) openProfile(handle)
-    }, [ready, pending, takePending, openProfile])
+        else if (sheetId) {
+            setTab("signups")
+            pushRoute(signupPath(sheetId))
+        }
+    }, [ready, pending, takePending, openProfile, setTab])
 
     /* A push that landed with the app already open. No banner is drawn — the reader is looking
      * at the app — so all it means is that the panel is behind, possibly while on screen. */

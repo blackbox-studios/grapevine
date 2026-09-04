@@ -32,6 +32,7 @@ import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { MAX_ORG_BIO_LENGTH, MAX_ORG_NAME_LENGTH } from "@/lib/constants"
 import { useOrgSettings } from "@/lib/store/org/hook"
+import { icsFeedUrl } from "@/lib/utils"
 
 /* Group settings: a parish's own name, description and picture, and the danger zone that
  * retires it.
@@ -62,6 +63,16 @@ const schema = z.object({
         .string()
         .trim()
         .max(MAX_ORG_BIO_LENGTH, `Keep the description under ${MAX_ORG_BIO_LENGTH} characters.`),
+    /* Validated with the same function the server fetches through, rather than with a looser
+     * pattern of its own — a URL this accepts and `icsFeedUrl` later refuses is an empty month
+     * on the Events surface with nothing to explain it. Blank is valid, and is how a parish
+     * removes its calendar. */
+    calendarUrl: z
+        .string()
+        .trim()
+        .refine((value) => value === "" || Boolean(icsFeedUrl(value)), {
+            message: "Paste the address of a public Google Calendar.",
+        }),
 })
 
 const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
@@ -77,19 +88,28 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
      * leaves the mounted form alone instead of yanking fields out from under the next edit. */
     const form = useForm({
         resolver: zodResolver(schema),
-        defaultValues: { name: org.name ?? "", bio: org.bio ?? "" },
+        defaultValues: {
+            name: org.name ?? "",
+            bio: org.bio ?? "",
+            calendarUrl: org.calendarUrl ?? "",
+        },
     })
 
     /* `useWatch` rather than `form.watch(...)`: the latter hands back a function the React
      * compiler cannot memoize safely, so it bails out of optimizing this whole component. */
     const name = useWatch({ control: form.control, name: "name" }) ?? ""
     const bio = useWatch({ control: form.control, name: "bio" }) ?? ""
+    const calendarUrl = useWatch({ control: form.control, name: "calendarUrl" }) ?? ""
 
     const trimmedName = name.trim().replace(/\s+/g, " ")
     const trimmedBio = bio.trim()
+    const trimmedCalendar = calendarUrl.trim()
 
     /* Nothing to save until something moved, so Save is dark until it means something. */
-    const changed = trimmedName !== (org.name ?? "") || trimmedBio !== (org.bio ?? "")
+    const changed =
+        trimmedName !== (org.name ?? "") ||
+        trimmedBio !== (org.bio ?? "") ||
+        trimmedCalendar !== (org.calendarUrl ?? "")
 
     const submit = form.handleSubmit(
         async (values) => {
@@ -99,16 +119,23 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
             /* Only what moved. The server treats an absent field as "leave alone", so a
              * picture changed a moment ago is not re-sent and cannot be clobbered by a stale
              * value this form happened to be holding. */
+            const nextCalendar = values.calendarUrl.trim()
+
             const changes = {}
             if (nextName !== (org.name ?? "")) changes.name = nextName
             if (nextBio !== (org.bio ?? "")) changes.bio = nextBio
+            if (nextCalendar !== (org.calendarUrl ?? "")) changes.calendarUrl = nextCalendar
             if (Object.keys(changes).length === 0) return
 
             if (await save(changes)) {
                 /* Settle onto what was actually stored — collapsed whitespace, a trimmed bio —
                  * so the form stops reporting an unsaved change it no longer has and the dirty
                  * guard lifts before the surface closes. */
-                form.reset({ name: nextName, bio: nextBio })
+                form.reset({
+                    name: nextName,
+                    bio: nextBio,
+                    calendarUrl: nextCalendar,
+                })
                 toast.success("Group updated.")
             }
         },
@@ -134,8 +161,8 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
              * `data-vaul-no-drag` is the one that is load-bearing rather than cosmetic: Vaul
              * treats the whole drawer as a drag handle, so without it a touch that starts in
              * the name field swipes the sheet shut instead of focusing the input. */}
-            <form onSubmit={submit} className="flex flex-col gap-5">
-                <div className="flex flex-col gap-5">
+            <form onSubmit={submit} className="flex flex-col gap-6">
+                <div className="flex flex-col gap-6">
                     {/* The picture and the group's identity, above the fields — the same place
                         the composer puts the thing the post is about. */}
                     <header className="flex flex-col items-center gap-3 pt-1 text-center">
@@ -150,7 +177,7 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
                         </h3>
                     </header>
 
-                    <div className="flex flex-col gap-5 border-t pt-5">
+                    <div className="flex flex-col gap-6 border-t pt-5">
                         <FormField
                             control={form.control}
                             name="name"
@@ -193,6 +220,41 @@ const OrgForm = ({ org, save, saving, onDelete, onCancel }) => {
                                         {trimmedBio.length > MAX_ORG_BIO_LENGTH - 40
                                             ? `${MAX_ORG_BIO_LENGTH - trimmedBio.length} characters left`
                                             : "Optional. A sentence about this group."}
+                                    </FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        {/* **The parish's calendar is a fact about the group** rather than a
+                            preference of whoever is reading it, so it is set beside the name and
+                            the picture — the same call the roster makes.
+
+                            It is read as a **feed**, never embedded: the events are fetched as
+                            iCalendar and drawn by the app, which is what lets a parish service
+                            and a sign-up slot share a square on one grid. An iframe could not.
+
+                            The embed link is what a person will actually have, because it is
+                            the one Google's settings page offers first — so it is what the
+                            placeholder shows, and `icsFeedUrl` accepts it, the `.ics` feed, and
+                            the calendar's bare address alike. */}
+                        <FormField
+                            control={form.control}
+                            name="calendarUrl"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Parish calendar</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="https://calendar.google.com/calendar/u/0/embed?src=..."
+                                            autoComplete="off"
+                                            spellCheck={false}
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormDescription>
+                                        Optional. A public Google Calendar, shown on the Events
+                                        page. Leave it blank to remove it.
                                     </FormDescription>
                                     <FormMessage />
                                 </FormItem>

@@ -15,6 +15,8 @@
     "open:ios": "cap open ios",
     "open:android": "cap open android",
     "release:android": "node scripts/release-android.mjs",
+    "apk": "npm run sync && cd android && ./gradlew assembleRelease",
+    "apk:debug": "npm run sync && cd android && ./gradlew assembleDebug",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",

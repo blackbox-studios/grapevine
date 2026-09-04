@@ -275,8 +275,13 @@ const fastingSentence = ({ allowed, forbidden }) => {
  * What differs by pointer is only what *opens* it. A mouse gets hover, so desktop anchors the
  * surface without a trigger at all — `PopoverAnchor` positions but binds no click, which is
  * what keeps a click from toggling shut something the pointer is still resting on. Touch has
- * no hover, so it gets the real trigger and opens on a tap. Focus opens it either way, so the
- * keyboard is never left without the affordance the mouse has.
+ * no hover, so it gets the real trigger and opens on a tap.
+ *
+ * Hover and focus travel together on the anchor branch, and *only* there. An anchor binds
+ * nothing of its own, so it needs both to open at all. The trigger already opens on tap and
+ * on Enter — adding focus to it means a tap opens on focus and then the trigger's own toggle
+ * closes it again in the same gesture, which reads as a flash and leaves the second tap to
+ * do the opening.
  *
  * `onOpenAutoFocus` is prevented because a popover ordinarily takes focus when it opens, and
  * a surface that appears on hover must not pull the caret out of whatever the reader was
@@ -286,21 +291,18 @@ const FastingSummary = ({ sentence, children }) => {
     const [open, setOpen] = useState(false)
 
     const Trigger = isDesktop ? PopoverAnchor : PopoverTrigger
-    const hover = isDesktop
+    const reveal = isDesktop
         ? {
             onMouseEnter: () => setOpen(true),
             onMouseLeave: () => setOpen(false),
+            onFocus: () => setOpen(true),
+            onBlur: () => setOpen(false),
         }
         : {}
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
-            <Trigger
-                asChild
-                {...hover}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setOpen(false)}
-            >
+            <Trigger asChild {...reveal}>
                 {children}
             </Trigger>
             <PopoverContent

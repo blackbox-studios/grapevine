@@ -323,6 +323,17 @@ const useStore = create(immer((set, get) => ({
         state.settling = []
     }),
 
+    /* The panel's whole surface area to the store that owns a follow: patch one person
+     * wherever they are the actor. **Every row of theirs, not the one that was tapped** — the
+     * same person can be several lines of the panel at once, and a follow-back tapped on one
+     * that left the others offering to follow them again is the disagreement this prevents.
+     * The mirror of `patchRow` in the follows store; see `toggleFollow` in the profile one. */
+    patchActor: (profileId, patch) => set(state => {
+        for (const item of state.items) {
+            if (item.actor?.id === profileId) Object.assign(item.actor, patch)
+        }
+    }),
+
     reset: () => set(() => ({ ...INIT })),
     clearErrors: () => set(state => { state.error = ERROR_INIT }),
 })))

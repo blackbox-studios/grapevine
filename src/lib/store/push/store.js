@@ -63,7 +63,8 @@ const INIT = {
     /* The FCM token currently registered with the API, or null. */
     token: null,
 
-    /* A post id from a banner tapped before the app could route anywhere.
+    /* Where a banner tapped before the app could route anywhere wants to go — the payload's
+     * `{ postId }` or `{ handle }`, or null.
      *
      * A cold launch replays the tap that started the process, which arrives well before the
      * session is resolved and the shell is mounted. Navigating then would push a history
@@ -205,16 +206,16 @@ const useStore = create(immer((set, get) => ({
      * The list is re-read regardless. The reader is arriving at the app *because* of a
      * notification, so the panel is certainly behind — this is the moment the notifications
      * store's header describes as the gap push closes. */
-    openFromPush: (postId) => {
+    openFromPush: ({ postId = null, handle = null } = {}) => {
         useNotificationsStore.getState().sync()
         clearPushNotifications()
 
-        if (postId) set(state => { state.pending = postId })
+        if (postId || handle) set(state => { state.pending = { postId, handle } })
     },
 
     /* Consumes the parked destination, or null. Called by the hook once there is somewhere
      * to go; clearing it here rather than after the navigation is what stops a re-render
-     * from opening the same post twice. */
+     * from opening the same thing twice. */
     takePending: () => {
         const { pending } = get()
         if (pending) set(state => { state.pending = null })

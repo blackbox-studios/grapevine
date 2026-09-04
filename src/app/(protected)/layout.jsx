@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import Logo from "@/assets/svg/logo.svg"
 import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
-import SendIcon from "@/assets/svg/icons/send.svg"
-import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
+import BookIcon from "@/assets/svg/icons/book.svg"
+import BookOutlineIcon from "@/assets/svg/icons/book-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
+import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook";
 import { ProtectedGate } from "@/components/AuthGate";
 import Compose from "@/components/Compose";
 import { MemberGate } from "@/components/MemberGate";
@@ -42,21 +42,21 @@ const NAV = [
         Filled: HomeIcon,
     },
     {
-        title: "Inbox",
-        href: ROUTES.INBOX,
-        Outline: SendOutlineIcon,
-        Filled: SendIcon,
+        title: "Daily Read",
+        href: ROUTES.PROLOGUE,
+        Outline: BookOutlineIcon,
+        Filled: BookIcon,
     },
 ]
 
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
  * the label fades in only while the rail (the `group`) is hovered. */
-const NavItem = ({ item, pathname, onNavigate }) => {
+const NavItem = ({ item, route, onNavigate }) => {
     const { title, href, Outline, Filled } = item
-    /* Resolves through the base route, so an open slide route (a post over the feed)
-     * keeps its base tab lit rather than un-highlighting the whole nav. */
-    const active = isRouteActive(pathname, href)
+    /* `route` is the shell's, not the URL's, so a post opened over the daily reading keeps the
+     * daily reading lit rather than moving the highlight to whatever the overlay sits on. */
+    const active = isRouteActive(route, href)
 
     return (
         <Link
@@ -111,7 +111,10 @@ const NavSlot = ({ children }) => (
  * lives in the RUNTIME_ROUTES registry; nothing about a given slide route is hard-coded
  * here. */
 const ProtectedShell = ({ children }) => {
-    const pathname = usePathname()
+    /* Not `usePathname()`: while a slide route is open the URL names the overlay and this slot
+     * still holds the page underneath, so the nav and the cross-fade both have to ask where the
+     * *shell* is. See `useShellRoute`. */
+    const route = useShellRoute()
     const [navOpen, setNavOpen] = useState(false)
     const { scrollRef, scrollToTop } = useScroll()
     const { shift } = useOrgNav()
@@ -165,7 +168,7 @@ const ProtectedShell = ({ children }) => {
 
                 <div className="flex flex-1 flex-col justify-center gap-2 px-2">
                     {NAV.map((item, idx) => (
-                        <NavItem key={idx} item={item} pathname={pathname} onNavigate={() => setNavOpen(false)} />
+                        <NavItem key={idx} item={item} route={route} onNavigate={() => setNavOpen(false)} />
                     ))}
                     {/* Below the destinations, because it is not one: composing opens a
                         surface over wherever the reader already is rather than routing
@@ -176,7 +179,7 @@ const ProtectedShell = ({ children }) => {
                 </div>
                 <div className="pb-8 pt-6 px-2 flex flex-col gap-2">
                     <NavSlot><NotificationsMenu /></NavSlot>
-                    <NavSlot><ProfileTrigger pathname={pathname} /></NavSlot>
+                    <NavSlot><ProfileTrigger route={route} /></NavSlot>
                 </div>
             </nav>
 
@@ -227,9 +230,12 @@ const ProtectedShell = ({ children }) => {
                         pill reads as occupying a header row of its own. */}
                     <main className="flex flex-col w-full mx-auto max-w-8xl pt-4 md:pt-24 pb-6 md:pb-0">
                         {/* Which routes are exempt from this cross-fade is decided by
-                            pageTransitionKey off the route registries — nested trees
-                            that fade their own sub-routes, and slide routes that must
-                            leave their base mounted, unfaded, and unscrolled. */}
+                            pageTransitionKey off the route registries — nested trees fade
+                            their own sub-routes. It is keyed on the shell's route rather
+                            than the pathname <PageTransition/> would read for itself, and
+                            that is what holds the key still while a slide route is open, so
+                            the page underneath is never faded or scrolled out from under
+                            the overlay. */}
                         {/* <RuntimeRoute/> renders an ordinary (`slide: false`) runtime route
                             here in place of whatever the router resolved. Those routes change
                             the URL with `pushRoute` and never touch the segment tree, so
@@ -237,7 +243,10 @@ const ProtectedShell = ({ children }) => {
                             inside <PageTransition/> is what makes the swap a normal cross-fade
                             rather than an overlay. None is registered yet — anything else
                             falls straight through, which is every route today. */}
-                        <PageTransition getKey={pageTransitionKey} onExitComplete={scrollToTop}>
+                        <PageTransition
+                            getKey={() => pageTransitionKey(route)}
+                            onExitComplete={scrollToTop}
+                        >
                             <RuntimeRoute>{children}</RuntimeRoute>
                         </PageTransition>
                     </main>
@@ -265,10 +274,10 @@ const ProtectedShell = ({ children }) => {
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
                 {NAV.map((item, idx) => (
-                    <NavItem key={idx} item={item} pathname={pathname} />
+                    <NavItem key={idx} item={item} route={route} />
                 ))}
                 <Compose />
-                <ProfileTrigger pathname={pathname} />
+                <ProfileTrigger route={route} />
             </motion.nav>
 
             <OrgSwitcher />

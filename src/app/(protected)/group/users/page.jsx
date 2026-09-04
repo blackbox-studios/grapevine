@@ -279,7 +279,7 @@ const Admissions = ({ org, invite, inviting }) => {
 
     const title = `Add people to ${org?.name ?? "the parish"}`
     const description =
-        "They are whitelisted immediately and can sign in whenever they like. No email is sent — tell them however you normally would."
+        "They are whitelisted immediately and can sign in whenever they like. No email is sent, so tell them however you normally would."
 
     const trigger = (
         <Button

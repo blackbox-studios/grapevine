@@ -7,14 +7,14 @@ import Ripple from "@/assets/svg/ripple.svg"
 import HeartIcon from "@/assets/svg/icons/heart-outline.svg"
 import Transition from "@/components/Transition"
 import { NOTIFICATION_ROW, NotificationsSkeleton } from "@/components/Skeleton"
-import { Avatar } from "@/components/Widgets"
+import { Avatar, FollowButton } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
-import { displayName } from "@/lib/name"
 import { useNotifications, useUnreadCount } from "@/lib/store/notifications/hook"
+import { useOpenProfile } from "@/lib/store/profile/hook"
 import { cn, postPath, timeAgoCompact } from "@/lib/utils"
 
 /* The notifications panel, and the bell that opens it.
@@ -40,6 +40,7 @@ const LINES = {
     POST_LIKE: () => "liked your post",
     COMMENT_LIKE: () => "liked your comment",
     POST_COMMENT: () => "commented on your post",
+    FOLLOW: () => "followed you",
     NEW_POST: (item) =>
         item.orgName ? `posted in ${item.orgName}` : "shared a new post",
 }
@@ -66,61 +67,90 @@ const runRadius = (items, index) => {
     return cn(opens && "rounded-t-3xl", closes && "rounded-b-3xl")
 }
 
-/* One line: who did it, what they did, and when — and a way to the thing it is about.
+/* One row: a picture, one sentence, and — where there is one — the answer to it.
  *
- * Every type points at a post, whether the subject was the post itself or a comment on it,
- * because a comment is read inside its post. So the row opens `/p/:id` with `openSlide`, the
- * same call the feed card makes. From the mobile panel that **stacks**: the post covers the
- * list and dismissing uncovers it, rather than dumping the reader back on the feed.
+ * **Three columns, and each is its own target.** The picture opens the person, the sentence
+ * opens what happened, and the right-hand column is the action. Splitting them is what lets a
+ * reader go to whoever liked their post without opening the post, which one button over the
+ * whole row cannot express.
  *
- * The avatar is <Avatar/>, which is what puts a real profile picture here and falls back to
- * the same deterministic gradient and initials a byline uses — so the person who liked your
- * post looks identical to the person who wrote one.
+ * The sentence is **one wrapping paragraph, not a name over a subtitle** — handle, what they
+ * did, and how long ago, in that order, wrapping to as many lines as it needs. That is what
+ * makes the timestamp part of the sentence rather than a column of its own, and it is what
+ * leaves the right-hand column free for the action. Nothing truncates: a row is three or four
+ * words and reads better on two lines than cut off on one.
+ *
+ * **The handle leads, not the display name.** A notification is about identity — who this is —
+ * where a byline over a post is about address, and the @handle is the name that is unique and
+ * that the reader can act on. It is also what the card the row opens is keyed by.
+ *
+ * The picture is <Avatar/>, which falls back to the same deterministic gradient and initials a
+ * byline uses — so the person who liked your post looks identical to the person who wrote one.
+ *
+ * A FOLLOW fills the action column with **Follow back**, and it is the only type that fills it
+ * today. It stays up once the follow is made, reading "Following", because a control that
+ * vanished under the thumb that just tapped it would reflow the row and leave the state
+ * unreadable a week later. The write is the profile store's, the same one the card's own button
+ * calls, so every copy of the answer on screen moves together.
  *
  * `read` tints the row rather than hiding it. How long that tint lives is `markRead`'s
  * decision, not this component's. */
-const NotificationRow = ({ item, now, onOpen, className }) => {
+const NotificationRow = ({ item, now, onOpen, onOpenActor, className }) => {
     const line = LINES[item.type]
 
     return (
-        <button
-            type="button"
-            onClick={() => onOpen(item.postId)}
-            /* The box comes from NOTIFICATION_ROW, which the skeleton uses too — restyling
-               the row's padding means editing that constant, not this line. What is added
-               here is only what does not affect layout. The radius arrives as `className`
-               because it depends on the rows either side; see `runRadius`.
+        /* A wrapper around the targets rather than one button around everything: a button
+           nested in a button is markup the browser will not keep, and there are three of them
+           here. The tint, the radius and the hover stay out here, so the row still highlights
+           as one thing however many things are in it.
 
-               Hover is for read rows only: an unread row already sits at `bg-accent`, and
-               shifting it under the cursor would read as the row changing state. */
+           The box comes from NOTIFICATION_ROW, which the skeleton uses too — restyling the
+           row's padding means editing that constant, not this line. The radius arrives as
+           `className` because it depends on the rows either side; see `runRadius`.
+
+           Hover is for read rows only: an unread row already sits at `bg-accent`, and shifting
+           it under the cursor would read as the row changing state. */
+        <div
             className={cn(
                 NOTIFICATION_ROW,
-                "w-full cursor-pointer text-left transition-colors",
+                "transition-colors",
                 item.read ? "hover:bg-accent" : "bg-accent",
                 className,
             )}
         >
-            <Avatar person={item.actor} className="size-10" />
-            <div className="flex min-w-0 flex-1 items-start gap-2">
-                <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold leading-tight text-foreground">
-                        {displayName(item.actor)}
-                    </p>
-                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                        {line ? line(item) : "did something"}
-                    </p>
-                </div>
-                <span className="shrink-0 pt-0.5 text-xs font-medium text-muted-foreground tabular-nums">
-                    {timeAgoCompact(now, new Date(item.createdAt).getTime())}
-                </span>
-            </div>
-        </button>
+            <button
+                type="button"
+                aria-label={`Open @${item.actor.handle}`}
+                onClick={() => onOpenActor(item)}
+                className="shrink-0 cursor-pointer rounded-full"
+            >
+                <Avatar person={item.actor} className="size-10" />
+            </button>
+
+            <button
+                type="button"
+                onClick={() => onOpen(item)}
+                className="min-w-0 flex-1 cursor-pointer text-left"
+            >
+                <p className="text-sm leading-snug text-foreground">
+                    <span className="font-semibold">@{item.actor.handle}</span>{" "}
+                    {line ? line(item) : "did something"}{" "}
+                    <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                        {timeAgoCompact(now, new Date(item.createdAt).getTime())}
+                    </span>
+                </p>
+            </button>
+
+            {item.type === "FOLLOW" && (
+                <FollowButton person={item.actor} label="Follow back" className="shrink-0" />
+            )}
+        </div>
     )
 }
 
 const EmptyState = () => (
     <div className="py-12 text-center text-sm text-muted-foreground">
-        Nothing yet. Likes, comments, and new announcements will show up here.
+        Nothing yet. Likes, comments, follows, and new announcements will show up here.
     </div>
 )
 
@@ -137,13 +167,23 @@ const EmptyState = () => (
  * dismissing comes back here. */
 export const NotificationList = ({ className, onOpened }) => {
     const { items, skeleton, hasMore, loadingMore, loadMore } = useNotifications()
+    const { openProfile } = useOpenProfile()
     const now = useNow()
 
-    const openPost = useCallback((postId) => {
-        if (!postId) return
-        openSlide(postPath(postId))
+    const openSubject = useCallback((item) => {
+        if (item.postId) openSlide(postPath(item.postId))
+        else if (item.actor?.handle) openProfile(item.actor.handle)
+        else return
+
         onOpened?.()
-    }, [onOpened])
+    }, [onOpened, openProfile])
+
+    /* The picture, which goes to the person whatever the row is about. */
+    const openActor = useCallback((item) => {
+        if (!item.actor?.handle) return
+        openProfile(item.actor.handle)
+        onOpened?.()
+    }, [onOpened, openProfile])
 
     return (
         <div className={cn("overflow-y-auto overscroll-contain", className)}>
@@ -164,7 +204,8 @@ export const NotificationList = ({ className, onOpened }) => {
                                     <NotificationRow
                                         item={item}
                                         now={now}
-                                        onOpen={openPost}
+                                        onOpen={openSubject}
+                                        onOpenActor={openActor}
                                         className={runRadius(items, index)}
                                     />
                                 </li>

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db"
 import { readableOrgIds } from "@/lib/server/auth"
 import { invalid, notFound } from "@/lib/server/errors"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
+import { notifyFollow, pushFollow, unnotifyFollow } from "@/lib/server/notifications.service"
 import { projectPerson, projectProfile } from "@/lib/server/projections"
 
 /* Somebody else's profile, and the follow graph hanging off it.
@@ -26,10 +27,11 @@ import { projectPerson, projectProfile } from "@/lib/server/projections"
  *
  * ── What following does, and what it does not ───────────────────────────────
  *
- * Nothing, today. It grants no read — `readableOrgIds` does not consult this table and must
- * not start, or one parish's posts would reach somebody with no membership in it. It is a
- * list, kept for direct messaging, where "who can I start a conversation with" needs a better
- * answer than everyone in the diocese. See the `Follow` model.
+ * It tells the person they were followed, and that is the whole of it. It grants no read —
+ * `readableOrgIds` does not consult this table and must not start, or one parish's posts would
+ * reach somebody with no membership in it. It is a list, kept for direct messaging, where "who
+ * can I start a conversation with" needs a better answer than everyone in the diocese. See the
+ * `Follow` model.
  *
  * ── The lists are not re-scoped ─────────────────────────────────────────────
  *
@@ -142,11 +144,30 @@ export const toggleFollow = async (viewer, handle) => {
     const key = { followerId: viewer.id, followingId: profile.id }
     const already = await followsThem(viewer.id, profile.id)
 
+    /* Their notification rides in the same transaction as the follow, so the two cannot
+     * disagree, and in the same dispatch, so it costs no round trip. Exactly the shape a like
+     * uses; see notifications.service.js. */
+    const notification = { recipientId: profile.id, actorId: viewer.id }
+
     if (already) {
-        await prisma.follow.deleteMany({ where: key })
+        await prisma.$transaction([
+            prisma.follow.deleteMany({ where: key }),
+            unnotifyFollow(notification),
+        ])
     } else {
         try {
-            await prisma.follow.create({ data: key })
+            await prisma.$transaction([
+                prisma.follow.create({ data: key }),
+                notifyFollow(notification),
+            ])
+
+            /* Only a new follow buzzes. An unfollow has a row to retract but nothing to
+             * announce, and the retraction cannot reach a banner already on a lock screen
+             * anyway. Inside the try because the P2002 swallowed below means somebody else's
+             * write landed and this transaction rolled back: the follow is real, but this is
+             * not the request that made it, and buzzing here is a second banner for one
+             * follow. */
+            pushFollow({ recipientId: profile.id, actor: viewer })
         } catch (error) {
             const duplicate =
                 error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"

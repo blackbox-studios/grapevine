@@ -6,6 +6,7 @@ import { API_ENDPOINTS, ROUTES } from "@/lib/constants"
 import { haptic } from "@/lib/native"
 import useAuthStore, { viewerProfile } from "@/lib/store/auth/store"
 import useFollowsStore from "@/lib/store/follows/store"
+import useNotificationsStore from "@/lib/store/notifications/store"
 import { toErrorList } from "@/lib/utils"
 
 /* The person whose card is open — and the owner of every follow in the app.
@@ -14,9 +15,10 @@ import { toErrorList } from "@/lib/utils"
  *
  *  1. **Detail, fetched by handle.** There is no list of people to resolve it from — the app
  *     has no directory, deliberately — so a byline's handle is the whole input.
- *  2. **The follow toggle.** The button is tapped from the card's header *and* from a row in
- *     its follower list, so it cannot live with either surface. It lives here, and every toggle
- *     lands on both copies of the person: this store's `current` and the list's row.
+ *  2. **The follow toggle.** The button is tapped from the card's header, from a row in its
+ *     follower list, and from a follow in the notifications panel, so it cannot live with any
+ *     of those surfaces. It lives here, and every toggle lands on all three copies of the
+ *     person: this store's `current`, the list's row, and the panel's rows.
  *
  * **`openHandle` is the surface's open state, and it is here rather than in the component** on
  * the same grounds the org store holds `creating`: a handle is tapped from a comment row, a feed
@@ -62,6 +64,15 @@ const INIT = {
      * open for one person while showing another. */
     openHandle: null,
 
+    /* Which of the card's three tabs it opens on. "info" for a tapped handle, which is a
+     * request to see the person; "followers" or "following" for a tally, which names a list and
+     * would be answered with the wrong screen by anything else.
+     *
+     * It is reset by `close` rather than only set by `open`, and that is what makes it work on a
+     * second open: the card derives its tab from a *change* in this value, so a tally tapped
+     * twice in a row has to pass back through the default in between to register as reopened. */
+    openTab: "info",
+
     /* `current` is the resource; `currentHandle` is what the app asked for, which is not the
      * same thing while a fetch is in flight. Keeping them apart is what lets a late response
      * for a person the reader has already left be discarded. */
@@ -86,7 +97,7 @@ const useStore = create(
 
         /* Opens the card on somebody. Called again from a row inside it, which is how a reader
          * walks from one person to the next — the surface stays up and its subject changes. */
-        open: (handle) => {
+        open: (handle, tab = "info") => {
             if (!handle) return
 
             /* **The viewer's own card is filled in here, in the click handler, not in the load
@@ -99,6 +110,7 @@ const useStore = create(
 
             set((state) => {
                 state.openHandle = handle
+                state.openTab = tab
                 state.currentHandle = handle
                 state.current = seed
                 state.ready = seed !== null
@@ -166,12 +178,14 @@ const useStore = create(
          * copy of the person can supply. `person` is therefore passed in whole rather than
          * looked up: a row in a follow list is a person this store has never fetched.
          *
-         * Three copies of one fact can be on screen at once and all three move together:
+         * Four copies of one fact can be on screen at once and all four move together:
          *
          *   - the open profile's own button and follower count, if this is that person;
          *   - the open profile's *following* count, when the viewer is reading their own —
          *     following somebody from inside your own list has to lengthen it;
-         *   - the row in whatever follow list is open over them.
+         *   - the row in whatever follow list is open over them;
+         *   - every notification they are the actor of, which is where a follow back is
+         *     tapped and which can be on screen at the same time as either of the above.
          *
          * The optimistic shape is the app's usual one: snapshot, apply everywhere, reconcile
          * against the server's `{ following, followers }`, restore the snapshot on failure. The
@@ -211,6 +225,9 @@ const useStore = create(
                     }
                 })
                 useFollowsStore.getState().patchRow(profileId, { following: values.following })
+                useNotificationsStore
+                    .getState()
+                    .patchActor(profileId, { following: values.following })
             }
 
             apply(guess)

@@ -28,34 +28,67 @@ device half is the only gap, and it cannot be closed until the developer account
    one, so this waits on the paid account rather than on anyone finding the time.
 5. Test on a **physical iPhone**. APNs does not work on the Simulator, ever.
 
-## Production database — will break push the moment it deploys
+## Production database — migrated
 
-`.env.production` already carries the `FCM_*` credentials, but it points `DATABASE_URL` at
-hosted Supabase, and **`device_token` does not exist there yet.** The deployed API will throw
-the same `P2021` on every like and publish that the local one did before the migration.
-
-Before (or with) the next deploy, against the production URLs:
+`device_token` is present in production as of 2026-09-03, along with every other table in the
+schema, so the `P2021` this section warned about is gone. The standing rule is unchanged and is
+the thing to remember after the *next* migration:
 
 ```bash
 npx prisma migrate deploy
 npm run db:secure          # a migration that adds a table adds it unprotected
 ```
 
-## Google Play — blocked on the same DUNS number, plus three real items
+## Google Play — not blocked. The DUNS number is an Apple problem only
 
-A **D-U-N-S number is required for an organization developer account on Play too**, so the
-store half of both platforms is waiting on the same thing. Note this blocks *distribution*
-only — push already works on Android from a debug build, as proven on device.
+The Blackbox Studios **organization** account (`6507276289092695069`) has identity and website
+ownership verified as of 2026-09-02, so Play needs no D-U-N-S number: that requirement applies
+to an organization whose Payments profile is unverified, and this one is not. The **12 testers
+for 14 days** gate does not apply either — that is for *personal* accounts created after
+2023-11-13. Nothing external is holding up an Android release.
 
-Still open, independent of the DUNS number:
+Step-by-step console work is in `RELEASING.md`. The items below are the ones with code or
+content behind them.
 
-- **There is no release signing config.** `android/app/build.gradle` has `buildTypes.release`
-  but no `signingConfigs` at all, so a release build is unsigned and Play will reject it.
-  Generate an upload keystore, keep it somewhere durable (losing it means losing the ability
-  to update the listing), and wire it in — with the credentials in `gradle.properties` or the
-  environment, never committed.
-- **Privacy policy URL and the Data safety form.** Play requires both, and this app collects
-  an email, a name, a birthday, and now a device token — the form has to say so.
+Still open:
+
+- **Deploy, so `/privacy` and `/delete-account` are live.** Everything else about the API is
+  done: it answers at `https://www.throughgrapevine.com/api` and passes a native CORS preflight.
+  The two legal pages exist in the repo but are not yet on the deployed site, and Play will not
+  accept URLs that 404.
+- **The Data safety form.** The policy itself is written and served at `/privacy` and
+  `/delete-account` (`src/components/Legal.jsx`), ungated and statically prerendered; the
+  completed data-safety mapping is in `RELEASING.md`. What is left is filling the form in and
+  pasting those two URLs — after the next deploy, since neither is live yet.
+- **`support@blackboxstudios.com` has to be a mailbox somebody reads.** It is published in the
+  privacy policy and is the only route a person has to a correction or an erasure request, which
+  `npm run erase` then answers.
+- **Provision the reviewer account and set its code**, against production, once the API is
+  deployed: `npm run reviewer -- review@throughgrapevine.com --org <slug>`, then `REVIEW_EMAIL`
+  and `REVIEW_OTP` in `.env.production`. Unset both and run `--revoke` when review is over —
+  they are separate steps because a resubmission needs only `--org` again.
+- **The first release has to go through the console by hand.** `edits:commit` cannot create a
+  listing: the store entry, content rating and target audience are one-time console work, and
+  the API only takes over from the second upload. Use `--dry` and upload that `.aab` manually.
+- **Store listing assets.** `npm run icons` does not produce these: a 512×512 icon, a 1024×500
+  feature graphic, and 2–8 phone screenshots.
+
+Done (2026-09-03):
+
+- ~~No upload keystore~~ — generated at `Projects/Me/certs/grapevine-upload.jks` (outside any
+  git repo), wired through the untracked `android/keystore.properties`. Verified: the bundle is
+  signed by `CN=Robert Paul, O=Blackbox Studios`, valid to 2054, and `jarsigner -verify` passes.
+  **Back that file up somewhere off this machine** — losing it means losing the ability to
+  update the listing.
+- ~~No release signing config~~ — `android/app/build.gradle` now declares `signingConfigs.release`
+  from `android/keystore.properties` or `GRAPEVINE_STORE_*`/`_KEY_*`, and only when all four are
+  present, so a checkout without the keystore still configures and builds.
+- ~~Versioning was hand-maintained~~ — Gradle derives `versionName` and `versionCode` by reading
+  `package.json` (`0.1.0` → `100`), so `npm version patch` is the whole bump and no release step
+  rewrites a tracked file.
+- ~~Nothing automated the upload~~ — `npm run release:android` builds, syncs, signs, and drives
+  the Play Developer API (`edits.insert` → `bundles.upload` → `tracks.update` → `commit`),
+  discarding the edit if any step fails. `--dry` stops after signing.
 
 Done (2026-08-27):
 
@@ -95,3 +128,29 @@ Done (2026-08-27):
   is worth a job.
 - **Notification grouping** ("and 9 others") — a read-side change, planned in detail in the
   header of `src/lib/server/notifications.service.js`.
+
+## The Daily Read owes an About page — a licence condition, not a nicety
+
+The reading is fetched at runtime from `github.com/jaredef/ochrid`, which is **CC BY-NC 4.0**
+and whose README states the underlying translation is third-party copyrighted material
+carried under a fair-use claim. Naming the source is a condition of that licence, so this
+gates showing the screen to a parish rather than being tidy-up.
+
+The block was drawn at the foot of the reading and was taken off it deliberately — that page
+should end on the text — so it is **relocated, not dropped**. Nothing renders it today, which
+is the gap.
+
+Build `/settings/about` as a sibling of `/settings/info` and `/settings/general`, reached by a
+row on the account index and drawn by the shared `<SettingsRow/>`. It carries:
+
+- The Prologue of Ohrid by St. Nikolai Velimirovic
+- Text from **ochrid.org**, CC BY-NC 4.0
+- Fasting rule from **orthocal.info**
+
+Both links go through `<Hyperlink soft>` — never a bare `underline`, per the Hyperlinks rule.
+
+> The NonCommercial term is a live question for counsel, since Grapevine has a paid tier.
+> Attribution is the part that is unambiguous and cheap; do it regardless of how that lands.
+
+Likely the right home for the app version and any future terms/privacy links too — Play
+already needs a privacy policy URL (see the Google Play section above).

@@ -7,7 +7,7 @@ import { AnimatePresence } from "motion/react"
 import Ripple from "@/assets/svg/ripple.svg"
 import Badge from "@/components/Badge"
 import Skeleton, { PeopleSkeleton, TabsSkeleton } from "@/components/Skeleton"
-import { Avatar, Close, Overlay } from "@/components/Widgets"
+import { Avatar, Close, FollowButton, Overlay } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import Transition from "@/components/Transition"
 import { Drawer, DrawerContent } from "@/components/ui/drawer"
@@ -18,8 +18,8 @@ import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { displayName } from "@/lib/name"
 import { useFollows } from "@/lib/store/follows/hook"
-import { useFollow, useOpenProfile, useProfileCard } from "@/lib/store/profile/hook"
-import { cn, formatCompact, formatDateCompact, formatNameDay, roleLabel } from "@/lib/utils"
+import { useOpenProfile, useProfileCard } from "@/lib/store/profile/hook"
+import { formatCompact, formatDateCompact, formatNameDay, roleLabel } from "@/lib/utils"
 
 /* Somebody's public face: who they are, what the parish knows about them, and who they are
  * connected to — one card, three tabs.
@@ -101,53 +101,6 @@ const InfoTab = ({ profile }) => {
                 <Stat key={column.label} {...column} />
             ))}
         </div>
-    )
-}
-
-/* Follow / Following, wherever it appears — the card's header and every row of its lists.
- *
- * **Both labels are always in the box, stacked in one grid cell, with a third invisible copy of
- * the longer one holding the width.** That is what makes the control the same size in both
- * states and lets the words cross-fade rather than snap: a button that resized as you pressed it
- * would shove the row's text column sideways, and in a list of twenty that reads as the whole
- * list twitching. The colour change rides `<Button/>`'s own transition. */
-const FollowButton = ({ person, size = "sm", className }) => {
-    const { toggleFollow } = useFollow()
-    const following = Boolean(person.following)
-
-    return (
-        <Button
-            type="button"
-            size={size}
-            variant={following ? "outline" : "default"}
-            onClick={() => toggleFollow(person)}
-            aria-pressed={following}
-            /* `size="sm"` brings a squared radius of its own; every follow control in the app is
-             * a pill, so it is put back. */
-            className={cn("rounded-full", className)}
-        >
-            <span className="grid place-items-center">
-                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
-                    Following
-                </span>
-                <span
-                    className={cn(
-                        "col-start-1 row-start-1 transition-opacity duration-200",
-                        following ? "opacity-0" : "opacity-100",
-                    )}
-                >
-                    Follow
-                </span>
-                <span
-                    className={cn(
-                        "col-start-1 row-start-1 transition-opacity duration-200",
-                        following ? "opacity-100" : "opacity-0",
-                    )}
-                >
-                    Following
-                </span>
-            </span>
-        </Button>
     )
 }
 
@@ -314,8 +267,8 @@ const CardSkeleton = () => (
 
 /* Everything inside the sheet or the dialog. Both presentations render exactly this, which is
  * what keeps a person from meaning something slightly different on a phone. */
-const CardBody = ({ handle, profile, skeleton, missing, onOpen, onEdit }) => {
-    const [tab, setTab] = useState("info")
+const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit }) => {
+    const [tab, setTab] = useState(openTab)
     /* Both lists, loaded the moment the card opens rather than on the tab that shows them —
      * see `lib/store/follows/store.js`. Mounted here, once, so the panels below are pure.
      *
@@ -325,17 +278,24 @@ const CardBody = ({ handle, profile, skeleton, missing, onOpen, onEdit }) => {
      * loading them here instead of per tab exists to avoid. */
     const follows = useFollows(handle)
 
-    /* Back to Info whenever the subject changes — a reader who walked into this person from
-     * somebody's follower list is looking at a new person, not at the same list again.
+    /* Back to the tab the card was opened at whenever the card is opened — at a new person, or
+     * at the same one from a different entry point. A reader who walked into somebody from a
+     * follower list is looking at a new person rather than at the same list again; a reader who
+     * tapped the *following* tally on `/settings` wants that list even though they were just
+     * shown their followers.
+     *
+     * Both are the same event, so both are one key: the subject and the tab it was opened at.
+     * That is also why `close` puts `openTab` back to "info" — tapping one tally twice has to
+     * change this string in between, or the second tap would find nothing to react to.
      *
      * Adjusted during render (React's own pattern for state derived from a changing prop)
-     * rather than in an effect, so the new person's Info is what paints; an effect would show
-     * their followers for a frame first. */
-    const subject = profile?.id ?? null
-    const [shown, setShown] = useState(subject)
-    if (shown !== subject) {
-        setShown(subject)
-        setTab("info")
+     * rather than in an effect, so the right tab is what paints; an effect would show the
+     * previous one for a frame first. */
+    const opened = `${profile?.id ?? ""}:${openTab}`
+    const [shown, setShown] = useState(opened)
+    if (shown !== opened) {
+        setShown(opened)
+        setTab(openTab)
     }
 
     /* **One `<AnimatePresence/>` over all three states**, so the swap between them is a
@@ -438,7 +398,7 @@ const CardBody = ({ handle, profile, skeleton, missing, onOpen, onEdit }) => {
 }
 
 const ProfileCard = () => {
-    const { handle, open, profile, skeleton, missing, close, edit } = useProfileCard()
+    const { handle, openTab, open, profile, skeleton, missing, close, edit } = useProfileCard()
     const { openProfile } = useOpenProfile()
     const isDesktop = useIsDesktop()
     const mounted = useMounted()
@@ -468,6 +428,7 @@ const ProfileCard = () => {
     const body = (
         <CardBody
             handle={handle}
+            openTab={openTab}
             profile={profile}
             skeleton={skeleton}
             missing={missing}

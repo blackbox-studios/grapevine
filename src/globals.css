@@ -20,6 +20,9 @@
     --font-heading: 'Helvetica Neue', Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+    /* The Daily Read's headings. A separate token rather than repointing --font-serif,
+     * which several screens already use for the system serif and would all shift with it. */
+    --font-reading: 'PT Serif Caption', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -40,6 +43,7 @@
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-link: var(--link);
+    --color-reading: var(--reading);
     --color-brand-foreground: var(--brand-foreground);
     --color-brand: var(--brand);
     --color-accent-foreground: var(--accent-foreground);
@@ -148,6 +152,13 @@
     --success: oklch(0.64 0.13 168);
     --warning: oklch(73% 39% 71deg);
     --link: oklch(56% 51% 274deg);
+    /* The Daily Read's headings. The Prologue is printed as a rubricated book and ochrid.org
+     * keeps that on the web, so the reading's section headings are red rather than the app's
+     * near-black — the one screen in Grapevine that carries a colour of its own, because it
+     * is the one screen showing somebody else's text. Deliberately not `--destructive`:
+     * that red means a button will delete something, and a heading wearing it would read as
+     * a warning. */
+    --reading: oklch(0.42 0.17 27);
     /* Grapevine's accent. Deliberately NOT `--primary`: primary is the near-black button
      * fill, and the brand green is the check, the unread dot, and the mark. Jungle green
      * (#2BBB9C) in light, lime (#B7FF00) in dark — see the `.dark` block. The app icon's
@@ -192,6 +203,9 @@
     --success: oklch(0.78 0.11 168);
     --warning: oklch(67% 36% 72deg);
     --link: oklch(78% 15% 235deg);
+    /* Lifted well above the light value: the printed crimson is near-black against a dark
+     * page and the headings disappear into it. */
+    --reading: oklch(0.72 0.16 25);
     /* Lime is far lighter than the jungle green it replaces, so `--brand-foreground` flips
      * to near-black — white on #B7FF00 is unreadable. */
     --brand: oklch(0.9177 0.2382 127.48);
@@ -376,6 +390,53 @@
     font-display: swap;
     src: url('./assets/fonts/BabeSans/BabeSansRegular.woff2') format('woff2'),
          url('./assets/fonts/BabeSans/BabeSansRegular.woff') format('woff');
+  }
+
+  /* PT Serif Caption — the Daily Read, headings and body alike, and the only place in the
+   * app that leaves the interface sans behind. It is the caption cut of PT Serif rather than
+   * the text cut: wider apertures and a larger apparent size at the same point size, which is
+   * what carries a screen-length column of prose.
+   *
+   * **The 700s below are PT Serif's, under the Caption family name, and that is deliberate.**
+   * Caption ships at weight 400 only — upright and italic, no bold. Declaring just those two
+   * would leave the browser to synthesise every bold heading by smearing the 400 outline,
+   * which is precisely the failure the Babe Sans block above accepts only because it has no
+   * alternative. Here there is one: the two are the same superfamily on the same skeleton, so
+   * borrowing the drawn bold gives a real 700 that sits under a Caption 400 without a seam.
+   * Add a genuine Caption bold and these two src lines are all that change.
+   *
+   * Both families ship as .ttf and are converted; the originals were roughly three times the
+   * weight for the same glyphs, which is worth avoiding on a screen that loads four cuts. */
+  @font-face {
+    font-family: 'PT Serif Caption';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('./assets/fonts/PTSerifCaption/PTSerifCaption-Regular.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'PT Serif Caption';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('./assets/fonts/PTSerifCaption/PTSerifCaption-Italic.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'PT Serif Caption';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('./assets/fonts/PTSerif/PTSerif-Bold.woff2') format('woff2');
+  }
+
+  @font-face {
+    font-family: 'PT Serif Caption';
+    font-style: italic;
+    font-weight: 700;
+    font-display: swap;
+    src: url('./assets/fonts/PTSerif/PTSerif-BoldItalic.woff2') format('woff2');
   }
 
 

@@ -12,6 +12,7 @@ import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
 import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
+import usePrologueStore from '@/lib/store/prologue/store'
 import usePushStore from '@/lib/store/push/store'
 import useUploadsStore from '@/lib/store/uploads/store'
 
@@ -32,11 +33,14 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * mean firing a request with no group, or duplicating the selection logic to guess one.
  * `org` holds no remote state at all and needs no boot fetch either.
  *
- * `notifications` **is** booted here, and it is the one collection store that is — because
- * it is the only one that is not scoped to the selected group, so it has a request it can
- * make the moment there is a viewer. It fetches the tally *and* the first page of the list,
- * so the panel is populated before anybody opens it; see that store's header for why a
- * surface this small is worth preloading when the feed is not.
+ * `notifications` and `prologue` **are** booted here, and they are the two stores that are —
+ * because they are the two that are not scoped to the selected group, so each has a request
+ * it can make the moment there is a viewer. `notifications` fetches the tally *and* the first
+ * page of the list, so the panel is populated before anybody opens it. `prologue` fetches the
+ * whole day's reading, which is the more expensive of the two and the reason it is worth
+ * doing: it is the only surface in the app that leaves our own database, so warming it at
+ * sign-in is what keeps its skeleton off the screen for everybody who arrives by tapping the
+ * nav rather than by cold-loading the URL.
  *
  * `push` is booted here too, for the same reason and with one caveat worth stating: its
  * `init` **never prompts**. It registers this device's FCM token only where permission has
@@ -48,6 +52,7 @@ const useStore = create(() => ({
     initAuthorizedStores: () => Promise.all([
         useAppStore.getState().init(),
         useNotificationsStore.getState().init(),
+        usePrologueStore.getState().init(),
         usePushStore.getState().init(),
     ]),
     reset: () => {
@@ -61,6 +66,7 @@ const useStore = create(() => ({
         useFollowsStore.getState().reset()
         useMembersStore.getState().reset()
         useNotificationsStore.getState().reset()
+        usePrologueStore.getState().reset()
         usePushStore.getState().reset()
         useUploadsStore.getState().reset()
     },
@@ -75,6 +81,7 @@ const useStore = create(() => ({
         useFollowsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
         useNotificationsStore.getState().clearErrors()
+        usePrologueStore.getState().clearErrors()
         usePushStore.getState().clearErrors()
         useUploadsStore.getState().clearErrors()
     },

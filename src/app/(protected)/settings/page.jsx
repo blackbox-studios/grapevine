@@ -88,19 +88,21 @@ const SettingsPage = () => {
                     )}
                 </div>
 
-                {/* The tallies, which open the same card the picture does. They are here rather
-                    than in the row list because a number is not a destination — it is a fact
-                    with a list behind it, and the card is where that list lives. */}
+                {/* The tallies, which open the same card the picture does — but each on the
+                    tab it names. They are here rather than in the row list because a number is
+                    not a destination: it is a fact with a list behind it, the card is where that
+                    list lives, and landing on Info would make the reader tap twice for the thing
+                    they already pointed at. */}
                 <div className="flex items-center gap-2 -mt-1">
                     <Count
                         value={user?.followers ?? 0}
                         label="followers"
-                        onClick={() => user?.handle && openProfile(user.handle)}
+                        onClick={() => user?.handle && openProfile(user.handle, "followers")}
                     />
                     <Count
                         value={user?.followingCount ?? 0}
                         label="following"
-                        onClick={() => user?.handle && openProfile(user.handle)}
+                        onClick={() => user?.handle && openProfile(user.handle, "following")}
                     />
                 </div>
             </header>

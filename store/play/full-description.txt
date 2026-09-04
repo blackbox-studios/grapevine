@@ -1,0 +1,30 @@
+Grapevine is a private communications app for Orthodox parishes and dioceses.
+
+It is not a social network. There is no public feed, no discovery, no advertising, and nothing you write can be read by anyone outside your parish. A group is a parish, a diocese, a monastery or a circle, and what you can see is exactly the groups you belong to.
+
+YOUR PARISH, IN ONE PLACE
+Announcements, feasts, photographs and parish news arrive in one feed instead of being scattered across email, group chats and a website nobody checks. Your priest or another administrator publishes, and everybody else reads, likes and comments. Tap a photograph to open the post, read the thread, and add your own reply.
+
+THE DAILY READ
+Every day carries the Prologue of Ohrid for that date, together with the day's fasting rule and the tone of the week. It is the same reading wherever it is opened, so there is something to read whether or not your parish has posted anything today.
+
+MORE THAN ONE GROUP
+Many people belong to a parish and to their diocese. Switch between them whenever you like. Each group keeps its own feed, its own members and its own announcements, and you only ever see the ones you belong to.
+
+ADDITIONAL FEATURES TO COME
+- Event reminders, so a coffee hour sign up, a volunteer rota or a parish work day reaches you before it comes round rather than after.
+- Direct messaging, so a quiet word with one person does not have to happen under a post.
+
+PRIVATE BY CONSTRUCTION
+- Invite only. An administrator of your group creates your account, so nobody signs themselves up and no stranger can find you.
+- Nothing is public. What you write is readable only by people who hold an approved membership in the same group.
+- No advertising, no third party analytics, no tracking.
+- We do not collect your location, your contacts or your payment details.
+- Access is checked on every request, so removing somebody takes effect immediately rather than whenever their session happens to expire.
+
+YOU WILL NEED AN INVITATION
+Grapevine cannot be joined from inside the app. If your parish already uses it, ask your priest or your parish administrator to add you, and give them the email address you would like to sign in with. If your parish does not use it yet, we would be glad to hear from you.
+
+Grapevine is sponsored by Holy Trinity Cathedral in Chicago, Illinois, of the Orthodox Church in America, whose parish it was built for and with.
+
+Grapevine is made by Blackbox Studios. Questions, or a parish that would like to use it: support@blackboxstudios.com

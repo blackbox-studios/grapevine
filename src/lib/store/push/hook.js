@@ -14,6 +14,7 @@ import {
     pushSupported,
 } from "@/lib/push"
 import useNotificationsStore from "@/lib/store/notifications/store"
+import { useOpenProfile } from "@/lib/store/profile/hook"
 import usePushStore from "./store"
 
 /* The listeners that have to be alive for as long as the app is, mounted once from
@@ -33,11 +34,12 @@ export const usePushListeners = (ready) => {
     const [pending, openFromPush, takePending] = usePushStore(
         useShallow(state => ([state.pending, state.openFromPush, state.takePending])),
     )
+    const { openProfile } = useOpenProfile()
 
     /* A tap, from a banner or from a cold launch. Records the destination only. */
     useEffect(() => {
         if (!pushSupported()) return
-        return onPushTapped(postId => openFromPush(postId))
+        return onPushTapped(destination => openFromPush(destination))
     }, [openFromPush])
 
     /* …and opens it, once there is somewhere to open it.
@@ -45,13 +47,15 @@ export const usePushListeners = (ready) => {
      * `openSlide` rather than `router.push`, because a post has no route: its id was unknown
      * at build time and `output: "export"` demands `generateStaticParams` for every dynamic
      * segment. This is the same shallow-history navigation the feed uses — see the Slide
-     * routes section of frontend-architecture.md. */
+     * routes section of frontend-architecture.md. A follow points at a person instead, and a
+     * card is not a route at all — it is the profile store's `openHandle`. */
     useEffect(() => {
         if (!ready || !pending) return
 
-        const postId = takePending()
+        const { postId, handle } = takePending() ?? {}
         if (postId) openSlide(`${ROUTES.POST}/${postId}`)
-    }, [ready, pending, takePending])
+        else if (handle) openProfile(handle)
+    }, [ready, pending, takePending, openProfile])
 
     /* A push that landed with the app already open. No banner is drawn — the reader is looking
      * at the app — so all it means is that the panel is behind, possibly while on screen. */

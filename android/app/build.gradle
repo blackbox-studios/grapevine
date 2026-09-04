@@ -1,5 +1,59 @@
 apply plugin: 'com.android.application'
 
+/* The app's version, read from package.json so there is one number to bump.
+ *
+ * `npm version patch` moves it and tags the commit; nothing here is ever edited by a release
+ * script. That matters more than it looks: a pipeline that rewrites this file has to leave the
+ * working tree dirty to build, and an interrupted run leaves a literal version baked into a
+ * tracked file.
+ *
+ * versionCode is derived rather than stored because Play only requires that it *increase*, and
+ * a number carrying the semver reads back as the version it shipped: 0.1.0 → 100, 1.2.3 →
+ * 10203. That budget is the whole constraint — two digits each for minor and patch — so it is
+ * asserted here rather than discovered as a rejected upload. */
+def appVersionName = new groovy.json.JsonSlurper()
+        .parse(rootProject.file("../package.json")).version
+def versionParts = appVersionName.replaceAll(/[-+].*$/, "").tokenize(".").collect { it.toInteger() }
+
+if (versionParts.size() != 3) {
+    throw new GradleException("package.json version must be major.minor.patch, found '${appVersionName}'")
+}
+if (versionParts[1] > 99 || versionParts[2] > 99) {
+    throw new GradleException("minor and patch must each stay under 100 for versionCode to keep increasing, found '${appVersionName}'")
+}
+
+def appVersionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
+
+if (appVersionCode < 1) {
+    throw new GradleException("Play requires a versionCode of at least 1; version '${appVersionName}' yields ${appVersionCode}")
+}
+
+/* Release signing, from android/keystore.properties or the environment.
+ *
+ * Both are untracked: losing the upload keystore means losing the ability to update the
+ * listing, and committing it means anyone with the repo can publish as us.
+ *
+ * The config is only declared when all four values are present, so a checkout without the
+ * keystore still builds — `assembleDebug`, Android Studio and CI all keep working, and a
+ * release build there is simply unsigned rather than a configuration error. `release-android.mjs`
+ * is what refuses to *ship* an unsigned bundle. */
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+def signingValue = { String key, String envName ->
+    keystoreProperties.getProperty(key) ?: System.getenv(envName)
+}
+
+def storeFileValue = signingValue('storeFile', 'GRAPEVINE_STORE_FILE')
+def storePasswordValue = signingValue('storePassword', 'GRAPEVINE_STORE_PASSWORD')
+def keyAliasValue = signingValue('keyAlias', 'GRAPEVINE_KEY_ALIAS')
+def keyPasswordValue = signingValue('keyPassword', 'GRAPEVINE_KEY_PASSWORD')
+
+def releaseSigningReady = storeFileValue && storePasswordValue && keyAliasValue && keyPasswordValue
+
 android {
     namespace = "com.throughgrapevine.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +61,8 @@ android {
         applicationId "com.throughgrapevine.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +70,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (releaseSigningReady) {
+            release {
+                /* Relative paths resolve against android/, absolute ones are taken as given —
+                 * so the keystore can (and should) live outside the repo. */
+                storeFile rootProject.file(storeFileValue)
+                storePassword storePasswordValue
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

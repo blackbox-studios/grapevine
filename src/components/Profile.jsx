@@ -1,10 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 
 import { Avatar } from "@/components/Widgets"
 import { ROUTES } from "@/lib/constants"
+import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useUser } from "@/lib/store/auth/hook"
 import { cn, isRouteActive } from "@/lib/utils"
 
@@ -25,13 +25,12 @@ import { cn, isRouteActive } from "@/lib/utils"
  * destination rather than a `pathname ===` of its own — and that is what keeps it lit on the
  * sub-pages too. `isRouteActive` is a **segment-safe prefix** test, so every route under
  * `/settings` lights the same trigger the index does: the whole tree is one destination as far
- * as the nav is concerned. A `pathname === ROUTES.SETTINGS` here would drop the ring the moment
- * a row was tapped, and leave the reader on a screen no tab claims. */
-export const ProfileTrigger = ({ pathname: pathnameProp, className }) => {
+ * as the nav is concerned. A `route === ROUTES.SETTINGS` here would drop the ring the moment a
+ * row was tapped, and leave the reader on a screen no tab claims. */
+export const ProfileTrigger = ({ route: routeProp, className }) => {
     const user = useUser()
-    const livePathname = usePathname()
-    const pathname = pathnameProp ?? livePathname
-    const active = isRouteActive(pathname, ROUTES.SETTINGS)
+    const shellRoute = useShellRoute()
+    const active = isRouteActive(routeProp ?? shellRoute, ROUTES.SETTINGS)
 
     return (
         <Link

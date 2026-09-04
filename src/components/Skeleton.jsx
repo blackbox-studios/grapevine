@@ -235,36 +235,35 @@ export function PeopleSkeleton({ count = 8 }) {
  *
  * **Exported so <NotificationRow/> and the skeleton below are the same string rather than two
  * copies of it.** Every value here moves the layout: the padding decides where the avatar
- * starts and where the timestamp ends, and the vertical padding sets the row height, which
+ * starts and where the action ends, and the vertical padding sets the row height, which
  * compounds down a list. Hand-syncing them is what put the skeleton 12px to the left of the
  * rows it stood in for and made every row 4px too tall, so the whole panel stepped as it
  * loaded. Restyle the row by editing this, and the skeleton follows.
  *
- * The row adds its own interaction and colour on top (`w-full`, cursor, hover, the unread
- * tint), and its own radius, which varies with the rows either side and so cannot be a
- * constant; none of that changes the box, so none of it belongs here. */
-export const NOTIFICATION_ROW = "flex items-start gap-3 py-2 pl-5 pr-6.5"
+ * `items-center` because the row's sentence wraps: the avatar and the action stand against a
+ * text column one or two lines tall, and aligning them to its top leaves both hanging.
+ *
+ * The row adds its own colour on top — the hover and the unread tint — and its own radius,
+ * which varies with the rows either side and so cannot be a constant; neither changes the box,
+ * so neither belongs here. */
+export const NOTIFICATION_ROW = "flex items-center gap-3 py-2 pl-5 pr-6.5"
 
 /* Skeleton for the notifications panel (see components/Notifications.jsx): a stack of rows,
- * each an avatar, the actor's name and what they did, and the relative time on the right.
+ * each an avatar beside the two lines the real row's sentence wraps to.
  *
- * The nesting mirrors <NotificationRow/>'s, including the inner flex the text column and the
- * timestamp share — flattening it put the time bar one gap further right than the real one.
- * The bar offsets are chosen so each sits on the centre line of the text it stands for: the
- * name is a `leading-tight` 14px line (17.5px tall), the body a default `text-sm` line (20px),
- * and the timestamp a `text-xs` line already pushed down by `pt-0.5`. */
+ * Two bars of unequal length rather than one per field: the row is a single wrapping paragraph
+ * — handle, what they did, and the time all in one — so what a reader sees loading is a block
+ * of text that runs out partway, not a name over a subtitle. The row's own `items-center` is
+ * what stands them beside the avatar, so neither bar carries an offset of its own. */
 export function NotificationsSkeleton({ count = 6 }) {
     return (
         <div className="flex flex-col gap-1">
             {Array.from({ length: count }, (_, i) => (
                 <div key={i} className={NOTIFICATION_ROW}>
                     <Skeleton className="size-10 shrink-0 rounded-full" />
-                    <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                            <Skeleton className="mt-0.5 h-3.5 w-28" />
-                            <Skeleton className="mt-2 h-3 w-36" />
-                        </div>
-                        <Skeleton className="mt-1 h-3 w-6 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                        <Skeleton className="h-3.5 w-40" />
+                        <Skeleton className="mt-2 h-3.5 w-24" />
                     </div>
                 </div>
             ))}

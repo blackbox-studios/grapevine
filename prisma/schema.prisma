@@ -685,6 +685,13 @@ model CommentLike {
 /// comments, which cascade the same way), and it is what the read joins to skip
 /// notifications about a post that has since been soft-deleted.
 ///
+/// It is nullable because a FOLLOW happens inside no post at all, which costs those rows
+/// both of those jobs and neither is a loss: a follow notification is cascaded by either
+/// profile, and there is no post of it to hide. What it does cost is the reads, which
+/// have to ask `post_id IS NULL OR post.deleted_at IS NULL` — a filter on the relation
+/// alone matches no row whose relation is absent, so it would drop every follow from the
+/// panel and from the bell.
+///
 /// ── One row per actor per subject ────────────────────────────────────────────
 ///
 /// The unique key is what settles like → unlike → like at a single notification instead
@@ -701,11 +708,11 @@ model Notification {
   actorId     String @map("actor_id") @db.Uuid
 
   type      NotificationType
-  /// What the event is about — the post or comment that was liked, or the comment that
-  /// was written; `type` says which.
+  /// What the event is about — the post or comment that was liked, the comment that was
+  /// written, or the follower themselves; `type` says which.
   subjectId String           @map("subject_id")
-  /// The post the event happened inside. See the header note.
-  postId    String           @map("post_id")
+  /// The post the event happened inside, and null for a FOLLOW. See the header note.
+  postId    String?          @map("post_id")
 
   /// Null until the viewer opens the panel — this is what the bell's dot counts.
   readAt    DateTime? @map("read_at")
@@ -713,7 +720,7 @@ model Notification {
 
   recipient Profile @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   actor     Profile @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
-  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post      Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@unique([recipientId, actorId, type, subjectId])
   /// The panel's one query: this viewer's notifications, newest first, paged by keyset.
@@ -740,6 +747,10 @@ enum NotificationType {
   /// Somebody commented on your post. The subject is the **comment**, not the post — see
   /// `notifyComment` for why.
   POST_COMMENT
+  /// Somebody started following you. The subject is the **actor**, because a follow is
+  /// identified by the pair and has no object of its own — so keying on the follower is
+  /// what makes one row per follower, and it is also what the panel row opens.
+  FOLLOW
 
   @@map("notification_type")
 }

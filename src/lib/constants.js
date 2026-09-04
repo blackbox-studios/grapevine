@@ -2,9 +2,18 @@
  * `useUnreadTitle` prefixing the unread count — and a second copy would rename the tab. */
 export const APP_NAME = "Grapevine"
 
+/* Where a person writes to about their own data — corrections, questions, and the erasure
+ * request that `npm run erase` answers. Published in the privacy policy and on the deletion
+ * page, so it has to be a mailbox somebody actually reads. */
+export const SUPPORT_EMAIL = "support@blackboxstudios.com"
+
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
+    /* The Prologue of Ohrid for today, with the day's fasting rule. Not scoped to a group:
+     * the reading is the same wherever it is read, which is why it sits beside Home in the
+     * nav rather than anywhere in the group tree. */
+    PROLOGUE: "/prologue",
     POST: "/p",
     NOTIFICATIONS: "/notifications",
     /* The account surface, and the index of the settings tree: who the viewer is, and every
@@ -31,6 +40,13 @@ export const ROUTES = {
     ACCESS: "/access",
     PUBLIC: {
         LOGIN: "/login",
+        /* The two legal documents, as real pages rather than only as the modals the login
+         * screen opens. Play stores a *URL* for each and re-fetches it periodically, so a
+         * screen inside the app cannot stand in for them however complete its text is. Both
+         * live outside every gate — a reviewer reads them signed out, and a signed-in person
+         * following a link must not be bounced into the feed. */
+        PRIVACY: "/privacy",
+        DELETE_ACCOUNT: "/delete-account",
     },
 }
 
@@ -123,6 +139,9 @@ export const API_BASE =
 export const API_ENDPOINTS = {
     /* The session probe: who the viewer is and which groups they belong to. */
     ME: "/me",
+    /* The store reviewer's fixed-code sign-in. 404s unless REVIEW_EMAIL/REVIEW_OTP are set
+     * on the server, which is the normal state — see src/app/api/auth/review/route.api.js. */
+    AUTH_REVIEW: "/auth/review",
     ME_ONBOARDING: "/me/onboarding",
     /* Is this @handle free? Answered live while the viewer types one during orientation,
      * so a collision surfaces on the step that caused it rather than after the last one. */
@@ -170,6 +189,9 @@ export const API_ENDPOINTS = {
      * detach it. Write-only — there is no GET, because listing somebody's tokens would hand
      * out the values needed to push to their phones. */
     DEVICES: "/devices",
+    /* Today's reading, or `?date=YYYY-MM-DD` for another day. The client sends its own
+     * local date so the reading turns over at the reader's midnight, not the server's. */
+    PROLOGUE: "/prologue",
 }
 
 /* How many items a page pulls, per collection. The server clamps to its own maximum. */

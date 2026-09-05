@@ -781,40 +781,69 @@ export function withAlpha(hex, alpha) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-export function hashColorScheme(value) {
-    const BADGE_COLOR_PALETTE = [
-        "text-red-600 bg-red-600/10 border-red-600/30 dark:text-red-400 dark:bg-red-400/10 dark:border-red-400/40",
-        "text-teal-600 bg-teal-600/10 border-teal-600/30 dark:text-teal-400 dark:bg-teal-400/10 dark:border-teal-400/40",
-        "text-fuchsia-600 bg-fuchsia-600/10 border-fuchsia-600/30 dark:text-fuchsia-400 dark:bg-fuchsia-400/10 dark:border-fuchsia-400/40",
-        "text-lime-700 bg-lime-700/10 border-lime-700/30 dark:text-lime-400 dark:bg-lime-400/10 dark:border-lime-400/40",
-        "text-indigo-600 bg-indigo-600/10 border-indigo-600/30 dark:text-indigo-400 dark:bg-indigo-400/10 dark:border-indigo-400/40",
-        "text-orange-600 bg-orange-600/10 border-orange-600/30 dark:text-orange-400 dark:bg-orange-400/10 dark:border-orange-400/40",
-        "text-cyan-600 bg-cyan-600/10 border-cyan-600/30 dark:text-cyan-400 dark:bg-cyan-400/10 dark:border-cyan-400/40",
-        "text-pink-600 bg-pink-600/10 border-pink-600/30 dark:text-pink-400 dark:bg-pink-400/10 dark:border-pink-400/40",
-        "text-green-600 bg-green-600/10 border-green-600/30 dark:text-green-400 dark:bg-green-400/10 dark:border-green-400/40",
-        "text-violet-600 bg-violet-600/10 border-violet-600/30 dark:text-violet-400 dark:bg-violet-400/10 dark:border-violet-400/40",
-        "text-amber-700 bg-amber-700/10 border-amber-700/30 dark:text-amber-400 dark:bg-amber-400/10 dark:border-amber-400/40",
-        "text-sky-600 bg-sky-600/10 border-sky-600/30 dark:text-sky-400 dark:bg-sky-400/10 dark:border-sky-400/40",
-        "text-rose-600 bg-rose-600/10 border-rose-600/30 dark:text-rose-400 dark:bg-rose-400/10 dark:border-rose-400/40",
-        "text-emerald-600 bg-emerald-600/10 border-emerald-600/30 dark:text-emerald-400 dark:bg-emerald-400/10 dark:border-emerald-400/40",
-        "text-purple-600 bg-purple-600/10 border-purple-600/30 dark:text-purple-400 dark:bg-purple-400/10 dark:border-purple-400/40",
-        "text-yellow-700 bg-yellow-700/10 border-yellow-700/30 dark:text-yellow-400 dark:bg-yellow-400/10 dark:border-yellow-400/40",
-        "text-blue-600 bg-blue-600/10 border-blue-600/30 dark:text-blue-400 dark:bg-blue-400/10 dark:border-blue-400/40",
-    ]
-
-    function hashString(input) {
-        const str = String(input ?? "")
-        let hash = 5381
-        for (let i = 0; i < str.length; i++) {
-            hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0
-        }
-        hash ^= hash >>> 16
-        hash = Math.imul(hash, 0x85ebca6b)
-        hash ^= hash >>> 13
-        hash = Math.imul(hash, 0xc2b2ae35)
-        hash ^= hash >>> 16
-        return hash >>> 0
+/* One stable index per string, for everything in the app that colours a thing by its name.
+ *
+ * xorshift-multiply (the murmur3 finalizer over a djb2 seed), which matters only in that it
+ * avalanches: "Coffee hour" and "Coffee hours" have to land on different colours, and a plain
+ * djb2 sends near-identical strings to near-identical values, so a parish whose rotas are named
+ * alike would get one colour for all of them. Pure and stable, so a rota is the same colour on
+ * every device and every year — which is the whole reason to hash rather than store a colour. */
+function hashString(input) {
+    const str = String(input ?? "")
+    let hash = 5381
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0
     }
-    const index = hashString(value) % BADGE_COLOR_PALETTE.length
-    return BADGE_COLOR_PALETTE[index]
+    hash ^= hash >>> 16
+    hash = Math.imul(hash, 0x85ebca6b)
+    hash ^= hash >>> 13
+    hash = Math.imul(hash, 0xc2b2ae35)
+    hash ^= hash >>> 16
+    return hash >>> 0
 }
+
+const BADGE_COLOR_PALETTE = [
+    "text-red-600 bg-red-600/10 border-red-600/30 dark:text-red-400 dark:bg-red-400/10 dark:border-red-400/40",
+    "text-teal-600 bg-teal-600/10 border-teal-600/30 dark:text-teal-400 dark:bg-teal-400/10 dark:border-teal-400/40",
+    "text-fuchsia-600 bg-fuchsia-600/10 border-fuchsia-600/30 dark:text-fuchsia-400 dark:bg-fuchsia-400/10 dark:border-fuchsia-400/40",
+    "text-lime-700 bg-lime-700/10 border-lime-700/30 dark:text-lime-400 dark:bg-lime-400/10 dark:border-lime-400/40",
+    "text-indigo-600 bg-indigo-600/10 border-indigo-600/30 dark:text-indigo-400 dark:bg-indigo-400/10 dark:border-indigo-400/40",
+    "text-orange-600 bg-orange-600/10 border-orange-600/30 dark:text-orange-400 dark:bg-orange-400/10 dark:border-orange-400/40",
+    "text-cyan-600 bg-cyan-600/10 border-cyan-600/30 dark:text-cyan-400 dark:bg-cyan-400/10 dark:border-cyan-400/40",
+    "text-pink-600 bg-pink-600/10 border-pink-600/30 dark:text-pink-400 dark:bg-pink-400/10 dark:border-pink-400/40",
+    "text-green-600 bg-green-600/10 border-green-600/30 dark:text-green-400 dark:bg-green-400/10 dark:border-green-400/40",
+    "text-violet-600 bg-violet-600/10 border-violet-600/30 dark:text-violet-400 dark:bg-violet-400/10 dark:border-violet-400/40",
+    "text-amber-700 bg-amber-700/10 border-amber-700/30 dark:text-amber-400 dark:bg-amber-400/10 dark:border-amber-400/40",
+    "text-sky-600 bg-sky-600/10 border-sky-600/30 dark:text-sky-400 dark:bg-sky-400/10 dark:border-sky-400/40",
+    "text-rose-600 bg-rose-600/10 border-rose-600/30 dark:text-rose-400 dark:bg-rose-400/10 dark:border-rose-400/40",
+    "text-emerald-600 bg-emerald-600/10 border-emerald-600/30 dark:text-emerald-400 dark:bg-emerald-400/10 dark:border-emerald-400/40",
+    "text-purple-600 bg-purple-600/10 border-purple-600/30 dark:text-purple-400 dark:bg-purple-400/10 dark:border-purple-400/40",
+    "text-yellow-700 bg-yellow-700/10 border-yellow-700/30 dark:text-yellow-400 dark:bg-yellow-400/10 dark:border-yellow-400/40",
+    "text-blue-600 bg-blue-600/10 border-blue-600/30 dark:text-blue-400 dark:bg-blue-400/10 dark:border-blue-400/40",
+]
+
+
+/* A tinted pill's classes for a string: readable text on a wash of its own colour. */
+export function hashColorScheme(value) {
+    return BADGE_COLOR_PALETTE[hashString(value) % BADGE_COLOR_PALETTE.length]
+}
+
+/* One of the 25 Chroma Spheres for a string, as a URL.
+ *
+ * **A file rather than a CSS gradient, and not inlined.** These are Illustrator meshes: nine
+ * stacked circles under `mix-blend-mode`, which is what produces the dark core and the
+ * iridescent rim that no two- or three-stop `radial-gradient` reproduces. They cannot be
+ * inlined as components either — each carries its own `.cls-1…` style block and
+ * `#radial-gradient…` ids, so two on one page would collide on both. Loaded through CSS as
+ * separate documents, each is its own scope and only the rows actually on screen fetch one.
+ *
+ * The 400KB the artwork ships with is a 1018px grain PNG baked into every file. It is stripped:
+ * `<Grain/>` already lays one over the whole app, so a second per orb would be grain over
+ * grain, at 25 times the weight of the thing it decorates. What is left is ~7KB apiece.
+ *
+ * Hashed the same way a badge colour is, so a rota keeps its sphere across devices and years,
+ * and `appPath` because a subpath deploy has to reach it too. */
+const SPHERE_COUNT = 25
+
+export const sphereFor = (value) =>
+    appPath(`/spheres/${String((hashString(value) % SPHERE_COUNT) + 1).padStart(2, "0")}.svg`)

@@ -6,8 +6,8 @@ import { motion } from "motion/react";
 import Logo from "@/assets/svg/logo.svg"
 import HomeIcon from "@/assets/svg/icons/home.svg"
 import HomeOutlineIcon from "@/assets/svg/icons/home-outline.svg"
-import BookIcon from "@/assets/svg/icons/book.svg"
-import BookOutlineIcon from "@/assets/svg/icons/book-outline.svg"
+import MugIcon from "@/assets/svg/icons/mug.svg"
+import MugOutlineIcon from "@/assets/svg/icons/mug-outline.svg"
 import CalendarIcon from "@/assets/svg/icons/calendar.svg"
 import CalendarOutlineIcon from "@/assets/svg/icons/calendar-outline.svg"
 import { ROUTES } from "@/lib/constants";
@@ -44,16 +44,16 @@ const NAV = [
         Filled: HomeIcon,
     },
     {
+        title: "Daily Read",
+        href: ROUTES.PROLOGUE,
+        Outline: MugOutlineIcon,
+        Filled: MugIcon,
+    },
+    {
         title: "Events",
         href: ROUTES.EVENTS,
         Outline: CalendarOutlineIcon,
         Filled: CalendarIcon,
-    },
-    {
-        title: "Daily Read",
-        href: ROUTES.PROLOGUE,
-        Outline: BookOutlineIcon,
-        Filled: BookIcon,
     },
 ]
 
@@ -276,12 +276,21 @@ const ProtectedShell = ({ children }) => {
                 It travels with the group panel's push too, on the same value and curve as
                 the scroll container above it: the rail belongs to the app, and a rail that
                 stayed put while the content it navigates slid away would read as part of
-                the panel. */}
+                the panel.
+
+                **No horizontal padding.** `justify-around` is the tab-bar rule a phone uses —
+                one equal slot per entry, so half a gap already falls outside the first and last
+                — and an inset on top of it is an edge inset charged twice, pulling the outer two
+                in from where a thumb reaching for a corner expects them.
+
+                It has to stay `justify-around` rather than fixed slots: <Compose/> is the middle
+                entry and renders nothing at all for a viewer who administers no group, so this
+                re-spreads the remaining four instead of leaving a hole where the plus would be. */}
             <motion.nav
                 animate={{ x: shift }}
                 transition={SLIDE_TRANSITION}
                 className={cn(
-                    "md:hidden fixed bottom-0 left-0 w-full h-(--bottombar) pb-(--safe-bottom) flex items-center justify-around px-6 bg-background/80 backdrop-blur-md text-sidebar-foreground z-20 pointer-events-auto transition-opacity duration-300 ease-out",
+                    "md:hidden fixed bottom-0 left-0 w-full h-(--bottombar) pb-(--safe-bottom) flex items-center justify-around bg-background/80 backdrop-blur-md text-sidebar-foreground z-20 pointer-events-auto transition-opacity duration-300 ease-out",
                     vibing ? "opacity-35" : "opacity-100",
                 )}
             >

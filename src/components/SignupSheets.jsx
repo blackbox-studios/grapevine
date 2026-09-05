@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation"
 import { AnimatePresence } from "motion/react"
 import { toast } from "sonner"
 
+import EyeIcon from "@/assets/svg/icons/eye.svg"
+import PencilIcon from "@/assets/svg/icons/pencil.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import Hint from "@/components/Hint"
 import Icon from "@/components/Icon"
@@ -15,7 +17,6 @@ import Transition from "@/components/Transition"
 import { Avatar, ConfirmDialog, HandleLink } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MAX_SLOT_CAPACITY, ROUTES, SIGNUP_STATUS } from "@/lib/constants"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
@@ -24,7 +25,7 @@ import { pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { useSheet } from "@/lib/store/sheet/hook"
 import { useEventsView, useSignupAdmin, useSignups } from "@/lib/store/signups/hook"
-import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts } from "@/lib/utils"
+import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts, sphereFor } from "@/lib/utils"
 
 /* The parish's rotas: reading them, taking a place on one, and — for an admin — running them.
  *
@@ -49,7 +50,7 @@ import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTal
  * it is a control: `requireMembership(..., { role: "ADMIN" })` is.
  */
 
-/* The View / Edit switch, mounted by the Events page's header rather than by this component.
+/* The edit switch, mounted by the Events page's header rather than by this component.
  *
  * **It lives with the title and stays there on both tabs.** A page-level control belongs in the
  * page's header, and keeping it put means it does not appear and disappear as the reader moves
@@ -57,26 +58,80 @@ import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTal
  * looking for. On the calendar it has nothing to act on, which is the cheaper price.
  *
  * Drawn only for an admin of the selected group, and hidden rather than disabled for a member —
- * the visibility convention for anything above the base role. */
-export const ModeSwitch = () => {
+ * the visibility convention for anything above the base role.
+ *
+ * ── One button that acts, not two halves that name a state ───────────────────
+ *
+ * There is nothing to *choose* between here: reading is what the page does, and editing is a
+ * thing you start and then finish. So the control is the verb — a pencil to change these dates,
+ * an eye to go back to reading — and only the verb that applies now is on screen, with the state
+ * carried by the button's own form (`outline` while merely on offer, `default` once you are in
+ * it). A segmented pair of labels would spend the width of both words, out of a header that also
+ * has to hold the group's name.
+ *
+ * **An eye rather than a tick**, because a tick promises something this button does not do: a
+ * capacity typed in edit mode is already saved by the time you look away, so there is no Save
+ * held back and no Cancel to pair one with.
+ *
+ * The caption is the glyph in a word, because a lone circle in a page header has nothing beside
+ * it to be read against the way the nav rail's row teaches itself by repetition. It is not a
+ * second control — the word is `aria-hidden` and the `aria-label` is the accessible name — and
+ * the two words share one grid cell so the column cannot change width as they cross-fade. */
+export const ModeSwitch = ({ className }) => {
     const { editing, canEdit, setMode } = useEventsView()
     if (!canEdit) return null
 
-    /* The same `<Tabs/>` selector the rest of the app uses, list only and no panels — which is
-     * what a segmented control is. It brings the sliding indicator with it, so the active half
-     * travels across on a switch rather than blinking from one to the other, and it means there
-     * is one selector in this app rather than one plus a lookalike. */
     return (
-        <Tabs
-            value={editing ? "edit" : "view"}
-            onValueChange={(value) => setMode(value === "edit" ? "edit" : "view")}
-            className="shrink-0"
-        >
-            <TabsList>
-                <TabsTrigger value="view" className="px-4">View</TabsTrigger>
-                <TabsTrigger value="edit" className="px-4">Edit</TabsTrigger>
-            </TabsList>
-        </Tabs>
+        <div className={cn("flex shrink-0 flex-col items-center gap-1 -mt-1", className)}>
+            <Button
+                type="button"
+                variant={editing ? "default" : "outline"}
+                size="icon"
+                aria-pressed={editing}
+                aria-label={editing ? "Stop editing sign-ups" : "Edit sign-ups"}
+                onClick={() => setMode(editing ? "view" : "edit")}
+            >
+                {/* Stacked in one box so neither moves as the other fades. The pixel up and
+                    left is an optical correction: both glyphs are already centred in their own
+                    24 square and still read low and right inside a circle, so it belongs here
+                    rather than in the art. */}
+                <span className="relative block size-5 -translate-x-0.5 -translate-y-px">
+                    <PencilIcon
+                        aria-hidden="true"
+                        className={cn(
+                            "absolute inset-0 size-5 transition-opacity duration-300 ease-in-out",
+                            editing ? "opacity-0" : "opacity-100",
+                        )}
+                    />
+                    <EyeIcon
+                        aria-hidden="true"
+                        className={cn(
+                            "absolute inset-0 size-5 transition-opacity duration-300 ease-in-out",
+                            editing ? "opacity-100" : "opacity-0",
+                        )}
+                    />
+                </span>
+            </Button>
+
+            <span aria-hidden="true" className="grid text-xxs font-medium text-muted-foreground">
+                <span
+                    className={cn(
+                        "col-start-1 row-start-1 transition-opacity duration-300 ease-in-out",
+                        editing ? "opacity-0" : "opacity-100",
+                    )}
+                >
+                    Edit
+                </span>
+                <span
+                    className={cn(
+                        "col-start-1 row-start-1 transition-opacity duration-300 ease-in-out",
+                        editing ? "opacity-100" : "opacity-0",
+                    )}
+                >
+                    View
+                </span>
+            </span>
+        </div>
     )
 }
 
@@ -615,14 +670,44 @@ export const RotaPage = ({ row, editing, onBack }) => {
  * whole tap target and the whole hover plate, so a plate that ran the full height would touch
  * the rules above and below it and read as the divider having thickened rather than as a row
  * lighting up. Two of the seven units of padding move to the `li`, which is outside the hover,
- * so the plate sits inset while the text stays exactly where it was. */
-const RotaRow = ({ row, onOpen }) => (
+ * so the plate sits inset while the text stays exactly where it was.
+ *
+ * ── The orb ─────────────────────────────────────────────────────────────────
+ *
+ * A list of rotas is a list of things a parish named itself, and with nothing at the leading
+ * edge every row is two lines of grey text the eye has to read before it can tell them apart.
+ * The orb is the anchor that makes the title read as a heading and the tally as its subtitle.
+ *
+ * **Hashed from the title rather than picked**, through the same `hashString` a vocation badge
+ * uses, so the colour belongs to the rota rather than to its position: coffee hour keeps its
+ * colour when the kitchen rota is added above it, on every device and in every year. Nothing is
+ * stored and nothing has to be chosen, which matters because the person creating a rota is
+ * filling in a form about volunteers, not picking a swatch.
+ *
+ * It carries no mark and states nothing, so it is `aria-hidden`: every rota is the same kind of
+ * thing, and a glyph would repeat down the column while still asking to be read. Colour is
+ * decoration here, never urgency. The one distinction it does carry is off/on — a finished or
+ * closed rota drops to flat muted, because a bright orb on a rota nobody can join draws the eye
+ * to the one row that wants nothing. Small for the same reason: a bullet rather than an avatar,
+ * since at portrait size a decoration begins to look like the row's subject. */
+const RotaRow = ({ row, onOpen }) => {
+    /* Nothing to join: the rota has been closed, or its last date has passed and it does not
+       repeat. Either way it is history, and it sinks below the standing ones already. */
+    const dormant = row.finished || row.status !== SIGNUP_STATUS.OPEN
+
+    return (
     <li className="py-2">
         <button
             type="button"
             onClick={() => onOpen(row.id)}
             className="flex w-full cursor-pointer items-center gap-4 rounded-2xl px-3 py-5 text-left transition-colors hover:bg-accent"
         >
+            <span
+                aria-hidden="true"
+                className={cn("size-7 shrink-0 rounded-full bg-cover bg-center", dormant && "bg-muted")}
+                style={dormant ? undefined : { backgroundImage: `url("${sphereFor(row.title)}")` }}
+            />
+
             <span className="flex min-w-0 flex-1 flex-col">
                 <span className="flex items-center gap-2">
                     <span className="truncate text-base font-semibold text-foreground">
@@ -657,7 +742,8 @@ const RotaRow = ({ row, onOpen }) => (
             </Icon>
         </button>
     </li>
-)
+    )
+}
 
 const SignupSheets = () => {
     const { sheets, skeleton, hasMore, loadingMore, loadMore } = useSignups()

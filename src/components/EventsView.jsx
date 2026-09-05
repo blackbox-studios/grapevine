@@ -87,6 +87,12 @@ const EventsView = () => {
             <MobileHeader className="pb-6" />
 
             <div className="flex flex-col gap-6">
+                {/* Title left, switch right, both hung from the top. `items-start` rather than
+                    `items-center` because the two sides are not one line: the left is a title
+                    over the group's name and the right is a button over its caption, so
+                    centring would align two different middles and leave the title looking
+                    dropped. Level at the top, the wordmark and the circle start together, which
+                    is the edge the eye tracks across a header. */}
                 <header className="flex items-start justify-between gap-4">
                     <div className="flex flex-col">
                         <h1 className="text-3xl">Events</h1>

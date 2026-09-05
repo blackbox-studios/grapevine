@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 478.11 478.11">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+      }
+
+      .cls-2 {
+        fill: url(#radial-gradient-2);
+      }
+
+      .cls-2, .cls-3, .cls-4 {
+        mix-blend-mode: lighten;
+      }
+
+      .cls-5 {
+        fill: url(#radial-gradient-5);
+        mix-blend-mode: hard-light;
+      }
+
+      .cls-6 {
+        fill: url(#radial-gradient-4);
+      }
+
+      .cls-7 {
+        fill: url(#radial-gradient-3);
+      }
+
+      .cls-8 {
+        isolation: isolate;
+      }
+
+      .cls-9 {
+        fill: url(#linear-gradient);
+      }
+
+      .cls-9, .cls-10 {
+        mix-blend-mode: overlay;
+      }
+
+      .cls-11 {
+        clip-path: url(#clippath-1);
+      }
+
+      .cls-3 {
+        fill: url(#radial-gradient);
+      }
+
+      .cls-12 {
+        clip-path: url(#clippath);
+      }
+    </style>
+    <radialGradient id="radial-gradient" cx="-612.89" cy="1095.98" fx="-612.89" fy="1095.98" r="477.37" gradientTransform="translate(-54.32 1701.42) rotate(160.98)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000"/>
+      <stop offset=".67" stop-color="#520e24" stop-opacity="0"/>
+      <stop offset=".73" stop-color="#541026" stop-opacity=".01"/>
+      <stop offset=".77" stop-color="#5a182e" stop-opacity=".05"/>
+      <stop offset=".81" stop-color="#65273b" stop-opacity=".11"/>
+      <stop offset=".85" stop-color="#743a4d" stop-opacity=".2"/>
+      <stop offset=".88" stop-color="#885466" stop-opacity=".32"/>
+      <stop offset=".91" stop-color="#a07483" stop-opacity=".46"/>
+      <stop offset=".95" stop-color="#bd99a6" stop-opacity=".63"/>
+      <stop offset=".98" stop-color="#ddc4ce" stop-opacity=".82"/>
+      <stop offset="1" stop-color="#fdedf4"/>
+    </radialGradient>
+    <radialGradient id="radial-gradient-2" cx="-796.73" cy="-276.94" fx="-796.73" fy="-276.94" r="477.37" gradientTransform="translate(121.78 1173.49) rotate(91.91)" xlink:href="#radial-gradient"/>
+    <radialGradient id="radial-gradient-3" cx="374.34" cy="-215.56" fx="374.34" fy="-215.56" r="553.37" gradientTransform="translate(326.45 -331.62) rotate(96.91)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e99d23" stop-opacity="0"/>
+      <stop offset=".37" stop-color="#e99d23" stop-opacity="0"/>
+      <stop offset=".51" stop-color="#e99f25" stop-opacity=".03"/>
+      <stop offset=".6" stop-color="#eaa328" stop-opacity=".08"/>
+      <stop offset=".68" stop-color="#eca92d" stop-opacity=".15"/>
+      <stop offset=".75" stop-color="#edb033" stop-opacity=".23"/>
+      <stop offset=".81" stop-color="#f0b83a" stop-opacity=".34"/>
+      <stop offset=".86" stop-color="#f2c343" stop-opacity=".47"/>
+      <stop offset=".91" stop-color="#f5cf4e" stop-opacity=".62"/>
+      <stop offset=".95" stop-color="#f9dd5a" stop-opacity=".79"/>
+      <stop offset=".99" stop-color="#fdec66" stop-opacity=".97"/>
+      <stop offset="1" stop-color="#feef69"/>
+    </radialGradient>
+    <radialGradient id="radial-gradient-4" cx="-221.99" cy="437.45" fx="-221.99" fy="437.45" r="708.48" gradientTransform="translate(408.44 184.11) rotate(100.45)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset=".37" stop-color="#010100" stop-opacity="0"/>
+      <stop offset=".51" stop-color="#080803" stop-opacity=".03"/>
+      <stop offset=".6" stop-color="#141308" stop-opacity=".08"/>
+      <stop offset=".68" stop-color="#25230f" stop-opacity=".15"/>
+      <stop offset=".75" stop-color="#3b3718" stop-opacity=".23"/>
+      <stop offset=".81" stop-color="#565123" stop-opacity=".34"/>
+      <stop offset=".86" stop-color="#777031" stop-opacity=".47"/>
+      <stop offset=".91" stop-color="#9c9340" stop-opacity=".62"/>
+      <stop offset=".95" stop-color="#c7bc52" stop-opacity=".79"/>
+      <stop offset=".99" stop-color="#f5e765" stop-opacity=".97"/>
+      <stop offset="1" stop-color="#feef69"/>
+    </radialGradient>
+    <radialGradient id="radial-gradient-5" cx="1948.86" cy="1236.23" fx="1948.86" fy="1236.23" r="409.79" gradientTransform="translate(-2117.1 -539.11) rotate(-13.75)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#49bc94" stop-opacity="0"/>
+      <stop offset=".21" stop-color="#4abc93" stop-opacity=".01"/>
+      <stop offset=".36" stop-color="#4fbd8f" stop-opacity=".05"/>
+      <stop offset=".48" stop-color="#57bf8a" stop-opacity=".12"/>
+      <stop offset=".59" stop-color="#62c282" stop-opacity=".22"/>
+      <stop offset=".69" stop-color="#71c578" stop-opacity=".35"/>
+      <stop offset=".79" stop-color="#83c96c" stop-opacity=".51"/>
+      <stop offset=".88" stop-color="#99ce5d" stop-opacity=".7"/>
+      <stop offset=".97" stop-color="#b1d44c" stop-opacity=".91"/>
+      <stop offset="1" stop-color="#bcd746"/>
+    </radialGradient>
+    <linearGradient id="linear-gradient" x1="384.04" y1="-728.15" x2="862.1" y2="-728.15" gradientTransform="translate(-494.56 -377.58) rotate(89.5)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#03aa4b"/>
+      <stop offset=".42" stop-color="#789478" stop-opacity=".53"/>
+      <stop offset=".8" stop-color="#d9829d" stop-opacity=".15"/>
+      <stop offset=".97" stop-color="#ff7bac" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="clippath">
+      <circle class="cls-1" cx="239.05" cy="239.05" r="238.99"/>
+    </clipPath>
+    <clipPath id="clippath-1">
+      <rect class="cls-1" x="-5.04" y="-4.98" width="488.19" height="488.06"/>
+    </clipPath>
+  </defs>
+  <g class="cls-8">
+    <g id="Layer_2" data-name="Layer 2">
+      <g id="Layer_1-2" data-name="Layer 1">
+        <g>
+          <circle class="cls-4" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-3" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-2" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-7" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-6" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-5" cx="239.05" cy="239.05" r="238.99"/>
+          <circle class="cls-9" cx="239.05" cy="239.05" r="238.99"/>
+          <g class="cls-10">
+            <g class="cls-12">
+              <g class="cls-11">
+                
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

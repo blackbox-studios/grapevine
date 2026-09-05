@@ -80,13 +80,13 @@ const NewGroupRow = () => (
         <span aria-hidden="true" className="size-1.5 shrink-0" />
         <span
             aria-hidden="true"
-            className="grid size-10 shrink-0 place-items-center rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground"
+            className="grid size-11 shrink-0 place-items-center rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground"
         >
             {/* The drawn glyph, like the gear on a row above — a Material ligature here would
                 be the only icon in this menu from a different set. */}
             <PlusIcon className="size-4 shrink-0" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-left font-medium text-foreground!">
+        <span className="min-w-0 flex-1 truncate text-left text-base font-medium text-foreground!">
             New group
         </span>
     </>
@@ -117,17 +117,17 @@ const OrgRow = ({ org, active }) => (
                 active ? "bg-foreground" : "bg-transparent",
             )}
         />
-        <OrgAvatar org={org} className="size-10 text-sm text-white!" />
+        <OrgAvatar org={org} className="size-11 text-sm text-white!" />
         <span className="flex min-w-0 flex-1 flex-col items-start text-left">
             <span
                 className={cn(
-                    "w-full truncate text-foreground!",
+                    "w-full truncate text-foreground! text-base",
                     active ? "font-semibold" : "font-medium",
                 )}
             >
                 {org.name}
             </span>
-            <span className="w-full truncate text-xs text-muted-foreground!">
+            <span className="w-full truncate text-sm text-muted-foreground/50">
                 {org.role === ROLES.ADMIN ? "Administrator" : roleLabel(org.role)}
             </span>
         </span>
@@ -386,12 +386,12 @@ export const OrgNavPanel = () => {
                                       }]
                                     : []
                             }
-                            className="flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-left"
+                            className="flex w-full cursor-pointer items-center gap-4 rounded-xl p-3 text-left"
                         >
                             <button
                                 type="button"
                                 onClick={() => select(org.id)}
-                                className="flex w-full cursor-pointer items-center gap-3 text-left"
+                                className="flex w-full cursor-pointer items-center gap-4 text-left"
                             >
                                 <OrgRow org={org} active={org.id === current?.id} />
                             </button>
@@ -405,7 +405,7 @@ export const OrgNavPanel = () => {
                         <button
                             type="button"
                             onClick={openCreator}
-                            className="flex w-full cursor-pointer items-center gap-3 rounded-xl p-3 text-left"
+                            className="flex w-full cursor-pointer items-center gap-4 rounded-xl p-3 text-left"
                         >
                             <NewGroupRow />
                         </button>

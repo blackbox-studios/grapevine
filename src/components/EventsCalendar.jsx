@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
-import { AnimatePresence } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 
 import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
@@ -14,7 +14,8 @@ import { CALENDAR_ENTRY, MONTHS } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useCalendar } from "@/lib/store/calendar/hook"
-import { cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange, slotTally } from "@/lib/utils"
+import { useOrgNav } from "@/lib/store/org/hook"
+import { SLIDE_TRANSITION, cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange, slotTally } from "@/lib/utils"
 
 /* The parish's month, and one of its days — never both at once.
  *
@@ -476,14 +477,19 @@ const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"]
  * question beyond doubt: the containing block is the viewport, and `--bottombar` means the
  * mobile rail's height exactly as it does everywhere else in the app.
  *
- * The cost of leaving the flow is that it no longer escapes with the tab it belongs to — an
- * inactive `<TabsContent/>` is transparent and inert, and a portalled child of `<body>` is
- * neither. So the *page* renders this, and only while the calendar is the tab on screen.
+ * Leaving the flow costs it two things it would otherwise inherit, and both have to be paid
+ * back by hand. It no longer escapes with the tab it belongs to — an inactive `<TabsContent/>`
+ * is transparent and inert, and a portalled child of `<body>` is neither — so the *page*
+ * renders this, and only while the calendar is the tab on screen. And it no longer travels with
+ * the group switcher's push, so it takes the same `shift` on the same curve the mobile rail
+ * does: this is a key to the colours on the grid, and a key that stayed put while the grid slid
+ * out from under it would read as belonging to the panel.
  *
  * A rule rather than a dot, because that is the shape the colour actually takes on the rail: the
  * accent down a block's left edge. */
 export const CalendarLegend = () => {
     const { hasCalendar, skeleton } = useCalendar()
+    const { shift } = useOrgNav()
     const mounted = useMounted()
 
     /* Nothing to portal into during the static export's prerender, and nothing worth showing
@@ -491,16 +497,20 @@ export const CalendarLegend = () => {
     if (!mounted || skeleton) return null
 
     return createPortal(
-        <div className="pointer-events-none fixed inset-x-0 bottom-(--bottombar) z-20 flex items-center justify-center gap-5 bg-background/85 py-3 text-xs text-muted-foreground backdrop-blur-md md:bottom-0 md:left-(--nav-width)">
+        <motion.div
+            animate={{ x: shift }}
+            transition={SLIDE_TRANSITION}
+            className="pointer-events-none fixed inset-x-0 bottom-(--bottombar) z-20 flex items-center justify-center gap-5 bg-background/85 py-3 text-xs text-muted-foreground backdrop-blur-md md:bottom-0 md:left-(--nav-width)"
+        >
             <span className="flex items-center gap-2">
-                <span className="h-0.5 w-4 rounded-full bg-link" />
+                <span className="h-px w-6 rounded-full bg-link" />
                 {hasCalendar ? "Parish calendar" : "Parish calendar (not set up)"}
             </span>
             <span className="flex items-center gap-2">
-                <span className="h-0.5 w-4 rounded-full bg-brand" />
+                <span className="h-px w-6 rounded-full bg-brand" />
                 Sign-ups
             </span>
-        </div>,
+        </motion.div>,
         document.body,
     )
 }

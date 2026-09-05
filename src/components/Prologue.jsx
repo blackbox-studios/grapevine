@@ -114,7 +114,18 @@ const Inline = ({ text }) => {
  *
  * A verse keeps its own line breaks, because a hymn's lines are the form rather than
  * wrapping — the same reason the parser refuses to join them. `text-balance` is left off it
- * for that reason too: balancing would re-break lines the poet chose. */
+ * for that reason too: balancing would re-break lines the poet chose.
+ *
+ * ── Justified, and hyphenated because it is justified ────────────────────────
+ *
+ * The printed Prologue sets its prose flush to both margins. `hyphens-auto` is the half that
+ * makes that bearable rather than a flourish: a phone holds about thirty-five characters a
+ * line, short enough that one long word pushed down stretches every space on the line it left,
+ * and a river of white is worse than a ragged edge. It resolves against the document's
+ * language, so it rests on the `lang="en"` the root layout sets.
+ *
+ * Prose and the numbered list only — justifying a hymn would stretch lines the poet ended
+ * early, and the subtitle and epigraph are single lines with alignments of their own. */
 const Block = ({ block }) => {
     switch (block.type) {
         case "subtitle":
@@ -145,7 +156,7 @@ const Block = ({ block }) => {
 
         case "list":
             return (
-                <ol className="flex list-decimal flex-col gap-4 pl-6 marker:text-reading marker:font-semibold">
+                <ol className="flex list-decimal flex-col gap-4 pl-6 text-justify hyphens-auto marker:text-reading marker:font-semibold">
                     {block.items.map((item, index) => (
                         <li key={index} className="pl-1">
                             <Inline text={item} />
@@ -156,7 +167,7 @@ const Block = ({ block }) => {
 
         default:
             return (
-                <p>
+                <p className="text-justify hyphens-auto">
                     <Inline text={block.text} />
                 </p>
             )
@@ -265,7 +276,23 @@ const fastingSentence = ({ allowed, forbidden }) => {
  *
  * **Lit means permitted.** The glyphs are ornaments rather than controls — nothing here is
  * tappable — so the whole row is one labelled image to a screen reader, and the sentence
- * below carries the same fact in words for anyone the colour does not reach. */
+ * below carries the same fact in words for anyone the colour does not reach.
+ *
+ * ── Two things the five glyphs have to keep ──────────────────────────────────
+ *
+ * **Each is a single `<path>` and none of them strokes.** They are built from overlapping
+ * pieces — a drumstick is a ball, a bone and two knuckles — and anything that rasterises those
+ * pieces separately gives each its own anti-aliased edge, so a pale hairline shows wherever two
+ * meet. Separate elements do that, and so does `fill` plus `stroke` on one element, which is
+ * two passes over the same path. Both are invisible in a browser at a desktop pixel ratio and
+ * plainly visible in the WebView, which is the only place this row is really read. So each
+ * glyph is drawn at its finished size and filled once, and its pieces are subpaths wound the
+ * same way so they union under `nonzero` — wind one against the others and the overlap punches
+ * a hole instead.
+ *
+ * **They carry about the same ink**, 29-37% of their box. This row says *permitted* by lighting
+ * a glyph and *forbidden* by dimming it, so one that is inherently lighter than its neighbours
+ * reads as half-dimmed and argues with the only signal the row sends. */
 const Fasting = ({ fasting }) => {
     if (!fasting) return null
 
@@ -294,7 +321,7 @@ const Fasting = ({ fasting }) => {
                             key={category.key}
                             aria-hidden="true"
                             className={cn(
-                                "size-8 transition-colors duration-300",
+                                "size-9 transition-colors duration-300",
                                 allowed.includes(category)
                                     ? "text-foreground"
                                     : "text-muted-foreground/40",

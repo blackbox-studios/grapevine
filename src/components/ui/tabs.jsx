@@ -40,7 +40,7 @@ function Tabs({
 				defaultValue={defaultValue}
 				onValueChange={handleChange}
 				className={cn(
-					"group/tabs grid",
+					"group/tabs relative grid",
 					"data-horizontal:grid-cols-1",
 					"data-vertical:grid-rows-1",
 					className,
@@ -116,7 +116,18 @@ function TabsContent({
 	 * horizontal tabs, column 2 for vertical — so only the active one is
 	 * visible while inactive ones fade in place. The `inert` attribute pulls
 	 * inactive panels out of the tab order and pointer routing — the
-	 * data-[state=inactive] CSS only hides them visually. */
+	 * data-[state=inactive] CSS only hides them visually.
+	 *
+	 * **An inactive panel is out of flow, so it cannot set the page's height.** The panels
+	 * share one grid cell, so an in-flow one sizes that cell whatever its opacity — leaving
+	 * a page as tall as its tallest panel and scrolling past nothing. `absolute` takes the
+	 * inactive ones out of the sizing; they keep `col-start`/`row-start` so each resolves
+	 * against its own grid area, which is what the `relative` on the root is for.
+	 *
+	 * `overflow-hidden` on them is load-bearing rather than cosmetic: content overflowing an
+	 * absolutely positioned box still counts toward an ancestor scroller's scrollable
+	 * overflow. The cost is that a taller outgoing panel is clipped to the incoming one's
+	 * height for the 200ms it fades. */
 	const { value: activeValue } = useContext(TabsContext)
 	const isActive = activeValue === value
 
@@ -132,6 +143,7 @@ function TabsContent({
 				"group-data-vertical/tabs:col-start-2 group-data-vertical/tabs:row-start-1",
 				"data-[state=active]:opacity-100",
 				"data-[state=inactive]:pointer-events-none data-[state=inactive]:opacity-0",
+				"data-[state=inactive]:absolute data-[state=inactive]:inset-0 data-[state=inactive]:overflow-hidden",
 				className,
 			)}
 			{...props} />

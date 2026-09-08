@@ -10,6 +10,7 @@ import Plus from "@/assets/svg/icons/plus.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import { Privileged } from "@/components/Auth"
 import Icon from "@/components/Icon"
+import Img from "@/components/Img"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Reflow, ReflowItem } from "@/components/Reflow"
 import Skeleton from "@/components/Skeleton"
@@ -179,7 +180,7 @@ const PhotoStrip = ({ media, onRemove, onAdd, pending, disabled }) => {
                     <Reflow>
                         {media.map((item) => (
                             <ReflowItem key={item.url} className={cn(TILE, "relative overflow-hidden")}>
-                                <img
+                                <Img
                                     src={appPath(item.url)}
                                     alt=""
                                     className="size-full object-cover"

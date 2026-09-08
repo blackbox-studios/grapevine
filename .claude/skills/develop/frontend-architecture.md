@@ -92,6 +92,8 @@ Reference files:
 │   │   ├── Loading.jsx              # <Spinner/> — no full-screen loading surface; the gates render nothing
 │   │   ├── Skeleton.jsx             # Skeleton primitive + named skeleton components
 │   │   ├── Badge.jsx                # Branded badge; hashes color from text
+│   │   ├── Img.jsx                  # "use client": every photo the app draws — fades in on
+│   │   │                            #   load, paints at once when the browser already has it
 │   │   ├── Hyperlink.jsx
 │   │   ├── Hint.jsx                 # "use client": a sentence over whatever it wraps — hover on
 │   │   │                            #   a fine pointer, tap on touch; the app has no tooltips

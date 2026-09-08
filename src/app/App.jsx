@@ -6,12 +6,13 @@ import useErrorListener from "@/lib/hooks/useErrorListener.hook"
 import useFontWarm from "@/lib/hooks/useFontWarm.hook"
 import useNative from "@/lib/hooks/useNative.hook"
 import { useAuthGate, useAuthInit } from "@/lib/store/auth/hook"
+import { useCalendarWarm } from "@/lib/store/calendar/hook"
 import { useNotificationsWatch, useUnreadTitle } from "@/lib/store/notifications/hook"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* App-wide side effects, mounted once by the root layout. Renders nothing — the
  * stores are module-level Zustand (not React context), so this wraps nothing. It does
- * sit inside <Providers>, because the native effects read the resolved theme. Seven
+ * sit inside <Providers>, because the native effects read the resolved theme. Eight
  * effects:
  *   1. Resolve the session — reconcile the persisted guess against Supabase, and consume a
  *      magic-link callback out of the URL if there is one. This lives here, above both
@@ -25,7 +26,8 @@ import useGlobalStore from "@/lib/store/global.store"
  *   5. Keep the notification bell current on clients push cannot reach, via
  *      useNotificationsWatch.
  *   6. Carry the unread tally into the browser tab — "(3) Grapevine" — via useUnreadTitle.
- *   7. Pull the Daily Read's serif down on an idle moment, via useFontWarm. */
+ *   7. Pull the Daily Read's serif down on an idle moment, via useFontWarm.
+ *   8. Fill the selected group's month on an idle moment, via useCalendarWarm. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -58,6 +60,9 @@ export default function App() {
     /* Gated on the session because /prologue is behind one: nobody sitting on the login
        screen is a click away from needing the face. */
     useFontWarm(ready && loggedIn)
+    /* Gated the same way, and for the same reason: there is no group to warm a calendar for
+       until there is a viewer to read one out of. */
+    useCalendarWarm(ready && loggedIn)
 
     return null
 }

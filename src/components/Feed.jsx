@@ -9,6 +9,7 @@ import Hyperlink from "@/components/Hyperlink"
 import { usePinchZoom } from "@/components/PinchZoom"
 import Comments from "@/components/Comments"
 import Icon from "@/components/Icon"
+import Img from "@/components/Img"
 import Linkify from "@/components/Linkify"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, ReflowItem } from "@/components/Reflow"
@@ -287,7 +288,7 @@ const PostCard = ({ post }) => {
                         aria-label="Open post"
                         className="-mx-4 block cursor-pointer overflow-hidden rounded-none bg-muted md:mx-0 md:rounded-lg"
                     >
-                        <img
+                        <Img
                             src={appPath(images[0])}
                             alt=""
                             width={post.width}

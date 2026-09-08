@@ -5,6 +5,7 @@ import useMeasure from "react-use-measure"
 
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
+import Img from "@/components/Img"
 import { CommentsSkeleton, PostMediaSkeleton } from "@/components/Skeleton"
 import { Overlay } from "@/components/Widgets"
 import { appPath, postImages } from "@/lib/utils"
@@ -26,7 +27,7 @@ const PostMedia = ({ post }) => {
     }
 
     return (
-        <img
+        <Img
             src={appPath(images[0])}
             alt=""
             className="h-[90dvh] w-auto max-w-[calc(95vw-var(--commentbar-width))] object-contain"

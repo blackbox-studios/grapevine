@@ -133,6 +133,17 @@ export function timeAgoCompact(current, previous) {
     return `${years}y`
 }
 
+/* Runs something on the browser's next idle moment, answering the cancel for it.
+ *
+ * WKWebView only gained `requestIdleCallback` in iOS 16.4 and the packaged app still runs on
+ * earlier ones, so a timer stands in for it there. Both say the same thing to a caller: after
+ * the screen the reader is actually looking at has settled. */
+export const whenIdle = (run, { timeout = 3000, delay = 1500 } = {}) => {
+    const idle = typeof requestIdleCallback === "function"
+    const handle = idle ? requestIdleCallback(run, { timeout }) : setTimeout(run, delay)
+    return () => (idle ? cancelIdleCallback(handle) : clearTimeout(handle))
+}
+
 /* The app's base path with any trailing slash stripped: "" in host dev, otherwise
  * the configured NEXT_PUBLIC_BASE_PATH (kept in sync with basePath in next.config). */
 export const basePath = () => (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(/\/$/, '')

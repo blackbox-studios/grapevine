@@ -137,6 +137,41 @@ const useStore = create(immer((set, get) => ({
         get().fetch(orgId, startOfMonth(month, 1))
     },
 
+    /* Fills the month a reader would land on, before they ask for it.
+     *
+     * The events tab is one tap from every screen and a window is resolved through the parish's
+     * own Google Calendar, so its wait is somebody else's network rather than our own tables.
+     * Spending an idle moment on it at boot and on a group switch is what keeps that wait off
+     * the screen.
+     *
+     * The group and the month are both claimed here rather than left to `load`: a response
+     * whose group no longer matches is dropped, and `ready` is set by whichever fetch answers
+     * for the month *on record* — so claiming both is what lets the surface mount on a resolved
+     * window instead of a frame behind its own effect. A month the reader has already paged to
+     * is left where it is, and `view` is untouched, because which of the two surfaces is on
+     * screen belongs to whoever opened it. */
+    warm: (orgId) => {
+        if (!orgId) return
+
+        if (get().orgId !== orgId) {
+            set(state => {
+                state.orgId = orgId
+                state.months = {}
+                state.ready = false
+            })
+        }
+
+        const target = get().month ?? startOfMonth(new Date())
+        set(state => {
+            if (state.month) return
+            state.month = target
+            state.monthKey = monthKeyOf(target)
+        })
+
+        get().fetch(orgId, target)
+        get().prefetchNeighbours(orgId, target)
+    },
+
     /* Puts the selected month on screen, from the cache when it is there.
      *
      * **Takes no month, and the write below is guarded.** Both are the same rule: called with

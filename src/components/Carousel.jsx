@@ -9,6 +9,7 @@ import {
     useMotionValueEvent,
 } from "motion/react"
 
+import Img from "@/components/Img"
 import { usePinchZoom } from "@/components/PinchZoom"
 import CycleLeft from "@/assets/svg/icons/cycle-left.svg"
 import CycleRight from "@/assets/svg/icons/cycle-right.svg"
@@ -239,7 +240,7 @@ const Carousel = ({ images, bare = false, zoomable = false, onImageClick }) => {
                             key={i}
                             className="aspect-square w-full shrink-0 select-none bg-black"
                         >
-                            <img
+                            <Img
                                 src={appPath(src)}
                                 alt=""
                                 draggable={false}

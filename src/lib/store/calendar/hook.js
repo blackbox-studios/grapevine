@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { CALENDAR_ENTRY } from "@/lib/constants"
 import { useCurrentOrg } from "@/lib/store/org/hook"
-import { dayKey, monthGrid } from "@/lib/utils"
+import { dayKey, monthGrid, whenIdle } from "@/lib/utils"
 import useCalendarStore from "./store"
 
 /* The compiled calendar, as the month grid and the day panel read it.
@@ -140,4 +140,23 @@ export const useCalendar = () => {
         openDay, closeDay, nextDay, previousDay, next, previous, today,
         resolvingOrg, ready,
     ])
+}
+
+/* Pulls the selected group's month down while the reader is somewhere else, so the events tab
+ * opens on a grid rather than on a skeleton.
+ *
+ * Mounted on the shell rather than on the surface, which is the point: a calendar warmed by
+ * the calendar is warmed a frame too late. It re-runs on a group switch for the same reason
+ * the feed reloads on one, and the three months it lands (this one and its neighbours) are
+ * the ones paging reaches first.
+ *
+ * Idle, so a month nobody has asked for is never competing with the screen they are on. */
+export const useCalendarWarm = (enabled) => {
+    const warm = useCalendarStore(state => state.warm)
+    const { orgId } = useCurrentOrg()
+
+    useEffect(() => {
+        if (!enabled || !orgId) return
+        return whenIdle(() => warm(orgId))
+    }, [enabled, orgId, warm])
 }

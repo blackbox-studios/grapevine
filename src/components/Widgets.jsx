@@ -4,6 +4,7 @@ import { motion } from "motion/react"
 
 import Hyperlink from "@/components/Hyperlink"
 import Icon from "@/components/Icon"
+import Img from "@/components/Img"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -29,7 +30,7 @@ import { appPath, cn, formatCompact, gradientFor, orgInitials } from "@/lib/util
  * change theirs. */
 export const Avatar = ({ person, className }) =>
     person?.avatar ? (
-        <img
+        <Img
             src={appPath(person.avatar)}
             alt=""
             aria-hidden="true"
@@ -153,7 +154,7 @@ export const FollowButton = ({ person, label = "Follow", size = "sm", className 
  * identifier per group, so renaming a parish does not recolour it. */
 export const OrgAvatar = ({ org, className }) =>
     org?.avatar ? (
-        <img
+        <Img
             src={appPath(org.avatar)}
             alt=""
             aria-hidden="true"

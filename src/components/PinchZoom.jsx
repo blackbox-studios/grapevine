@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { animate, motion, useMotionValue, useTransform } from "motion/react"
 
+import Img from "@/components/Img"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { cn } from "@/lib/utils"
 
@@ -148,7 +149,7 @@ const PinchZoom = ({ src, alt = "", className, imgClassName }) => {
 
     return (
         <div ref={wrapRef} className={className} style={{ touchAction: "pan-y" }}>
-            <img
+            <Img
                 src={src}
                 alt={alt}
                 draggable={false}

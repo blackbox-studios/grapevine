@@ -89,19 +89,24 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  // Pooled connection for the app at runtime — Supabase's **session** pooler, port 5432.
+  // Pooled connection for the app at runtime. Which Supabase pooler it names is decided by
+  // how the target runs, and the wrong one is an outage rather than a slowdown.
   //
-  // Not the transaction pooler (6543), and the difference is worth real latency. Transaction
-  // mode hands out a connection per statement, so Prisma must disable named prepared
-  // statements (`?pgbouncer=true`) and bracket every single query in its own transaction:
-  // BEGIN, DEALLOCATE ALL, the SELECT, COMMIT — four round trips to run one. A page of
-  // comments measured 23 statements and 1.28s that way, against 8 statements and 0.59s on
-  // the session pooler, with identical SQL.
+  // Session mode (5432) is the faster of the two: prepared statements and one round trip
+  // per query. Transaction mode (6543 + `?pgbouncer=true`) hands out a connection per
+  // statement, so Prisma must disable named prepared statements and bracket every single
+  // query in its own transaction: BEGIN, DEALLOCATE ALL, the SELECT, COMMIT — four round
+  // trips to run one. A page of comments measured 23 statements and 1.28s that way,
+  // against 8 statements and 0.59s on the session pooler, with identical SQL.
   //
-  // Session mode is correct *because of how this app deploys*: one long-lived Node server
-  // (`next start`) with a bounded Prisma pool. If it ever moves to serverless functions or
-  // the edge, where every invocation opens its own connection, this must go back to 6543
-  // with `?pgbouncer=true` — that is what transaction mode is for.
+  // But session mode allots this database user only 15 clients and holds one per Prisma
+  // connection for that connection's life, so it fits exactly one shape: a long-lived
+  // server (`next start`, `next dev`) with one bounded pool. Serverless does not fit —
+  // every warm instance keeps its own pool and releases nothing between invocations, so
+  // the allotment is exhausted by idle capacity at a concurrency of one or two, and since
+  // every route calls requireViewer the whole API fails together with EMAXCONNSESSION.
+  // Vercel is serverless, so production runs on 6543 with connection_limit=1 and pays the
+  // round trips above. See .env.example.
   url       = env("DATABASE_URL")
   // Direct connection (port 5432) for migrations. Prisma Migrate takes advisory locks
   // and issues DDL, neither of which survives a transaction pooler, so it must bypass

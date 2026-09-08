@@ -597,17 +597,32 @@ Two URLs, and the split is required rather than an optimization:
 
 | Var | Port | Used by | Why |
 |---|---|---|---|
-| `DATABASE_URL` | 5432 | the app at runtime | Supabase's **session** pooler. One long-lived Node server with a bounded Prisma pool, so it gets prepared statements and one round trip per query. |
-| `DIRECT_URL` | 5432 | `prisma migrate` only | Migrate takes advisory locks and issues DDL, neither of which survives a transaction pooler. Point migrations at 6543 and they hang or fail with prepared-statement errors. |
+| `DATABASE_URL` | 5432 **or** 6543 | the app at runtime | Which one is decided by how the target runs, not by preference. See below. |
+| `DIRECT_URL` | 5432, always | `prisma migrate` only | Migrate takes advisory locks and issues DDL, neither of which survives a transaction pooler. Point migrations at 6543 and they hang or fail with prepared-statement errors. |
 
-**Why not the transaction pooler (6543).** It hands out a connection per statement, so
-Prisma must disable named prepared statements (`?pgbouncer=true`) and wrap *every single
-query* in its own transaction: `BEGIN`, `DEALLOCATE ALL`, the `SELECT`, `COMMIT` — four
-round trips to run one. Measured on one page of comments: 23 statements / 1.28s through
-6543 against 8 statements / 0.59s through 5432, identical SQL. Session mode is correct
-here **because of how this deploys** — `next start`, one process. If this app ever moves
-to serverless functions or the edge, where each invocation opens its own connection, it
-must go back to 6543 with `?pgbouncer=true`; that is what transaction mode is for.
+**Session mode (5432) is faster, and it only fits a long-lived server.** Supabase allots
+this database user **15 clients** in session mode, and session mode holds one of them per
+Prisma connection for that connection's whole life. `next start` or `next dev` is one
+process with one bounded pool, so it sits inside the 15 and earns prepared statements and
+one round trip per query. Set `connection_limit` explicitly even there — Prisma's default
+is `num_physical_cpus * 2 + 1`, which is 33 on a 16-core machine and twice the allotment.
+
+**Serverless must use transaction mode (6543 + `?pgbouncer=true&connection_limit=1`), and
+this is a correctness constraint rather than a tuning one.** Every warm function instance
+holds its own pool and releases nothing between invocations, so the 15 are consumed by
+idle capacity: six instances at a `connection_limit` of five want thirty. It then fails at
+a concurrency of *one or two*, which is why it does not present as a load problem — every
+route calls `requireViewer`, so the first statement of every request fails together with
+`PrismaClientInitializationError` / `FATAL: (EMAXCONNSESSION)`. Raising `connection_limit`
+multiplies by the instance count and reaches the wall sooner. **Vercel is serverless**, so
+production runs on 6543.
+
+**What transaction mode costs.** It hands out a connection per statement, so Prisma must
+disable named prepared statements and wrap *every single query* in its own transaction:
+`BEGIN`, `DEALLOCATE ALL`, the `SELECT`, `COMMIT` — four round trips to run one. Measured
+on one page of comments: 23 statements / 1.28s through 6543 against 8 statements / 0.59s
+through 5432, identical SQL. That is the price of running serverless at all, and it is why
+session mode is still preferred anywhere it fits.
 
 ### Round trips are the cost, not the SQL
 

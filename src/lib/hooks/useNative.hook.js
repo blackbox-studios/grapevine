@@ -53,19 +53,35 @@ const useStatusBarTheme = () => {
     }, [resolvedTheme])
 }
 
-/* Hides the launch splash once React has actually painted. The splash is configured with
- * `launchAutoHide: false` so it is dismissed here rather than on a timer: that way it
- * covers the whole cold boot — including the auth gate's redirect (see AuthGate) — and the
- * first thing the user sees is a settled screen rather than a flash of the wrong route.
- * Deferred a frame because an effect runs before the browser has committed the paint. */
-const useSplashScreen = () => {
+/* The splash cannot wait on `painted` indefinitely: a session check can hang on a dead
+ * network, and an uncapped splash is an app that never opens. */
+const SPLASH_CAP_MS = 4000
+
+/* Hides the launch splash once there is something behind it. The splash is configured with
+ * `launchAutoHide: false` so it is dismissed here rather than on a timer, and `painted` is
+ * what it waits for: the route gates render nothing until they have an answer, so hiding on
+ * React's first paint hands the reader a blank screen and then a shell, instead of a splash
+ * and then a shell. Deferred a frame because an effect runs before the browser has committed
+ * the paint. */
+const useSplashScreen = (painted) => {
     useEffect(() => {
         if (!isNative()) return
-        const frame = requestAnimationFrame(() => {
-            SplashScreen.hide().catch(() => {})
-        })
-        return () => cancelAnimationFrame(frame)
-    }, [])
+
+        let frame = 0
+        const hide = () => {
+            frame = requestAnimationFrame(() => {
+                SplashScreen.hide().catch(() => {})
+            })
+        }
+
+        if (painted) hide()
+        const timer = painted ? null : setTimeout(hide, SPLASH_CAP_MS)
+
+        return () => {
+            if (timer) clearTimeout(timer)
+            cancelAnimationFrame(frame)
+        }
+    }, [painted])
 }
 
 /* Wires Android's hardware/gesture back button. It has no browser equivalent, so without
@@ -354,10 +370,13 @@ const useVisualViewportInset = () => {
 /* `ready` is a resolved, signed-in session — the condition for a tapped notification having
  * somewhere to open. Passed down rather than read here so the push listeners can be mounted
  * unconditionally: a cold launch delivers its tap before the session resolves, and a listener
- * attached after that never hears it. See usePushListeners. */
-export const useNative = (ready) => {
+ * attached after that never hears it. See usePushListeners.
+ *
+ * `painted` is the weaker signal the splash waits on: the gates have an answer and are
+ * drawing something. See useAuthGate for why the two are not the same moment. */
+export const useNative = (ready, painted) => {
     useStatusBarTheme()
-    useSplashScreen()
+    useSplashScreen(painted)
     useHardwareBack()
     useEdgeSwipeBack()
     useKeyboardDismiss()

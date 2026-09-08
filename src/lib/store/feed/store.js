@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
@@ -80,9 +81,13 @@ const INIT = {
      * so a slow page for a group the reader has already switched away from is dropped
      * rather than appended under the new one. */
     orgId: null,
+
+    /* The list on screen came off disk and has not been confirmed against the server this
+     * session. */
+    hydrated: false,
 }
 
-const useStore = create(immer((set, get) => ({
+const useStore = create(immer(persist((set, get) => ({
     ...INIT,
 
     /* Loads a group's feed. Called from the hook with the current selection, so it re-runs
@@ -90,22 +95,31 @@ const useStore = create(immer((set, get) => ({
      *
      * Idempotent for the group already showing, which is what makes it safe to call on
      * every mount: navigating away from the dashboard and back must not re-fetch a list the
-     * reader has already scrolled. */
+     * reader has already scrolled. A hydrated list is the exception — it is a page off disk
+     * that no request has confirmed, so it is refreshed rather than trusted.
+     *
+     * **A different group empties the list; the same group keeps it.** The old parish's
+     * posts must not sit under a new parish's name for the length of a round trip, so
+     * `items` goes with `ready` and the skeleton is up on the next frame. Refreshing the
+     * group already on screen is the opposite case: what is on screen is this group's, so it
+     * stays put and the new page replaces it when it lands. */
     load: async (orgId) => {
         if (!orgId) return
-        if (get().orgId === orgId && get().ready) return
 
-        /* A different group is a different list, so the old one goes immediately rather
-         * than at the end of the request. Emptying `items` alongside `ready` is what puts
-         * the skeleton up on the very next frame — leaving them would show one parish's
-         * posts under another's name for the length of a round trip. */
-        set(state => {
-            state.orgId = orgId
-            state.items = []
-            state.cursor = null
-            state.hasMore = true
-            state.ready = false
-        })
+        const { orgId: loaded, ready, hydrated } = get()
+        if (loaded === orgId && ready && !hydrated) return
+
+        if (loaded !== orgId) {
+            set(state => {
+                state.orgId = orgId
+                state.items = []
+                state.cursor = null
+                state.hasMore = true
+                state.ready = false
+            })
+        }
+
+        set(state => { state.hydrated = false })
 
         await get().refresh()
     },
@@ -338,6 +352,34 @@ const useStore = create(immer((set, get) => ({
 
     reset: () => set(() => ({ ...INIT })),
     clearErrors: () => set(state => { state.error = ERROR_INIT }),
+}), {
+    /* The last page the reader saw, so a cold launch opens on their parish's posts instead
+     * of on a skeleton. The same move an opening post makes against `cachedPost`: paint the
+     * copy already in hand on the first frame, and let the request behind it be invisible.
+     *
+     * **One page, and no cursor.** `cursor` points past whatever has been paged in, so
+     * keeping it beside a truncated list would hand `loadMore` a continuation into a gap.
+     * Rehydration takes `cursor` and `hasMore` from INIT instead, and `hydrated` sends `load`
+     * to the server for a real first page — which arrives with the cursor that belongs to it.
+     *
+     * `orgId` travels with the items because the list is meaningless without it: a feed
+     * restored under the wrong group is another parish's posts under this one's name, which
+     * is the thing `load` empties the list to prevent.
+     *
+     * An optimistic row is dropped on the way out. It stands for a request that was still in
+     * flight, and the process it was waiting on is gone — restoring one would put a post on
+     * screen that the server may never have accepted, under an id nothing can resolve. */
+    partialize: (state) => ({
+        orgId: state.orgId,
+        items: state.items.filter(post => !post.pending).slice(0, PAGE_SIZE.FEED),
+    }),
+    /* Readiness is derived on the way in rather than persisted, so a stored empty list
+     * cannot restore a feed that claims to be loaded and never asks for one. */
+    merge: (persisted, current) => {
+        const items = persisted?.items ?? []
+        return { ...current, ...persisted, ready: items.length > 0, hydrated: items.length > 0 }
+    },
+    name: 'grapevine-feed',
 })))
 
 export default useStore

@@ -22,33 +22,27 @@ import { useAuthGate } from "@/lib/store/auth/hook"
  * the client, where the persisted value is already there on the first render: no flash of
  * the wrong side of the gate, and no hydration mismatch.
  *
- * **ready** — the auth store has finished reconciling that persisted guess against the
- * real Supabase session. Deciding before this is not a cosmetic flicker, it is a bug that
- * makes signing in by link impossible:
+ * **settled** — the auth store has an answer worth acting on. For a returning viewer that is
+ * the persisted session, available on the first frame; for everyone else it is `ready`, the
+ * reconciliation against Supabase. `useAuthGate` owns which, and the distinction is what
+ * keeps a magic-link sign-in working: a link lands on `/#access_token=…&refresh_token=…`,
+ * nothing is persisted, and a gate deciding on the spot would redirect to /login and
+ * **discard the fragment** — leaving the login page to boot, find no session anywhere, and
+ * sit there. So a boot with a callback in the URL waits for `init()` to have read it.
  *
- *   1. A magic link lands on `/#access_token=…&refresh_token=…`.
- *   2. The gate sees `loggedIn === false` (nothing persisted yet) and redirects to /login.
- *   3. That navigation **discards the URL fragment**, taking the tokens with it.
- *   4. The login page boots, finds no session anywhere, and sits there.
- *
- * Waiting for `ready` holds the redirect until `init()` has had its chance to read the URL
- * and establish the session.
- *
- * **That window is blank, and deliberately so.** A spinner used to cover it, with a one-second
- * minimum on screen so it could not flicker — which meant every cold start paid a full second
- * whether or not there was anything to wait for, and the session check is usually faster than
- * that. What it bought was a moment of branded loading; what it cost was making the app feel
- * slower than it is, every single time. Rendering nothing lets a fast boot look fast, and a
- * slow one is a blank frame or two rather than a spinner that has to justify its own arrival.
+ * **What is not settled renders blank, and deliberately so.** A spinner here needs a minimum
+ * time on screen or it flickers, which charges every cold start that minimum whether there
+ * was anything to wait for or not. On native nobody sees the window at all: the launch splash
+ * is held over it until the app has something to show (see useSplashScreen).
  *
  * Redirects are `replace`, not `push`: a bounced navigation must not leave an entry behind
  * for the back gesture to land on. */
 export const ProtectedGate = ({ children }) => {
-    const { ready, loggedIn } = useAuthGate()
+    const { settled: answered, loggedIn } = useAuthGate()
     const mounted = useMounted()
     const router = useRouter()
 
-    const settled = mounted && ready
+    const settled = mounted && answered
 
     useEffect(() => {
         if (settled && !loggedIn) router.replace(ROUTES.PUBLIC.LOGIN)
@@ -59,15 +53,15 @@ export const ProtectedGate = ({ children }) => {
 
 /* The mirror image: keeps a signed-in user off the login page.
  *
- * This one needs `ready` for its own reason. A viewer arriving on /login with a live
- * session — a bookmarked link, or the magic-link callback — must be bounced *into* the app,
- * and that can only be known once the session check has run. */
+ * A viewer arriving on /login with a live session — a bookmarked link, or the magic-link
+ * callback — must be bounced *into* the app, which is why this waits on the same answer
+ * rather than showing the form to anyone whose session has not been ruled out. */
 export const PublicGate = ({ children }) => {
-    const { ready, loggedIn } = useAuthGate()
+    const { settled: answered, loggedIn } = useAuthGate()
     const mounted = useMounted()
     const router = useRouter()
 
-    const settled = mounted && ready
+    const settled = mounted && answered
 
     useEffect(() => {
         if (settled && loggedIn) router.replace(ROUTES.DEFAULT)

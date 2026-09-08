@@ -13,9 +13,11 @@ import { PrismaClient } from "@prisma/client"
  * `server-only` above makes a Client Component that tries fail the build rather than
  * bundle Prisma and a connection string into the client.
  *
- * DATABASE_URL points at Supabase's transaction pooler; migrations use DIRECT_URL instead,
- * because Prisma Migrate's advisory locks and DDL don't survive a pooler. See
- * prisma/schema.prisma. */
+ * DATABASE_URL points at Supabase's session pooler, which holds one of this database
+ * user's allotted clients per Prisma connection — so this pool's ceiling is
+ * `connection_limit` in the connection string rather than anything in this file, and
+ * Prisma's default is above the allotment. See .env.example. Migrations use DIRECT_URL,
+ * because Prisma Migrate's advisory locks and DDL don't survive a transaction pooler. */
 const globalForPrisma = globalThis
 
 export const prisma =

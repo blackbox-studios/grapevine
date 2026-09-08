@@ -414,13 +414,17 @@ const DayView = ({ selected, entries, onBack, onPrevious, onNext, onOpen }) => {
     useBackHandler(true, onBack)
 
     return (
-        <div className="flex flex-col gap-6">
+        /* The date names the surface and everything under it belongs to that date, so the gap
+           here is wider than any gap inside the rail. It has to match the month's, below: the
+           two are one surface a reader steps between, and a heading that landed in a different
+           place on a day than on the month would read as the page having changed shape. */
+        <div className="flex flex-col gap-10">
             <header className="flex items-center gap-2">
                 <Button className="-ml-2.5" variant="ghost" size="icon" onClick={onBack} aria-label="Back to the month">
                     <Icon size="lg">arrow_back</Icon>
                 </Button>
 
-                <h2 className="flex-1 truncate text-lg font-semibold text-foreground">
+                <h2 className="flex-1 truncate text-xl font-medium text-foreground">
                     {formatDayHeading(dateFromKey(selected))}
                 </h2>
 
@@ -445,8 +449,8 @@ const DayView = ({ selected, entries, onBack, onPrevious, onNext, onOpen }) => {
                         <div className="flex flex-col gap-6">
                             {/* Inside the cross-fade with the rail, so stepping to the next
                                 day carries all three across together. */}
-                            <AllDayBand entries={entries} />
                             <ClaimedNotice entries={entries} />
+                            <AllDayBand entries={entries} />
                             <DayRail entries={entries} onOpen={onOpen} />
                         </div>
                     )}
@@ -566,7 +570,11 @@ const EventsCalendar = () => {
                     </Transition>
                 ) : (
                     <Transition fast key="month">
-                        <div className="flex flex-col gap-6">
+                        {/* `gap-10` is the month's heading standing clear of its grid, and it is
+                           the same figure `<DayView/>` and `<CalendarSkeleton/>` use — all three
+                           are the same heading in the same place, and a reader stepping between
+                           them must not see it move. */}
+                        <div className="flex flex-col gap-10">
                             {/* The header sits outside the fade below: paging is a change of
                                 month, not of the controls that page it, and arrows that faded
                                 out under the thumb pressing them would read as the whole screen

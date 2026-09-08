@@ -291,7 +291,7 @@ is called once from `src/app/App.jsx`:
 
 | Effect | Behaviour |
 |---|---|
-| Splash screen | `launchAutoHide: false` in config; hidden on the first frame after mount, so the app never flashes an unstyled shell |
+| Splash screen | `launchAutoHide: false` in config; held until the route gates have an answer to draw (capped, so a hung session check still opens the app), so the app never flashes an unstyled shell or a blank one |
 | Status bar | Follows the resolved `next-themes` value — this is why `<App/>` sits *inside* `<Providers>` |
 | Hardware back (Android) | Runs the topmost registered handler; else `history.back()`; else exits at the root |
 | Keyboard | `resize: "none"`; height mirrored into `--keyboard-inset`; dismissed when focus leaves an input |

@@ -285,7 +285,10 @@ export function NotificationsSkeleton({ count = 6 }) {
  * lookup — this is the cold open of the tab and nothing else. */
 export function CalendarSkeleton() {
     return (
-        <div className="flex flex-col gap-6">
+        /* `gap-10` because the real month uses it: the heading is the one thing on this surface
+           that is in the same place before and after the load, and a skeleton that put it
+           anywhere else would move it at the moment the content arrives. */
+        <div className="flex flex-col gap-10">
             <div className="flex items-center justify-between">
                 <Skeleton className="h-8 w-44" />
                 <Skeleton className="h-8 w-20 rounded-full" />

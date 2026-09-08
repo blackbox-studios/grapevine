@@ -22,8 +22,8 @@ import { useGatewayDestination } from "@/lib/store/auth/hook"
  * one sends you to /welcome, the other decides you don't belong there and sends you back,
  * forever. Here there is a single answer and both gates merely obey it.
  *
- * Like the auth gates, neither decides before `ready`; the destination is `undefined`
- * until the viewer has been resolved, and both render nothing while that is true. */
+ * Neither decides before there is a viewer to read: the destination is `undefined` until
+ * one has been resolved, and both render nothing while that is true. */
 
 /* Wraps the app shell: holds a viewer who has somewhere else to be. */
 export const MemberGate = ({ children }) => {

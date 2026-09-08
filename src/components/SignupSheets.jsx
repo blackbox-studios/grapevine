@@ -45,17 +45,17 @@ import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTal
  * Administering a rota is a mode rather than a destination. A priest looking at Sunday and
  * noticing nobody has signed up should be able to add a place from where he is standing; the
  * list is identical either way, and what differs is only what each date *offers*. The switch is
- * in the page's header (`<ModeSwitch/>`), drawn only for an admin, and checked again in
+ * on the end of the tab bar (`<ModeSwitch/>`), drawn only for an admin, and checked again in
  * `useEventsView` rather than trusted — a role can be revoked while the page is open. None of
  * it is a control: `requireMembership(..., { role: "ADMIN" })` is.
  */
 
-/* The edit switch, mounted by the Events page's header rather than by this component.
+/* The edit switch, mounted by the Events page beside its tab bar rather than by this component.
  *
- * **It lives with the title and stays there on both tabs.** A page-level control belongs in the
- * page's header, and keeping it put means it does not appear and disappear as the reader moves
- * between the calendar and the rotas — a control that comes and goes is one somebody has to go
- * looking for. On the calendar it has nothing to act on, which is the cheaper price.
+ * **It stays there on both tabs.** A page-level control belongs in the page's top row, and
+ * keeping it put means it does not appear and disappear as the reader moves between the calendar
+ * and the rotas — a control that comes and goes is one somebody has to go looking for. On the
+ * calendar it has nothing to act on, which is the cheaper price.
  *
  * Drawn only for an admin of the selected group, and hidden rather than disabled for a member —
  * the visibility convention for anything above the base role.
@@ -73,16 +73,17 @@ import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTal
  * capacity typed in edit mode is already saved by the time you look away, so there is no Save
  * held back and no Cancel to pair one with.
  *
- * The caption is the glyph in a word, because a lone circle in a page header has nothing beside
- * it to be read against the way the nav rail's row teaches itself by repetition. It is not a
- * second control — the word is `aria-hidden` and the `aria-label` is the accessible name — and
- * the two words share one grid cell so the column cannot change width as they cross-fade. */
+ * The caption is the glyph in a word, because a lone circle beside a bar naming two tabs has
+ * nothing of its own to be read against the way the nav rail's row teaches itself by
+ * repetition. It is not a second control — the word is `aria-hidden` and the `aria-label` is the
+ * accessible name — and the two words share one grid cell so the column cannot change width as
+ * they cross-fade. */
 export const ModeSwitch = ({ className }) => {
     const { editing, canEdit, setMode } = useEventsView()
     if (!canEdit) return null
 
     return (
-        <div className={cn("flex shrink-0 flex-col items-center gap-1 -mt-1", className)}>
+        <div className={cn("flex shrink-0 flex-col items-center gap-1", className)}>
             <Button
                 type="button"
                 variant={editing ? "default" : "outline"}
@@ -611,7 +612,7 @@ export const RotaPage = ({ row, editing, onBack }) => {
                     <Icon size="lg">arrow_back</Icon>
                 </Button>
 
-                <h2 className="flex-1 truncate text-lg font-semibold text-foreground">
+                <h2 className="flex-1 truncate text-xl font-medium text-foreground">
                     {row.title}
                 </h2>
 
@@ -723,10 +724,10 @@ const RotaRow = ({ row, onOpen }) => {
                     {row.dates === 0
                         ? row.finished
                             ? "Finished"
-                            : "No dates yet"
+                            : "No slots yet"
                         : row.needed === 0
-                            ? `${row.dates} ${row.dates === 1 ? "date" : "dates"}, all covered`
-                            : `${row.needed} of ${row.dates} ${row.dates === 1 ? "date needs" : "dates need"} people`}
+                            ? `${row.dates} ${row.dates === 1 ? "slot, filled" : "slots, all filled"}`
+                            : `${row.dates - row.needed} of ${row.dates} ${row.dates === 1 ? "slot" : "slots"} filled`}
                     {row.nextAt ? ` · next ${formatDayHeading(row.nextAt)}` : ""}
                 </span>
             </span>

@@ -323,21 +323,38 @@ export const useViewerAuthor = () => {
     return useAuthStore(useShallow(state => viewerAuthor(state.user)))
 }
 
-/* Whether anyone is signed in, and whether that answer can be acted on yet. Kept separate
- * from useLogin so a consumer doesn't drag in the login form's loading/error surface.
+/* A sign-in callback sitting in the URL: `/#access_token=…&refresh_token=…`, which `init()`
+ * has to be given the chance to consume before anything navigates, because a redirect
+ * discards the fragment and the tokens with it.
  *
- * **Both halves, always — there is deliberately no hook that hands out `loggedIn` alone.**
- * One existed (`useAuthed`) and every use of it was a latent bug: `loggedIn` rehydrates off
- * disk before `init()` has asked Supabase anything, so a consumer reading it bare acts on the
- * persisted *guess*. That made the gate redirect out of a magic-link callback before the
- * tokens in the URL had been read — see the header of components/AuthGate.jsx — and, later,
- * made a push tapped from a cold launch flush its destination before <SlideRouter/> existed to
- * receive it. Both callers now wait on `ready`, so the shape that invited the mistake is gone
- * rather than merely documented. */
+ * Read once at module load, which is ahead of the first render and of every navigation that
+ * could clear it. Always false on native — `detectSessionInUrl` is off there and the boot
+ * guard in app/layout.jsx has already rewritten the URL to the root. */
+const CALLBACK = typeof window !== "undefined" && window.location.hash.includes("access_token")
+
+/* Whether anyone is signed in, whether the session check has finished, and whether the gates
+ * may act on the answer yet. Kept separate from useLogin so a consumer doesn't drag in the
+ * login form's loading/error surface.
+ *
+ * **`settled` is the only one of the three a gate may render off, and `loggedIn` is never
+ * handed out alone.** `loggedIn` rehydrates off disk before `init()` has asked Supabase
+ * anything, so a consumer reading it bare acts on the persisted *guess* — which is how a push
+ * tapped from a cold launch flushes its destination before <SlideRouter/> exists to receive
+ * it. That caller wants `ready`.
+ *
+ * A gate wants something weaker, and this is where the two part company. A returning viewer's
+ * `loggedIn` is on disk on the first render, while `ready` is three serial round trips away —
+ * the storage read, a token refresh, and `/api/me` — and holding the shell shut for all of
+ * them means the app cannot even *start* fetching a feed until they finish. So a persisted
+ * session is treated as the answer it almost always is: the shell mounts on the first frame
+ * and `init()` reconciles behind it, signing the viewer out on the spot if the session is
+ * genuinely gone. The one case where the guess must not be acted on is a callback in the URL,
+ * because the redirect it would authorize is what destroys the tokens. */
 export const useAuthGate = () => {
     return useAuthStore(useShallow(state => ({
         ready: state.ready,
         loggedIn: state.loggedIn,
+        settled: state.ready || (state.loggedIn && !CALLBACK),
     })))
 }
 
@@ -348,12 +365,18 @@ export const useAuthGate = () => {
  * has not loaded" will bounce someone out of the app for the fraction of a second before
  * /api/me answers, and on a magic-link boot that is long enough to matter.
  *
+ * Answered off the viewer alone, persisted copy included, for the reason `useAuthGate`
+ * settles on the persisted session: a cached viewer knows its own access and whether
+ * orientation is finished, and waiting for `/api/me` to confirm two fields that change once
+ * in an account's life holds the shell shut for a round trip on every launch. `/api/me`
+ * replaces the viewer when it lands, so a revoked membership or a finished orientation moves
+ * the reader a moment later.
+ *
  * This is the single source that both gates in components/MemberGate.jsx and the callback
  * scrub in useAuthInit read, so they cannot disagree and fight over the same navigation. */
 export const useGatewayDestination = () => {
     return useAuthStore(state => {
-        if (!state.ready || !state.loggedIn) return undefined
-        if (!state.user) return undefined
+        if (!state.loggedIn || !state.user) return undefined
         if (state.user.access !== ACCESS.ACTIVE) return ROUTES.ACCESS
         if (!state.user.onboardedAt) return ROUTES.WELCOME
         return null

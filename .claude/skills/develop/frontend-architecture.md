@@ -1569,6 +1569,23 @@ import { TableSkeleton } from '@/components/Skeleton'
 - Neither the store nor the hook adds a floor or a debounce (`useDelay` was removed). Deriving `skeleton` from readiness so it is truthy on the first render (see **The hook layer**) is what removes the flash; an artificial delay would only make every load slower.
 - **A silent load has no skeleton at all.** When there is already a complete surface on screen — the post overlay, seeded from the feed's cached row — a background refresh must not cover it. Gate the skeleton on a readiness flag the cache can satisfy (`ready` in `lib/store/post/store.js`), not on the fetch being in flight.
 
+### Closing an overlay — it has to still be mounted
+
+A surface animates on the way out, and every mechanism for that (Vaul's slide-down, an `exit` on a `motion` child) needs the component to outlive the close by a few hundred milliseconds. So an overlay whose open state lives in a store must not turn that state into its own unmounting — the store empties on the tap, the guard returns `null` on the very next render, and the sheet is gone before anything can move it. The entrance still looks right, which is what makes it easy to miss.
+
+```jsx
+// FORBIDDEN — nothing is left on screen to animate.
+if (!open) return null
+return <Drawer open onOpenChange={(next) => !next && close()}>…</Drawer>
+
+// REQUIRED — the primitive is told it is closing, and plays the exit itself.
+return <Drawer open={open} onOpenChange={(next) => !next && close()}>…</Drawer>
+```
+
+A hand-rolled overlay is the same rule through `<AnimatePresence>`: `<Overlay/>` declares its own `exit`, and an exit only plays inside a presence tree, so it is `<AnimatePresence>{open && <Overlay …/>}</AnimatePresence>` rather than a bare conditional.
+
+**Freeze what it draws while it leaves.** A store's `close` clears the subject along with the flag (the `profile` store resets to `INIT`), so a surface still reading the store during its exit swaps its content for a skeleton and resets its tabs halfway down the screen. Hold the last opened subject in a ref and render the body from that, as `<ProfileCard/>` does.
+
 ### Page transitions
 
 The **layout** owns the route cross-fade via `<PageTransition/>` (which wraps `AnimatePresence` + a keyed `motion.div` + `<FrozenRouter/>`) — see the Routing section. Page components do **not** add their own top-level transition. They may use `components/Transition.jsx` internally (as `group/users/page.jsx` does between skeleton/content).

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence } from "motion/react"
 
@@ -405,19 +405,17 @@ const ProfileCard = () => {
         return () => window.removeEventListener("keydown", onKey)
     }, [open, isDesktop, close])
 
-    if (!open) return null
+    /* **The card is drawn from the last subject it was opened at, not from the live store.**
+     * Both presentations animate themselves out, which they can only do while they are still
+     * mounted — and `close` empties the store in the same tick as the tap, so reading it
+     * directly would swap the sheet's contents for a skeleton and snap its tab back to Info
+     * halfway down the screen. Frozen while it leaves, replaced on the next open. */
+    const shown = useRef(null)
+    if (open) shown.current = { handle, openTab, profile, skeleton, missing }
 
-    const body = (
-        <CardBody
-            handle={handle}
-            openTab={openTab}
-            profile={profile}
-            skeleton={skeleton}
-            missing={missing}
-            onOpen={openProfile}
-            onEdit={edit}
-        />
-    )
+    if (!shown.current) return null
+
+    const body = <CardBody {...shown.current} onOpen={openProfile} onEdit={edit} />
 
     if (isDesktop) {
         /* **Portalled to <body>.** The shell mounts this inside its scroll container, which is
@@ -428,30 +426,34 @@ const ProfileCard = () => {
         if (!mounted) return null
 
         return createPortal(
-            /* `close={false}` and the pill drawn here instead: <Overlay/>'s own sits in the
-             * *window's* corner, which reads as the surface's corner only while the surface is
-             * most of the window — true of the photo dialog and not of a narrow card. Anchored
-             * just outside this panel's top-right, it is unmistakably this card's. Same
-             * `<Close/>`, so the two still match. */
-            <Overlay dismiss={close} label="Close profile" close={false}>
-                {/* The pill is a sibling of the panel, not a child of it: the panel clips its
-                    own contents so the tab bar can sit flush against a rounded corner, and
-                    anything positioned outside those bounds is clipped with it. This wrapper is
-                    the panel's box without the clipping, which is what the pill anchors to —
-                    <Overlay/>'s own sits in the *window's* corner, which reads as the surface's
-                    corner only while the surface is most of the window. Same `<Close/>`, so the
-                    two still match. */}
-                <div className="relative z-10 w-full max-w-md">
-                    <Close
-                        onClick={close}
-                        aria-label="Close profile"
-                        className="absolute -top-12 -right-6"
-                    />
-                    <div className="flex h-[min(75dvh,44rem)] w-full flex-col overflow-hidden rounded-4xl border bg-background shadow-lg">
-                        {body}
-                    </div>
-                </div>
-            </Overlay>,
+            /* <Overlay/> fades itself both ways, and an exit only plays inside a presence
+               tree. */
+            <AnimatePresence>
+                {open && (
+                    /* `close={false}` and the pill drawn here instead: <Overlay/>'s own sits in
+                     * the *window's* corner, which reads as the surface's corner only while the
+                     * surface is most of the window — true of the photo dialog and not of a
+                     * narrow card. Anchored just outside this panel's top-right, it is
+                     * unmistakably this card's. Same `<Close/>`, so the two still match. */
+                    <Overlay dismiss={close} label="Close profile" close={false}>
+                        {/* The pill is a sibling of the panel, not a child of it: the panel
+                            clips its own contents so the tab bar can sit flush against a rounded
+                            corner, and anything positioned outside those bounds is clipped with
+                            it. This wrapper is the panel's box without the clipping, which is
+                            what the pill anchors to. */}
+                        <div className="relative z-10 w-full max-w-md">
+                            <Close
+                                onClick={close}
+                                aria-label="Close profile"
+                                className="absolute -top-12 -right-6"
+                            />
+                            <div className="flex h-[min(75dvh,44rem)] w-full flex-col overflow-hidden rounded-4xl border bg-background shadow-lg">
+                                {body}
+                            </div>
+                        </div>
+                    </Overlay>
+                )}
+            </AnimatePresence>,
             document.body,
         )
     }
@@ -460,7 +462,7 @@ const ProfileCard = () => {
         /* repositionInputs is off for the same reason as every other drawer here: Vaul's
          * implementation keeps react-aria's scroll lock installed, which swallows touches
          * inside the Capacitor WebView. */
-        <Drawer open onOpenChange={(next) => !next && close()} repositionInputs={false}>
+        <Drawer open={open} onOpenChange={(next) => !next && close()} repositionInputs={false}>
             {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the foot of the
                 list would sit under the browser's own toolbar. */}
             {/* `overflow-hidden` so the sheet's own radius clips the full-width tab bar sitting

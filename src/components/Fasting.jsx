@@ -118,9 +118,8 @@ export const FastingIcons = ({ allowed, className, iconClassName }) => (
 
 /* The Daily Read's strip: the glyphs, with the sentence behind them.
  *
- * Drawn as a bare row rather than a card: it is the first thing under the date and it is
- * part of the reading, so a bordered box would fence it off as a widget the page had
- * imported from somewhere else.
+ * Drawn as a bare row rather than a card: it opens the reading and is part of it, so a
+ * bordered box would fence it off as a widget the page had imported from somewhere else.
  *
  * The whole row is one labelled image to a screen reader, and the sentence is on the `<Hint/>`
  * for anyone the colour does not reach. A button rather than a list, because the row has to
@@ -133,7 +132,7 @@ const Fasting = ({ fasting }) => {
     const sentence = fastingSentence(split)
 
     return (
-        <aside className="flex flex-col items-center gap-8 py-2">
+        <aside className="flex justify-center py-2">
             <Hint content={sentence} className="font-reading">
                 <button
                     type="button"
@@ -143,14 +142,6 @@ const Fasting = ({ fasting }) => {
                     <FastingIcons allowed={split.allowed} />
                 </button>
             </Hint>
-
-            {(fasting.title || fasting.tone) && (
-                <p className="text-center text-base text-muted-foreground/50 italic font-light">
-                    {[fasting.title, fasting.tone ? `Tone ${fasting.tone}` : null]
-                        .filter(Boolean)
-                        .join(" · ")}
-                </p>
-            )}
         </aside>
     )
 }

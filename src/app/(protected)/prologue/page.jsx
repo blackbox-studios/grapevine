@@ -36,7 +36,7 @@ const ProloguePage = () => {
 
     return (
         <div className="flex w-full flex-col items-center gap-6 pb-16">
-            <PrologueTitle date={day?.date}>
+            <PrologueTitle date={day?.date} observance={day?.fasting}>
                 <DayStepper dates={dates} index={index} onSelect={select} />
             </PrologueTitle>
 

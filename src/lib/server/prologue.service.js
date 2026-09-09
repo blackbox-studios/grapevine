@@ -3,7 +3,8 @@ import "server-only"
 import { AppError, ERROR_CODES, notFound } from "@/lib/server/errors"
 import { parsePrologue } from "@/lib/server/prologue/parse"
 
-/* The Daily Read: one day's Prologue of Ohrid, and the fasting rule that goes with it.
+/* The Daily Read: one day's Prologue of Ohrid, with the scripture appointed for that day and
+ * the fasting rule that goes with it.
  *
  * ── Why this fetches instead of shipping the text ───────────────────────────
  *
@@ -16,10 +17,11 @@ import { parsePrologue } from "@/lib/server/prologue/parse"
  *
  * ── The two sources are not equals ──────────────────────────────────────────
  *
- * The reading is the screen; the fasting rule is a strip at the top of it. So they fail
- * differently on purpose: the reading throws and the page shows an error, while orthocal
- * failing resolves to a null `fasting` and the page simply omits the strip. A devotional
- * reading must not be withheld because a second service is having a bad minute.
+ * The Prologue is the screen; the scripture and the fasting rule are what sits above it. So
+ * they fail differently on purpose: the Prologue throws and the page shows an error, while
+ * orthocal failing resolves to a null `fasting` and no `readings`, and the page simply omits
+ * both. A devotional reading must not be withheld because a second service is having a bad
+ * minute.
  *
  * ── New calendar ────────────────────────────────────────────────────────────
  *
@@ -35,6 +37,12 @@ const SOURCE_BASE_URL =
 
 const ORTHOCAL_BASE_URL =
     process.env.ORTHOCAL_BASE_URL ?? "https://orthocal.info/api"
+
+/* orthocal serves three translations and defaults to a modern one. The King James is the
+ * version the Prologue's own English was translated beside, so it is the only one that does
+ * not change voice halfway down the page. Named in the query rather than left to the default,
+ * because the default is upstream's to change. */
+const TRANSLATION = "kjv"
 
 /* Upstream is a static file host and an almanac, so a slow response is a failure rather
  * than something to wait out — the reader is looking at a skeleton the whole time. */
@@ -162,12 +170,58 @@ const loadReading = async ({ month, day }) => {
     return reading
 }
 
-/* The fasting rule and the liturgical day, from orthocal.info.
+/* The scripture a parish means by "today's readings".
  *
- * Resolves to null on any failure — see the header. `abstain` is the field the screen is
+ * orthocal lists the day's whole cycle — the eve's Vespers readings, a Matins gospel, then the
+ * epistles and the gospels — and a Sunday carrying a feast runs to ten of them, which is more
+ * scripture than the Prologue entry it would sit above. The Liturgy's readings are the ones
+ * heard, and a feast on a Sunday genuinely appoints several of each, so this filters rather
+ * than picking two.
+ *
+ * The fallback is the case that matters rather than a nicety: a weekday of Great Lent has no
+ * Liturgy and therefore no epistle or gospel at all, only Genesis, Proverbs and Isaiah at
+ * Vespers and the Sixth Hour. Falling back to whatever the day does appoint is what keeps the
+ * scripture from disappearing over the forty days a parish is reading most. */
+const LITURGY_SOURCES = new Set(["Epistle", "Gospel"])
+
+/* orthocal separates chapter from verse with a full stop — "Mark 6.7-13" — which reads as a
+ * decimal rather than as a reference, and turns the span across a chapter boundary into
+ * nonsense: "Isaiah 9.9-10.4" is chapter 9 verse 9 through chapter 10 verse 4, not a range
+ * between two numbers. The colon is how a reference is written and how anybody reading along
+ * in their own Bible will look it up. Digit-bounded so nothing else in the string is touched,
+ * such as the alternate numbering in "3[1] Kings 8.22-23, 27-30". */
+const referenced = (display) => display?.replace(/(\d)\.(\d)/g, "$1:$2") ?? null
+
+const projectReadings = (appointed = []) => {
+    const liturgy = appointed.filter((reading) => LITURGY_SOURCES.has(reading.source))
+
+    return (liturgy.length ? liturgy : appointed)
+        .map((reading) => ({
+            source: reading.source,
+            reference: referenced(reading.display),
+            /* Why this one is read today ("Sunday before Elevation", "Church"), and the only
+             * thing on the screen answering why there are three epistles. Usually empty. */
+            occasion: reading.description || null,
+            verses: (reading.passage ?? []).map((verse) => ({
+                chapter: verse.chapter,
+                verse: verse.verse,
+                text: verse.content,
+                /* The only structure a passage has. Ninety verses set as one block is a wall. */
+                paragraph: Boolean(verse.paragraph_start),
+            })),
+        }))
+        .filter((reading) => reading.verses.length > 0)
+}
+
+/* The liturgical day from orthocal.info: what the Church keeps, and what it reads.
+ *
+ * Resolves to null on any failure — see the header. `abstain` is the field the fasting strip is
  * actually built from: it names what is being kept from, which is both what the icons light
  * on and what the sentence lists, so no second "is it a fast" flag is derived here for the
- * two of them to disagree over. */
+ * two of them to disagree over.
+ *
+ * Both halves are cached together because they arrive together — one request answers the
+ * Daily Read and `/api/fasting`, and each reader takes the half it draws. */
 const loadObservance = async ({ year, month, day }) => {
     const key = `${year}-${month}-${day}`
 
@@ -176,7 +230,7 @@ const loadObservance = async ({ year, month, day }) => {
 
     try {
         const response = await fetch(
-            `${ORTHOCAL_BASE_URL}/gregorian/${year}/${month}/${day}/`,
+            `${ORTHOCAL_BASE_URL}/gregorian/${year}/${month}/${day}/?translation=${TRANSLATION}`,
             {
                 signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
                 headers: { Accept: "application/json" },
@@ -186,10 +240,13 @@ const loadObservance = async ({ year, month, day }) => {
 
         const data = await response.json()
         const observance = {
-            title: data.titles?.[0] ?? null,
-            tone: data.tone ?? null,
-            level: data.fast_level_desc ?? null,
-            abstain: data.fast_abstentions ?? [],
+            fasting: {
+                title: data.titles?.[0] ?? null,
+                tone: data.tone ?? null,
+                level: data.fast_level_desc ?? null,
+                abstain: data.fast_abstentions ?? [],
+            },
+            readings: projectReadings(data.readings),
         }
 
         observances.set(key, observance)
@@ -214,10 +271,11 @@ const loadObservance = async ({ year, month, day }) => {
  * reading: the surface omits the strip rather than failing. */
 export const getFastingRule = async (date) => {
     const resolved = resolveDate(date)
+    const observance = await loadObservance(resolved)
 
     return {
         on: isoDate(resolved),
-        fasting: await loadObservance(resolved),
+        fasting: observance?.fasting ?? null,
     }
 }
 
@@ -228,7 +286,7 @@ export const getFastingRule = async (date) => {
 export const getDailyReading = async (date) => {
     const resolved = resolveDate(date)
 
-    const [reading, fasting] = await Promise.all([
+    const [reading, observance] = await Promise.all([
         loadReading(resolved),
         loadObservance(resolved),
     ])
@@ -240,6 +298,7 @@ export const getDailyReading = async (date) => {
          * label the screen without guessing at the server's clock. */
         on: isoDate(resolved),
         ...reading,
-        fasting,
+        fasting: observance?.fasting ?? null,
+        readings: observance?.readings ?? [],
     }
 }

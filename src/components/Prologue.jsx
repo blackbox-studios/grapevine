@@ -5,12 +5,14 @@ import { Fragment } from "react"
 import CrossVine from "@/assets/svg/monograms/cross-vine.svg"
 import Fasting from "@/components/Fasting"
 import Icon from "@/components/Icon"
+import Readings from "@/components/Readings"
 import Skeleton from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { haptic } from "@/lib/native"
 import { cn } from "@/lib/utils"
 
-/* The Daily Read: one day of the Prologue of Ohrid, and the day's fasting rule.
+/* The Daily Read: the day's fasting rule, the scripture appointed for it, and one day of
+ * the Prologue of Ohrid.
  *
  * **Renders blocks, not markup.** `lib/server/prologue/parse.js` turns the source into a
  * typed block list precisely so nothing arbitrary reaches the DOM, and the payoff is here —
@@ -215,6 +217,38 @@ const Section = ({ section, label }) => {
     )
 }
 
+/* Where the day's scripture ends and the Prologue proper begins.
+ *
+ * A rule rather than a heading, because both halves are the reading and a label would announce
+ * a section break on a page that has none. Red, like everything the printed book rubricates,
+ * and wavy because a straight line is the app's own `border-b` and would read as the edge of a
+ * card rather than as an ornament in a book.
+ *
+ * Tiled from a single period of the wave rather than one path stretched to the column, so the
+ * stroke stays even at any width; the tile's ends carry the same tangent, which is what makes
+ * the joins between repeats invisible. */
+const Squiggle = () => (
+    <svg aria-hidden="true" className="h-3 w-full text-reading">
+        <defs>
+            <pattern
+                id="prologue-squiggle"
+                width="16"
+                height="12"
+                patternUnits="userSpaceOnUse"
+            >
+                <path
+                    d="M0 6q4 -6 8 0t8 0"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                />
+            </pattern>
+        </defs>
+        <rect width="100%" height="12" fill="url(#prologue-squiggle)" />
+    </svg>
+)
+
 /* What each reachable day is called, oldest first, matching the `dates` the hook hands over.
  * Named rather than dated because the stepper reaches exactly one day either side and these
  * are then exact — and because the date itself is already the heading directly below. */
@@ -291,44 +325,107 @@ export const DayStepper = ({ dates, index, onSelect }) => {
     )
 }
 
-/* The mark, the date, and the day switcher beneath it.
+/* The corpus writes every heading as "<Month> <day>", so stepping from the 9th to the 10th
+ * adds a digit to a centred line and slides the month left by half of one. The day is drawn in
+ * a slot held open to two digits by an invisible "00" sharing its grid cell, which fixes the
+ * width of the whole heading: the month keeps its place and only the numeral changes.
+ *
+ * The placeholder is the *same* span in the *same* face, so it measures the real digits at the
+ * real letter-spacing. That is the point of doing it this way rather than with a `ch` width or
+ * `tabular-nums` — both are estimates of a face the app has no other reason to constrain, and
+ * both would show up as tracking that no longer matches the line.
+ *
+ * A single digit sits at the *start* of that slot rather than centred in it. The slack has to
+ * go somewhere, and centring puts half of it between the month and the numeral, where it reads
+ * as a typo in the space the eye is actually measuring. Trailing it leaves the word spacing
+ * exactly as the face sets it and costs half a digit of off-centre on a line nothing else is
+ * aligned to.
+ *
+ * A heading that does not end in a number is printed whole. Every file in the corpus is in that
+ * shape today, and one that leaves it should still be readable rather than dropped. */
+const DATED = /^(.*\S)\s+(\d+)$/
+
+const PrologueDate = ({ date }) => {
+    const parts = DATED.exec(date)
+    if (!parts) return date
+
+    const [, month, day] = parts
+
+    return (
+        <>
+            {month}{" "}
+            <span className="inline-grid justify-items-start">
+                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                    00
+                </span>
+                <span className="col-start-1 row-start-1">{day}</span>
+            </span>
+        </>
+    )
+}
+
+/* The mark, the date, what the day commemorates, and the day switcher beneath them.
  *
  * Hoisted out of <Prologue/> and mounted whatever the reading is doing, which is what the
  * switcher needs to work at all: a control must not fade out from under the finger tapping
  * it, and a reader has to be able to step off a day that is still loading or has failed —
  * neither of which is possible if the stepper lives inside the article it steps between.
  *
- * Nothing in here fades. The mark is the same on every day, and the date is one short line
- * that is legible the instant it changes — cross-fading it would draw the eye to the one part
- * of a step that needs no announcing, and would blink the block the switcher is anchored to.
- * The date is the *server's* rendering of the day ("September 3"), not the reader's clock,
- * which is why it arrives with the reading rather than being formatted here, and why a day
- * still loading shows a placeholder in its place.
+ * Nothing in here fades. The mark is the same on every day, and the date and the day it names
+ * are two short lines that are legible the instant they change — cross-fading them would draw
+ * the eye to the part of a step that needs no announcing, and would blink the block the
+ * switcher is anchored to. The date is the *server's* rendering of the day ("September 3"),
+ * not the reader's clock, which is why it arrives with the reading rather than being formatted
+ * here, and why a day still loading shows a placeholder in its place.
+ *
+ * What the day is — "Wednesday of the 15th week after Pentecost", the tone — is the date said
+ * a second way, so it is set with it as one block and the switcher keeps its own distance
+ * below. It has no placeholder, because it is genuinely absent whenever orthocal could not be
+ * reached and a skeleton would promise a line that is never coming. Not a heading: the date
+ * above it is the page's `<h1>`, and a second one would leave a screen reader with two. It
+ * still takes the h1's own face, so the two lines read as one title rather than as a heading
+ * with a caption under it.
  *
  * Set centred, like the title page of the book this is — the one block on the screen that is,
  * so the reading proper still begins flush left where a column of prose belongs. */
-export const PrologueTitle = ({ date, children }) => (
-    <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
-        <CrossVine aria-hidden="true" className="h-16 w-auto" />
+export const PrologueTitle = ({ date, observance, children }) => {
+    const commemorated = [
+        observance?.title,
+        observance?.tone ? `Tone ${observance.tone}` : null,
+    ]
+        .filter(Boolean)
+        .join(" · ")
 
-        {date ? (
-            <h1 className="text-4xl font-bold tracking-tight text-reading">{date}</h1>
-        ) : (
-            <Skeleton className="h-10 w-56" />
-        )}
+    return (
+        <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
+            <CrossVine aria-hidden="true" className="h-16 w-auto" />
 
-        {children}
-    </header>
-)
+            <div className="flex flex-col items-center gap-2">
+                {date ? (
+                    <h1 className="text-4xl font-bold tracking-tight text-reading">
+                        <PrologueDate date={date} />
+                    </h1>
+                ) : (
+                    <Skeleton className="h-10 w-56" />
+                )}
 
-/* Shaped to the real article — a date, a commemorations line, the fasting strip, then
- * alternating headings and paragraphs. Widths that disagree with what lands are what make
- * the page jump as it settles. */
+                {commemorated && (
+                    <p className="font-display text-xl text-muted-foreground">{commemorated}</p>
+                )}
+            </div>
+
+            {children}
+        </header>
+    )
+}
+
+/* Shaped to the real article — the fasting strip, then the alternating headings and
+ * paragraphs the readings and the Prologue are both built from. Widths that disagree with
+ * what lands are what make the page jump as it settles. */
 export const PrologueSkeleton = () => (
     <div className="flex w-full max-w-2xl flex-col gap-10">
-        <div className="flex flex-col items-center gap-4">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-52" />
+        <div className="flex justify-center py-2">
+            <Skeleton className="h-9 w-72" />
         </div>
 
         {[0, 1, 2].map((section) => (
@@ -364,6 +461,13 @@ const Prologue = ({ day, className }) => {
             )}
         >
             <Fasting fasting={day.fasting} />
+
+            {day.readings?.length > 0 && (
+                <>
+                    <Readings readings={day.readings} />
+                    <Squiggle />
+                </>
+            )}
 
             {day.lives.map((life, index) => (
                 <Section key={index} section={life} />

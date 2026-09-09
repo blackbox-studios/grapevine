@@ -226,6 +226,10 @@ export const API_ENDPOINTS = {
     /* Today's reading, or `?date=YYYY-MM-DD` for another day. The client sends its own
      * local date so the reading turns over at the reader's midnight, not the server's. */
     PROLOGUE: "/prologue",
+    /* One day's fasting rule, without the reading around it — `?date=YYYY-MM-DD`. Split out
+     * for the sign-up sheets that show it (`showFasting`), which ask about a date somebody is
+     * about to take rather than about today. */
+    FASTING: "/fasting",
     /* The compiled calendar for one group and one window: the parish's own events, read out
      * of its Google Calendar, and its sign-up slots, in one collection. **One endpoint rather
      * than two**, because the month grid needs both before it can draw a single square, and

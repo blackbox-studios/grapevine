@@ -374,6 +374,9 @@ export const projectCalendarSlot = (slot, viewerId) => ({
     spotsLeft: slot.canceledAt ? 0 : Math.max(0, slot.capacity - slot.claims.length),
     canceled: slot.canceledAt !== null,
     open: slot.sheet.status === SIGNUP_STATUS.OPEN,
+    /* Its sheet's setting, carried on the block so a date tapped on the day's rail opens the
+     * same sign-up surface as one tapped on the rota, with no sheet loaded behind it. */
+    showFasting: slot.sheet.showFasting,
     /* The viewer's own claim on this date, or null — solid ring on the grid, and the row the
      * Give up button deletes. Answered off the claims already joined, so it costs nothing. */
     mine: slot.claims.find((claim) => claim.profileId === viewerId)?.id ?? null,
@@ -461,6 +464,10 @@ export const projectSignupSheet = (sheet, { viewerId, canManage = false } = {}) 
     /* The title this rota is matched to on the parish calendar, or null for "use the title
      * above". Shipped so the manage surface can edit it; see `mergeCalendar`. */
     calendarTitle: sheet.calendarTitle,
+    /* Whether taking a date on this rota shows the day's fasting rule. The rule itself is not
+     * here and never will be: it is per date and comes from `/api/fasting`, so shipping it
+     * would put an almanac lookup per slot on a list read. */
+    showFasting: sheet.showFasting,
     createdAt: sheet.createdAt.toISOString(),
     /* Composed from the same `requireMembership` the writes run, so a member never sees an
      * Edit affordance and an admin demoted mid-session loses it on the next read. */

@@ -17,11 +17,13 @@ import Transition from "@/components/Transition"
 import { Avatar, ConfirmDialog, HandleLink } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { MAX_SLOT_CAPACITY, ROUTES, SIGNUP_STATUS } from "@/lib/constants"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { displayName } from "@/lib/name"
 import { pushRoute } from "@/lib/hooks/useSlideRoute.hook"
+import { useFastingWarm } from "@/lib/store/fasting/hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { useSheet } from "@/lib/store/sheet/hook"
 import { useEventsView, useSignupAdmin, useSignups } from "@/lib/store/signups/hook"
@@ -499,6 +501,58 @@ const CalendarMatch = ({ row }) => {
     )
 }
 
+/* Whether taking a date on this rota shows the day's fasting rule.
+ *
+ * Asked at creation and editable here, because what a rota is for is learned rather than known:
+ * the coffee hour sheet was published before anybody thought about Lent, and the cleaning rota
+ * was published with this on by somebody working through the form. Written the moment it is
+ * flipped, like everything else in edit mode, so there is nothing here to save.
+ *
+ * Its sentence is in the open rather than behind a `<Hint/>` like the calendar match below it,
+ * because unlike that one it is a setting most rotas have an answer to, and the answer depends
+ * on what the rota is for. */
+const FastingSwitch = ({ row }) => {
+    const { save, saving } = useSheet()
+
+    const toggle = useCallback(
+        async (next) => {
+            if (await save({ showFasting: next })) {
+                toast.success(
+                    next
+                        ? "Sign-ups will show the day's fasting rule."
+                        : "Sign-ups no longer show the fasting rule.",
+                )
+            }
+        },
+        [save],
+    )
+
+    const fieldId = `show-fasting-${row.id}`
+
+    return (
+        <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-1">
+                <label
+                    htmlFor={fieldId}
+                    className="cursor-pointer pl-2 text-xs leading-none font-semibold text-foreground"
+                >
+                    Show the fast
+                </label>
+                <span className="pl-2 text-xs text-muted-foreground">
+                    Whoever signs up sees what the Church keeps that day.
+                </span>
+            </div>
+            <Switch
+                id={fieldId}
+                checked={Boolean(row.showFasting)}
+                disabled={saving}
+                onCheckedChange={toggle}
+                className="shrink-0"
+            />
+        </div>
+    )
+}
+
 /* The row of admin actions over a rota's dates: add more, close it, retire it. */
 const SheetActions = ({ row }) => {
     const { save, extend, saving, close } = useSheet()
@@ -562,6 +616,8 @@ const SheetActions = ({ row }) => {
                 </Button>
             </div>
 
+            <FastingSwitch row={row} />
+
             <CalendarMatch row={row} />
 
             <SignupEditor
@@ -599,6 +655,10 @@ const SheetActions = ({ row }) => {
  *
  * On a phone Android's own back gesture does what the arrow does — without `useBackHandler` it
  * would leave the app from a screen the reader thinks they are one level into. */
+/* How many of a rota's coming dates have their fasting rule read ahead of a tap. Four is the
+ * first month of a weekly rota, which is where sign-ups actually happen. */
+const FASTING_WARM_DATES = 4
+
 export const RotaPage = ({ row, editing, onBack }) => {
     const [taking, setTaking] = useState(null)
     const onTake = useCallback((slot, title) => setTaking({ slot, title }), [])
@@ -621,6 +681,27 @@ export const RotaPage = ({ row, editing, onBack }) => {
                 : row.slots.filter((slot) => dayKey(slot.endsAt) >= dayKey(now)),
         [editing, row.slots, now],
     )
+
+    /* The dates whose fasting rule is read before anybody taps one, on a rota that shows it.
+     *
+     * The next few rather than all of them: each is a request that leaves this app for an
+     * almanac, a standing rota has a year of Sundays on it, and somebody signing up is
+     * overwhelmingly taking one of the first dates they can see. Every date after these still
+     * works — it costs the skeleton in `<FastingNote/>` once, and is then cached for the rest of
+     * the session.
+     *
+     * Deduped, because a day split into six shifts is six slots on one date and one rule.
+     * Nothing to warm in edit mode: an admin is reading a record, and there is no Take on it. */
+    const fastingDates = useMemo(() => {
+        if (editing || !row.showFasting) return []
+        return [
+            ...new Set(
+                slots.filter((slot) => !slot.canceled).map((slot) => dayKey(slot.startsAt)),
+            ),
+        ].slice(0, FASTING_WARM_DATES)
+    }, [editing, row.showFasting, slots])
+
+    useFastingWarm(fastingDates)
 
     return (
         <div className="flex flex-col gap-6">
@@ -677,6 +758,7 @@ export const RotaPage = ({ row, editing, onBack }) => {
             <SignupClaim
                 slot={taking?.slot ?? null}
                 title={taking?.title ?? ""}
+                showFasting={row.showFasting}
                 onOpenChange={(next) => {
                     if (!next) setTaking(null)
                 }}

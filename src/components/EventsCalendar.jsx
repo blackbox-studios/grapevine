@@ -14,6 +14,7 @@ import { CALENDAR_ENTRY, MONTHS } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useCalendar } from "@/lib/store/calendar/hook"
+import { useFastingWarm } from "@/lib/store/fasting/hook"
 import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange, slotTally } from "@/lib/utils"
 
@@ -555,8 +556,26 @@ const EventsCalendar = () => {
                 mine: entry.mine,
             },
             title: entry.title,
+            /* Its rota's setting, carried on the block for the same reason the capacity is:
+               the surface must open on a tap without a sheet behind it. */
+            showFasting: entry.showFasting,
         })
     }, [])
+
+    /* The rule for whichever dates on this day could be signed up for, read before one is
+     * tapped. A day is one date, so this is one request at most, and it is skipped entirely
+     * unless a rota on it asks for the rule. */
+    const fastingDates = useMemo(
+        () =>
+            entries.some(
+                (entry) => entry.kind === CALENDAR_ENTRY.SIGNUP && entry.showFasting,
+            ) && selected
+                ? [selected]
+                : [],
+        [entries, selected],
+    )
+
+    useFastingWarm(fastingDates)
 
     return (
         <div className="flex flex-col pb-14">
@@ -678,6 +697,7 @@ const EventsCalendar = () => {
             <SignupClaim
                 slot={taking?.slot ?? null}
                 title={taking?.title ?? ""}
+                showFasting={Boolean(taking?.showFasting)}
                 onOpenChange={(open) => {
                     if (!open) setTaking(null)
                 }}

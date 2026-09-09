@@ -9,6 +9,8 @@ import { z } from "zod"
 import Ripple from "@/assets/svg/ripple.svg"
 import Icon from "@/components/Icon"
 import PushOffer from "@/components/PushOffer"
+import Skeleton from "@/components/Skeleton"
+import { FastingIcons, fastingSentence, fastingSplit } from "@/components/Fasting"
 import { KeyboardAwareColumn } from "@/components/KeyboardAware"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,10 +40,11 @@ import { Switch } from "@/components/ui/switch"
 import { MAX_CLAIM_NOTE_LENGTH, MAX_ON_BEHALF_OF_LENGTH } from "@/lib/constants"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useNow } from "@/lib/hooks/useNow.hook"
+import { useFasting } from "@/lib/store/fasting/hook"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useSheet } from "@/lib/store/sheet/hook"
-import { cn, formatDayHeading, formatTimeRange, slotTally } from "@/lib/utils"
+import { cn, dayKey, formatDayHeading, formatTimeRange, slotTally, todayLocal } from "@/lib/utils"
 
 /* Taking a place on a rota — a dialog on a desktop, a bottom sheet on a phone.
  *
@@ -86,6 +89,64 @@ const schema = z.object({
         .trim()
         .max(MAX_CLAIM_NOTE_LENGTH, `Keep the note under ${MAX_CLAIM_NOTE_LENGTH} characters.`),
 })
+
+/* What the Church keeps on the date being taken, for a rota whose creator asked for it.
+ *
+ * ── Why a rota shows this at all ─────────────────────────────────────────────
+ *
+ * Most of what a parish signs up for is food, and the single fact that decides what somebody
+ * cooks is whether that day is a fast. It is a fact they can look up, and three weeks out most
+ * people do not think to — so the sheet that asks for the food is where it belongs. It is
+ * `showFasting` rather than always on because the same rota table also runs the cleaning and the
+ * car park, where the day's rule says nothing at all.
+ *
+ * ── The sentence is printed, unlike the Daily Read's ─────────────────────────
+ *
+ * There the glyphs are an ornament on a page somebody is reading and the words are the `<Hint/>`
+ * behind them. Here they are the answer to a question the reader has not asked yet, on a form
+ * they are filling in, and a rule that has to be hovered to be read is a rule nobody reads. Both
+ * are drawn from the same `fastingSplit`, so they cannot disagree.
+ *
+ * The subject is the date, not the reader's day: "Today is a fast" over a form headed *Sunday 12
+ * October* is simply a false sentence, so it says "That day" unless it really is today.
+ *
+ * A skeleton is drawn rather than the strip appearing late, because it sits above the fields and
+ * arriving under a thumb already reaching for the first one moves the form. Mostly it is not
+ * seen at all: the rota reads its nearest dates ahead of the tap (`useFastingWarm`), and a date
+ * once read is kept for the session. A date whose rule could not be read draws nothing at all —
+ * see the store. */
+const FastingNote = ({ slot, show }) => {
+    const date = dayKey(slot.startsAt)
+    const { fasting, skeleton } = useFasting(date, show)
+
+    if (!show) return null
+
+    if (skeleton) {
+        return (
+            <div className="flex shrink-0 flex-col items-center gap-2.5 border-b pt-5 pb-3">
+                <Skeleton className="h-7 w-52" />
+                <Skeleton className="h-3 w-44" />
+            </div>
+        )
+    }
+
+    if (!fasting) return null
+
+    const split = fastingSplit(fasting)
+
+    return (
+        <div className="flex shrink-0 flex-col items-center gap-1 border-b px-4 pt-5 pb-3">
+            <FastingIcons
+                allowed={split.allowed}
+                className="gap-5"
+                iconClassName="size-7"
+            />
+            <p className="text-center text-xs text-muted-foreground">
+                {fastingSentence(split, date === todayLocal() ? "Today" : "That day")}
+            </p>
+        </div>
+    )
+}
 
 const ClaimForm = ({ slot, onDone }) => {
     const { claim, working } = useSheet()
@@ -326,7 +387,7 @@ const ClosedBody = ({ reason }) => (
 /* Mounted with whichever slot was tapped, and remounted on every tap — so the form is seeded
  * fresh each time rather than kept alive behind a closed sheet holding the last rota's
  * details. */
-const SignupClaim = ({ slot, title, onOpenChange }) => {
+const SignupClaim = ({ slot, title, showFasting = false, onOpenChange }) => {
     const isDesktop = useIsDesktop()
     const now = useNow()
     const open = Boolean(slot)
@@ -342,9 +403,14 @@ const SignupClaim = ({ slot, title, onOpenChange }) => {
      * `seq` is what keeps that hold out of the next open: `<ClaimForm/>` is keyed on it, so
      * every tap mounts a fresh one rather than one still carrying the last date's note. Callers
      * build a new `{ slot, title }` on the tap and leave it alone until the surface closes, so
-     * a re-render while open cannot bump it. */
+     * a re-render while open cannot bump it.
+     *
+     * The rota's own settings are held with it for the same reason the title is: they describe
+     * the date on screen, so a fasting strip must not blink out halfway through the exit. */
     const [held, setHeld] = useState(null)
-    if (slot && slot !== held?.slot) setHeld({ slot, title, seq: (held?.seq ?? 0) + 1 })
+    if (slot && slot !== held?.slot) {
+        setHeld({ slot, title, showFasting, seq: (held?.seq ?? 0) + 1 })
+    }
 
     const shown = held?.slot ?? null
 
@@ -354,15 +420,28 @@ const SignupClaim = ({ slot, title, onOpenChange }) => {
         ? `${formatDayHeading(shown.startsAt)}, ${formatTimeRange(shown.startsAt, shown.endsAt)}`
         : ""
 
-    /* Which of the three bodies this date wants. Ordered the way a person would ask: am I on
-     * it, is it happening, is there room. */
+    /* Why this date cannot be taken, or null. Asked before the body is chosen because the
+     * fasting strip below turns on the same answer: what the Church keeps on a date nobody can
+     * sign up for is not what the reader came to find out. Ordered the way a person would ask:
+     * am I on it, is it happening, is there room. */
+    const closed = !shown || shown.mine ? null
+        : shown.canceled ? "This date has been cancelled."
+        : shown.open === false ? "This sign-up sheet is closed."
+        : new Date(shown.endsAt).getTime() < now ? "This date has already been."
+        : shown.spotsLeft === 0 ? "This date is full. Try another one."
+        : null
+
     const body = !shown ? null
+        : closed ? <ClosedBody reason={closed} />
         : shown.mine ? <ReleaseBody slot={shown} onDone={() => onOpenChange(false)} />
-        : shown.canceled ? <ClosedBody reason="This date has been cancelled." />
-        : shown.open === false ? <ClosedBody reason="This sign-up sheet is closed." />
-        : new Date(shown.endsAt).getTime() < now ? <ClosedBody reason="This date has already been." />
-        : shown.spotsLeft === 0 ? <ClosedBody reason="This date is full. Try another one." />
         : <ClaimForm key={held.seq} slot={shown} onDone={() => onOpenChange(false)} />
+
+    /* Under the date and above everything else, on both the form and the place already taken:
+     * it is a fact about the date the header just named, and somebody reopening a date they have
+     * is often reopening it to check exactly this. */
+    const fasting = shown && !closed
+        ? <FastingNote slot={shown} show={Boolean(held?.showFasting)} />
+        : null
 
     if (isDesktop) {
         return (
@@ -372,6 +451,7 @@ const SignupClaim = ({ slot, title, onOpenChange }) => {
                         <DialogTitle>{held?.title ?? ""}</DialogTitle>
                         <DialogDescription>{when}</DialogDescription>
                     </DialogHeader>
+                    {fasting}
                     {body}
                 </DialogContent>
             </Dialog>
@@ -389,6 +469,7 @@ const SignupClaim = ({ slot, title, onOpenChange }) => {
                         <DrawerTitle className="text-center font-semibold">{held?.title ?? ""}</DrawerTitle>
                         <p className="text-center text-xs text-muted-foreground">{when}</p>
                     </DrawerHeader>
+                    {fasting}
                     {body}
                 </KeyboardAwareColumn>
             </DrawerContent>

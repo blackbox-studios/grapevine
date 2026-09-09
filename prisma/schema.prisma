@@ -1005,6 +1005,21 @@ model SignupSheet {
   /// function for why a read writes, and for the ceiling: `MAX_SHEET_SLOTS` is about ten years
   /// of a weekly rota, after which it stops extending and wants a prune rather than a raise.
   repeats     Boolean @default(false)
+
+  /// Whether taking a date on this rota shows what the Church keeps that day.
+  ///
+  /// **A rota about food is a rota about the fast.** Somebody signing up for coffee hour three
+  /// Sundays out is deciding what to cook, and the one fact that decides it is whether that day
+  /// is a fast. So the sign-up surface can carry the day's rule, read from the same almanac the
+  /// Daily Read uses (`getFastingRule`) rather than stored here: a rule is a fact about a date,
+  /// it is the same for every parish, and copying it onto a slot would be a second place the
+  /// calendar of the Church has to be corrected.
+  ///
+  /// The creator's to set, because only they know what the rota is for: it belongs on the
+  /// kitchen and coffee hour, and says nothing on a cleaning rota or a car park. Hence the
+  /// default: off, which is what every rota that predates the column means.
+  showFasting Boolean @default(false) @map("show_fasting")
+
   createdById String  @map("created_by_id") @db.Uuid
 
   createdAt DateTime  @default(now()) @map("created_at")

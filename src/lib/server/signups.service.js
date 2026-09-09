@@ -123,6 +123,7 @@ export const slotsInWindow = (orgId, { start, end }) =>
                     status: true,
                     timezone: true,
                     calendarTitle: true,
+                    showFasting: true,
                 },
             },
             claims: { select: { id: true, profileId: true, onBehalfOf: true } },
@@ -591,7 +592,7 @@ const readTimezone = (value) => {
  * and neither answer is wrong, so it is not worth holding a connection open for. */
 export const createSheet = async (
     viewer,
-    { orgId, title, description, capacity, schedule } = {},
+    { orgId, title, description, capacity, schedule, showFasting } = {},
 ) => {
     requireMembership(viewer, orgId, { role: "ADMIN" })
 
@@ -624,6 +625,7 @@ export const createSheet = async (
                 description: text,
                 timezone,
                 repeats,
+                showFasting: Boolean(showFasting),
                 createdById: viewer.id,
                 slots: {
                     create: slots.map((slot) => ({ ...slot, capacity: slotCapacity })),
@@ -651,7 +653,8 @@ export const createSheet = async (
     return projectSignupSheet(sheet, { viewerId: viewer.id, canManage: true })
 }
 
-/* Title, description, and whether the rota is still taking people.
+/* Title, description, whether the rota is still taking people, and the two things it shows:
+ * the parish event it folds into, and the day's fasting rule.
  *
  * Every field is optional and absent means "leave alone", so the form can send only what
  * changed — the same partial-update rule `PATCH /api/me` and `updateOrg` follow. Closing is
@@ -660,7 +663,7 @@ export const createSheet = async (
 export const updateSheet = async (
     viewer,
     sheetId,
-    { title, description, status, calendarTitle } = {},
+    { title, description, status, calendarTitle, showFasting } = {},
 ) => {
     const sheet = await manageableSheet(viewer, sheetId)
 
@@ -684,6 +687,7 @@ export const updateSheet = async (
             calendarTitle, MAX_SIGNUP_TITLE_LENGTH, "calendarTitle", "A calendar title",
         )
     }
+    if (showFasting !== undefined) data.showFasting = Boolean(showFasting)
     if (Object.keys(data).length === 0) throw invalid("Nothing to update.", { title: "Required" })
 
     const updated = await prisma.signupSheet.update({

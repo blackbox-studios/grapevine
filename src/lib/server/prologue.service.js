@@ -116,6 +116,10 @@ export const resolveDate = (value) => {
     return { year, month, day }
 }
 
+/* A resolved triple back to the `YYYY-MM-DD` it was read from, which is what both readers echo. */
+const isoDate = ({ year, month, day }) =>
+    `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+
 const fetchText = async (url) => {
     const response = await fetch(url, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -198,6 +202,25 @@ const loadObservance = async ({ year, month, day }) => {
     }
 }
 
+/* The fasting rule for one date, without the reading.
+ *
+ * The Daily Read is not the only surface that wants this: a sign-up sheet for the kitchen shows
+ * whoever is taking a date what the Church keeps on it (`SignupSheet.showFasting`), and somebody
+ * signing up for four Sundays in a row would otherwise pull down four days of somebody else's
+ * licensed corpus to read a five-word sentence. So the almanac half is reachable on its own, and
+ * both callers share `observances` above — a date warmed by one is free for the other.
+ *
+ * Null `fasting` is the ordinary answer when orthocal cannot be reached, exactly as it is on the
+ * reading: the surface omits the strip rather than failing. */
+export const getFastingRule = async (date) => {
+    const resolved = resolveDate(date)
+
+    return {
+        on: isoDate(resolved),
+        fasting: await loadObservance(resolved),
+    }
+}
+
 /* One day of the Daily Read.
  *
  * `date` is an optional `YYYY-MM-DD`; absent means today. Both upstreams are asked at once,
@@ -215,7 +238,7 @@ export const getDailyReading = async (date) => {
     return {
         /* The date the reading was resolved for, echoed so a client that sent none can
          * label the screen without guessing at the server's clock. */
-        on: `${resolved.year}-${String(resolved.month).padStart(2, "0")}-${String(resolved.day).padStart(2, "0")}`,
+        on: isoDate(resolved),
         ...reading,
         fasting,
     }

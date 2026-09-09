@@ -110,6 +110,9 @@ const SHEETS = [
         startTime: 11 * 60,
         endTime: 12 * 60 + 30,
         split: null,
+        /* The two rotas about food carry the day's fasting rule, and the car park does not —
+         * which is the distinction the column exists to draw. */
+        showFasting: true,
     },
     {
         id: "seed-sheet-kitchen",
@@ -121,6 +124,7 @@ const SHEETS = [
         startTime: 9 * 60,
         endTime: 12 * 60,
         split: null,
+        showFasting: true,
     },
     {
         id: "seed-sheet-festival",
@@ -749,6 +753,7 @@ const main = async () => {
                 title: sheet.title,
                 description: sheet.description,
                 timezone: zone,
+                showFasting: Boolean(sheet.showFasting),
                 createdById: byHandle.get("cathedraldean"),
                 slots: { create: slots },
             },

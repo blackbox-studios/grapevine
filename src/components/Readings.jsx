@@ -7,8 +7,7 @@ import { Fragment } from "react"
  * Set in the same face and measure as the Prologue below it, because a reader who has opened
  * this screen is reading rather than glancing: the epistle and the gospel are the appointed
  * text and the Prologue's entry is the commentary that follows them, so making the two look
- * like different features would put a seam where the reading is continuous. The one thing
- * marking them apart is the rule <Prologue/> draws between.
+ * like different features would put a seam where the reading is continuous.
  *
  * The reference is the heading and the source is a small label above it: "Galatians 3:15-22"
  * is what somebody following in their own book needs, where "Epistle" only says which of the

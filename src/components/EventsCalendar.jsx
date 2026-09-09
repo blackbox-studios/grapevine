@@ -8,7 +8,7 @@ import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
 import SignupClaim from "@/components/SignupClaim"
 import Transition from "@/components/Transition"
-import { CalendarSkeleton } from "@/components/Skeleton"
+import { Blurred, CalendarSkeleton } from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { CALENDAR_ENTRY, MONTHS } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
@@ -580,8 +580,13 @@ const EventsCalendar = () => {
     return (
         <div className="flex flex-col pb-14">
             <AnimatePresence mode="wait" initial={false}>
-                {skeleton ? (
-                    <Transition fast key="skeleton">
+                {/* Keyed as the month, not as a skeleton of its own: a month with no dates yet
+                    is this surface at an earlier stage rather than a different one, so the two
+                    swap in place. Given its own key it would cross-fade — a fade out and a fade
+                    in — and the reader would watch bars resolve into a blurred grid before the
+                    grid resolved into itself. */}
+                {!month ? (
+                    <Transition fast key="month">
                         <CalendarSkeleton />
                     </Transition>
                 ) : view === "day" ? (
@@ -597,6 +602,11 @@ const EventsCalendar = () => {
                     </Transition>
                 ) : (
                     <Transition fast key="month">
+                      {/* The month waits as itself, out of focus, because its dates are known
+                          before its entries are: the grid is drawn from the calendar arithmetic
+                          and only the rings need the request. So the shape a reader is waiting
+                          for is already on screen and what arrives is the detail on it. */}
+                      <Blurred loading={skeleton}>
                         {/* `gap-10` is the month's heading standing clear of its grid, and it is
                            the same figure `<DayView/>` and `<CalendarSkeleton/>` use — all three
                            are the same heading in the same place, and a reader stepping between
@@ -688,6 +698,7 @@ const EventsCalendar = () => {
                             </div>
 
                         </div>
+                      </Blurred>
                     </Transition>
                 )}
             </AnimatePresence>

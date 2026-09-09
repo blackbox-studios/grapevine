@@ -6,7 +6,7 @@ import { AnimatePresence } from "motion/react"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import Badge from "@/components/Badge"
-import Skeleton, { PeopleSkeleton, TabsSkeleton } from "@/components/Skeleton"
+import { PeopleSkeleton, ProfileCardSkeleton } from "@/components/Skeleton"
 import { Avatar, Close, FollowButton, Overlay } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import Transition from "@/components/Transition"
@@ -247,24 +247,6 @@ const CardHeader = ({ profile, onEdit }) => (
     </div>
 )
 
-/* The card's skeleton — for somebody else's, since the viewer's own is seeded from `/api/me`
- * and never shows one (see `lib/store/profile/store.js`). Its geometry mirrors the header's, so
- * the card does not step as it resolves. */
-const CardSkeleton = () => (
-    /* `p-3` is `<Tabs/>`'s own padding, restated so the bar below lands exactly where the real
-     * one does — without it the whole card steps sideways and up as it resolves. */
-    <div className="p-3">
-        <TabsSkeleton />
-        <div className="flex flex-col items-center gap-3 px-4 pb-5 pt-6 text-center">
-            <Skeleton className="size-20 rounded-full" />
-            <Skeleton className="h-7 w-40" />
-            <Skeleton className="h-6 w-20 rounded-full" />
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="mt-1 h-12 w-full max-w-64 rounded-full" />
-        </div>
-    </div>
-)
-
 /* Everything inside the sheet or the dialog. Both presentations render exactly this, which is
  * what keeps a person from meaning something slightly different on a phone. */
 const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit }) => {
@@ -311,7 +293,7 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit 
         <AnimatePresence mode="wait" initial={false}>
             {skeleton ? (
                 <Transition fast key="skeleton">
-                    <CardSkeleton />
+                    <ProfileCardSkeleton />
                 </Transition>
             ) : missing || !profile ? (
                 <Transition fast key="missing">

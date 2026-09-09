@@ -3,10 +3,11 @@
 import { Fragment } from "react"
 
 import CrossVine from "@/assets/svg/monograms/cross-vine.svg"
+import Tailpiece from "@/assets/svg/monograms/seperator-1.svg"
 import Fasting from "@/components/Fasting"
 import Icon from "@/components/Icon"
 import Readings from "@/components/Readings"
-import Skeleton from "@/components/Skeleton"
+import { Blurred } from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { haptic } from "@/lib/native"
 import { cn } from "@/lib/utils"
@@ -341,8 +342,7 @@ export const DayStepper = ({ dates, index, onSelect }) => {
  * exactly as the face sets it and costs half a digit of off-centre on a line nothing else is
  * aligned to.
  *
- * A heading that does not end in a number is printed whole. Every file in the corpus is in that
- * shape today, and one that leaves it should still be readable rather than dropped. */
+ * A heading that does not end in a number is printed whole rather than dropped. */
 const DATED = /^(.*\S)\s+(\d+)$/
 
 const PrologueDate = ({ date }) => {
@@ -364,6 +364,83 @@ const PrologueDate = ({ date }) => {
     )
 }
 
+/* What the title reads while the day is still on its way, out of focus. A real date and a real
+ * commemoration rather than lorem: the block is sized by its own text, and this is the shape of
+ * the thing the reader asked for.
+ *
+ * The date goes through <PrologueDate/> like a real one, which is not cosmetic — the real date
+ * gets a slot two digits wide and a bare string does not, so a sample printed straight would be
+ * a digit narrower and slide the month sideways as it came into focus. What is left is the
+ * month's own width, which no placeholder can know in advance.
+ *
+ * Only ever seen on a cold load of /prologue. The reading is warmed at sign-in, so arriving
+ * from anywhere inside the app the day is already in hand. */
+const SAMPLE = {
+    date: "September 9",
+    title: "Wednesday of the 15th week after Pentecost",
+    tone: "Tone 5",
+}
+
+/* The reading's own shape, for the moment before the day arrives (see <Blurred/>).
+ *
+ * **The words are filler and are meant to be.** A placeholder for this screen could only be
+ * written by inventing a saint's life, a hymn and a passage of scripture, and text that reads as
+ * the Church's while being nobody's has no business in this repo — least of all on the one
+ * surface whose whole point is that it carries somebody else's real words. What a reader is
+ * waiting on here is a page of prose under headings, so that is what the sample is, and the blur
+ * is what says it is not the answer yet. It is never drawn in focus: the day replaces it inside
+ * the same element, and a day that never arrives leaves it blurred rather than legible.
+ *
+ * The counts are a weekday's: two readings, one commemoration, the four fixed sections. Nothing
+ * can be right for every day — a feast on a Sunday appoints six readings — and guessing high
+ * would collapse the page on most days to avoid it growing on a few. */
+const FILLER =
+    "The measure of this line is what the placeholder is for, and the words in it are only " +
+    "there to fill a column to about the width and depth that a paragraph of the reading fills " +
+    "it, so that the page below settles onto its shape rather than into it."
+
+const fillerBlocks = (count) =>
+    Array.from({ length: count }, () => ({ type: "text", text: FILLER }))
+
+const fillerSection = (heading, count) => ({ heading, blocks: fillerBlocks(count) })
+
+export const SAMPLE_DAY = {
+    /* A strict fast, so the five glyphs are uniformly dim. Any other rule lights some and not
+     * others, which is a real answer about a real day — and a placeholder that states one is
+     * saying something it cannot know. `<Fasting/>` reads `abstain` and nothing else. */
+    fasting: { abstain: ["meat", "fish", "dairy", "eggs", "wine", "oil"] },
+    readings: [
+        {
+            source: "Epistle",
+            reference: "Galatians 3:15-22",
+            occasion: null,
+            verses: [1, 2, 3, 4, 5, 6].map((verse) => ({
+                chapter: 3,
+                verse,
+                text: FILLER,
+                paragraph: false,
+            })),
+        },
+        {
+            source: "Gospel",
+            reference: "Mark 6:7-13",
+            occasion: null,
+            verses: [1, 2, 3, 4, 5].map((verse) => ({
+                chapter: 6,
+                verse,
+                text: FILLER,
+                paragraph: false,
+            })),
+        },
+    ],
+    lives: [fillerSection("The Holy Martyrs of the Day", 3)],
+    hymn: fillerSection("HYMN OF PRAISE", 2),
+    reflection: fillerSection("REFLECTION", 2),
+    contemplation: fillerSection("CONTEMPLATION", 2),
+    homily: fillerSection("HOMILY", 2),
+    footnotes: [],
+}
+
 /* The mark, the date, what the day commemorates, and the day switcher beneath them.
  *
  * Hoisted out of <Prologue/> and mounted whatever the reading is doing, which is what the
@@ -378,39 +455,48 @@ const PrologueDate = ({ date }) => {
  * not the reader's clock, which is why it arrives with the reading rather than being formatted
  * here, and why a day still loading shows a placeholder in its place.
  *
- * What the day is — "Wednesday of the 15th week after Pentecost", the tone — is the date said
- * a second way, so it is set with it as one block and the switcher keeps its own distance
- * below. It has no placeholder, because it is genuinely absent whenever orthocal could not be
- * reached and a skeleton would promise a line that is never coming. Not a heading: the date
- * above it is the page's `<h1>`, and a second one would leave a screen reader with two. It
- * still takes the h1's own face, so the two lines read as one title rather than as a heading
- * with a caption under it.
+ * What the day is — "Wednesday of the 15th week after Pentecost", then the tone — is the date
+ * said a second way, so it is set with it in the h1's own face, on a line tighter than `text-xl`
+ * leads itself to, and the switcher keeps its own distance below. The tone holds a line of its
+ * own because the title above it runs from two words to a dozen: sharing one line, where the
+ * tone falls is decided by the length of somebody else's string, and the block changes shape
+ * every time the reader steps a day. Neither line is a heading — the date is the page's `<h1>`,
+ * and a second one would leave a screen reader with two.
+ *
+ * Both lines wait as themselves, blurred, rather than as grey bars — see <Blurred/>. They are
+ * a date and a sentence, not a list, so the placeholder can be the shape of the answer and
+ * simply come into focus. It also holds the block open, which matters because everything under
+ * it is anchored to its bottom, the stepper first, and that must not drop out from under a
+ * thumb after the paint. A day whose almanac never arrives collapses the space instead, which
+ * is a shift on the minute orthocal is down rather than on every load.
  *
  * Set centred, like the title page of the book this is — the one block on the screen that is,
  * so the reading proper still begins flush left where a column of prose belongs. */
 export const PrologueTitle = ({ date, observance, children }) => {
-    const commemorated = [
-        observance?.title,
-        observance?.tone ? `Tone ${observance.tone}` : null,
-    ]
-        .filter(Boolean)
-        .join(" · ")
+    const loading = !date
+    const title = loading ? SAMPLE.title : observance?.title
+    const toneLine = loading
+        ? SAMPLE.tone
+        : observance?.tone ? `Tone ${observance.tone}` : null
 
     return (
         <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
             <CrossVine aria-hidden="true" className="h-16 w-auto" />
 
             <div className="flex flex-col items-center gap-2">
-                {date ? (
+                <Blurred loading={loading}>
                     <h1 className="text-4xl font-bold tracking-tight text-reading">
-                        <PrologueDate date={date} />
+                        <PrologueDate date={date ?? SAMPLE.date} />
                     </h1>
-                ) : (
-                    <Skeleton className="h-10 w-56" />
-                )}
+                </Blurred>
 
-                {commemorated && (
-                    <p className="font-display text-xl text-muted-foreground">{commemorated}</p>
+                {(title || toneLine) && (
+                    <Blurred loading={loading}>
+                        <div className="flex flex-col items-center gap-0.5 font-display text-xl/6 text-muted-foreground/50">
+                            {title && <p>{title}</p>}
+                            {toneLine && <p>{toneLine}</p>}
+                        </div>
+                    </Blurred>
                 )}
             </div>
 
@@ -418,27 +504,6 @@ export const PrologueTitle = ({ date, observance, children }) => {
         </header>
     )
 }
-
-/* Shaped to the real article — the fasting strip, then the alternating headings and
- * paragraphs the readings and the Prologue are both built from. Widths that disagree with
- * what lands are what make the page jump as it settles. */
-export const PrologueSkeleton = () => (
-    <div className="flex w-full max-w-2xl flex-col gap-10">
-        <div className="flex justify-center py-2">
-            <Skeleton className="h-9 w-72" />
-        </div>
-
-        {[0, 1, 2].map((section) => (
-            <div key={section} className="flex flex-col gap-4">
-                <Skeleton className="h-4 w-64" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-4/5" />
-            </div>
-        ))}
-    </div>
-)
 
 export const PrologueError = ({ message, onRetry }) => (
     <div className="flex w-full max-w-2xl flex-col items-start gap-4 py-16">
@@ -488,6 +553,8 @@ const Prologue = ({ day, className }) => {
                     ))}
                 </section>
             )}
+
+            <Tailpiece aria-hidden="true" className="w-3xs mx-auto text-reading pt-6" />
         </article>
     )
 }

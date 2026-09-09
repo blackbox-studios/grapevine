@@ -5,9 +5,10 @@ import { AnimatePresence } from "motion/react"
 import Prologue, {
     DayStepper,
     PrologueError,
-    PrologueSkeleton,
     PrologueTitle,
+    SAMPLE_DAY,
 } from "@/components/Prologue"
+import { Blurred } from "@/components/Skeleton"
 import Transition from "@/components/Transition"
 import { usePrologue } from "@/lib/store/prologue/hook"
 
@@ -42,12 +43,12 @@ const ProloguePage = () => {
 
             <AnimatePresence mode="wait" initial={false}>
                 <Transition key={date} fast className="flex justify-center">
-                    {skeleton ? (
-                        <PrologueSkeleton />
-                    ) : error ? (
+                    {error ? (
                         <PrologueError message={error?.[0]} onRetry={retry} />
                     ) : (
-                        <Prologue day={day} />
+                        <Blurred loading={skeleton} className="flex w-full justify-center">
+                            <Prologue day={day ?? SAMPLE_DAY} />
+                        </Blurred>
                     )}
                 </Transition>
             </AnimatePresence>

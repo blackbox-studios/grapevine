@@ -1540,7 +1540,11 @@ import Icon from '@/components/Icon'
 
 ### Skeletons
 
-- Wrap skeletons in named components in `components/Skeleton.jsx` (e.g. `HeaderSkeleton`, `TableSkeleton`, `VERSION_TABLE_COLUMNS`). **Avoid using the bare `<Skeleton/>` directly in pages** — extract a named component if you find yourself composing rows of skeletons inline.
+- **Every named `*Skeleton` component lives in `components/Skeleton.jsx`**, whatever renders it. That file holds the primitive, one named component per surface (`FeedSkeleton`, `CommentsSkeleton`, `NotificationsSkeleton`, `CalendarSkeleton`, `SignupsSkeleton`, `RotaSkeleton`, `PeopleSkeleton`, `ProfileCardSkeleton`, `TableSkeleton`), and any geometry the real surface and its placeholder both read (`NOTIFICATION_ROW`, `USER_TABLE_COLUMNS`) so the two cannot drift a pixel apart. **A component file is no more exempt than a page is.** The point of the rule is that the app's skeletons are all in one place: one defined beside the surface it stands in for is one nobody looking in `Skeleton.jsx` will find, and one that quietly stops matching the surface it sits next to.
+- **A bare `<Skeleton/>` inline is for a placeholder that stands in for one element, in place** — the in-flight upload tile in `<ComposeForm/>`, the date in `<PrologueTitle/>`, the fasting strip in `<SignupClaim/>`. A bar or two in the same ternary as the thing they replace, small enough that reading the swap means reading one screen. **The threshold is scale, not syntax** — a two-bar wrapper mirroring one line-pair is still in place; repeated rows, several regions, or a container the whole surface is laid out in is a surface skeleton. Name it and move it, because at that size the placeholder is carrying geometry the real surface also carries, and keeping those two in step is what `Skeleton.jsx` is for.
+- **A blurred sample is the other placeholder, and it is deliberately narrow.** `<Blurred/>` (same file) holds a surface's *own shape* out of focus and brings it into focus when the answer lands. It suits a surface whose **shape is known before its content is**: the Daily Read (a title, then a page of prose under headings) and the Events calendar (a grid whose dates come from arithmetic, where only the rings need the request). Two things it requires: the caller renders the sample into the **same element** the answer will occupy, or there is no transition to run; and the sample is `aria-hidden` while it stands, because it is not true. A grey bar is still right where there is genuinely no shape yet — `<CalendarSkeleton/>` covers the frame before a month is even chosen — and for a list, where the rows *are* the information and there is no single answer to bring into focus.
+
+  **The sample is the caller's, and what is in it is a decision.** The Daily Read's is filler prose (`SAMPLE_DAY` in `Prologue.jsx`) rather than an invented saint's life or passage of scripture: text that reads as the Church's while being nobody's does not belong in this repo, least of all on the surface whose point is that it carries somebody else's real words. Blurred, only the measure of the lines is doing any work anyway.
 - Always render skeleton/content under an `<AnimatePresence mode="wait">`, with each branch wrapped in `<Transition fast key="...">`. This produces the standard fade between loading and loaded states:
 
 ```jsx
@@ -1692,7 +1696,7 @@ Use this whenever you add a new top-level entity (e.g. `installs`, `users`, `rel
    - [ ] Add the route folder under `app/(protected)/<domain>/` with a `page.jsx` (and `[param]/page.jsx` for dynamic routes). No router config file to edit — the folder *is* the route.
    - [ ] Add a sidebar entry in `app/(protected)/layout.jsx` (`NAV` array) — provide an SVG icon in `assets/svg/icons/`.
 5. **Skeletons**
-   - [ ] Add named skeleton components / column configs to `components/Skeleton.jsx`.
+   - [ ] Add named skeleton components / column configs to `components/Skeleton.jsx` — never beside the surface they stand in for.
 6. **Pages**
    - [ ] `app/(protected)/<domain>/page.jsx` — start with `"use client"` — consuming the hook. No `fetch`, no direct store access, no inline error strings.
 7. **shadcn primitives**

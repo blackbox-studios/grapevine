@@ -271,8 +271,8 @@ const PEOPLE = [
 
 /* ── Mapping the fixture corpus onto rows ────────────────────────────────── */
 
-/* A fixture post's media (`image` + dimensions, `images`, `document`) → PostMedia rows.
- * The inverse of `projectMedia` in src/lib/server/projections.js; keep them in step. */
+/* A fixture post's media (`image` + dimensions, `images`, `video`, `document`) → PostMedia
+ * rows. The inverse of `projectMedia` in src/lib/server/projections.js; keep them in step. */
 const mediaRowsFor = (post) => {
     const rows = []
 
@@ -294,6 +294,17 @@ const mediaRowsFor = (post) => {
             url,
             width: index === 0 ? (post.width ?? null) : null,
             height: index === 0 ? (post.height ?? null) : null,
+            position: rows.length,
+        })
+    }
+
+    /* Stored as the link the fixture gives, because that is what `createPost` stores too: a
+     * canonical watch URL, which the projection parses the id back out of. No dimensions —
+     * the player's box is 16:9 whatever was filmed. */
+    if (post.video) {
+        rows.push({
+            kind: "YOUTUBE",
+            url: post.video,
             position: rows.length,
         })
     }

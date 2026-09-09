@@ -37,6 +37,7 @@ import {
     FormItem,
     FormLabel,
 } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import {
     Select,
     SelectContent,
@@ -52,7 +53,15 @@ import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useUser } from "@/lib/store/auth/hook"
 import { usePublish } from "@/lib/store/feed/hook"
 import { useUpload } from "@/lib/store/uploads/hook"
-import { appPath, cn, documentType, formatBytes } from "@/lib/utils"
+import {
+    appPath,
+    cn,
+    documentType,
+    formatBytes,
+    youtubeId,
+    youtubeThumbnail,
+    youtubeWatchUrl,
+} from "@/lib/utils"
 
 /* Writing a post.
  *
@@ -81,6 +90,16 @@ const schema = z.object({
     orgId: z.string().min(1, "Choose a group to post in."),
     title: z.string().trim().max(TITLE_MAX, `Keep the title under ${TITLE_MAX} characters.`),
     body: z.string().trim().min(1, "Write something to post."),
+    /* A link rather than an upload, so it is typed text and belongs in the form — the photos
+     * and the file beside it are already-uploaded descriptors and cannot be. Validated with
+     * the same `youtubeId` the endpoint parses with, so a link this accepts is a link that
+     * publishes. */
+    videoUrl: z
+        .string()
+        .trim()
+        .refine((value) => !value || Boolean(youtubeId(value)), {
+            message: "That does not look like a YouTube link.",
+        }),
 })
 
 /* -------------------------------------------------------------------------- */
@@ -231,6 +250,79 @@ const PhotoStrip = ({ media, onRemove, onAdd, pending, disabled }) => {
         </div>
     )
 }
+
+/* -------------------------------------------------------------------------- */
+/* Video                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/* A YouTube video on the post: a link, and the still it resolves to.
+ *
+ * **The preview is the point of the field.** A pasted URL is eleven characters of id inside
+ * forty of tracking, and nothing in it tells the person whether they copied the video they
+ * meant or the one they had open in the next tab. So the moment the link parses, the frame
+ * appears — and an admin who pasted the wrong recording sees it here rather than hearing about
+ * it from the parish.
+ *
+ * The still is the modest `hqdefault`: this box is a couple of hundred pixels wide, and the
+ * poster the card will draw is a decision the card makes about its own width.
+ *
+ * `x` clears the field rather than hiding the control, because the control is where the link is
+ * corrected — pasting over it is the other way somebody undoes this. */
+const VideoField = ({ control, disabled, note }) => (
+    <FormField
+        control={control}
+        name="videoUrl"
+        render={({ field }) => {
+            const id = youtubeId(field.value)
+
+            return (
+                <FormItem className="flex flex-col gap-2">
+                    <FormLabel className="sr-only">YouTube link</FormLabel>
+                    <FormControl>
+                        <div className="relative">
+                            <Input
+                                icon="link"
+                                inputMode="url"
+                                autoComplete="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
+                                placeholder="Paste a YouTube link"
+                                {...field}
+                                /* After the spread: react-hook-form's field carries its own
+                                 * `disabled`, so a `undefined` from it lands on top of this and
+                                 * quietly re-enables the control. */
+                                disabled={disabled}
+                                className={cn(field.value && "pr-12")}
+                            />
+                            {field.value && (
+                                <button
+                                    type="button"
+                                    onClick={() => field.onChange("")}
+                                    aria-label="Remove video"
+                                    className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                >
+                                    <Icon size="sm">close</Icon>
+                                </button>
+                            )}
+                        </div>
+                    </FormControl>
+
+                    {id && (
+                        <div className="aspect-video w-56 overflow-hidden rounded-xl bg-muted">
+                            <Img
+                                src={youtubeThumbnail(id)}
+                                alt=""
+                                className="size-full object-cover"
+                            />
+                        </div>
+                    )}
+
+                    {note && <p className="text-xs text-muted-foreground">{note}</p>}
+                </FormItem>
+            )
+        }}
+    />
+)
 
 /* -------------------------------------------------------------------------- */
 /* Attachment                                                                 */
@@ -433,13 +525,27 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
 
     const form = useForm({
         resolver: zodResolver(schema),
-        defaultValues: { orgId: defaultOrgId ?? "", title: "", body: "" },
+        defaultValues: { orgId: defaultOrgId ?? "", title: "", body: "", videoUrl: "" },
     })
 
     /* `useWatch` rather than `form.watch(...)`: the latter hands back a function the React
      * compiler cannot memoize safely, so it bails out of optimizing this whole component. */
     const orgId = useWatch({ control: form.control, name: "orgId" })
     const body = useWatch({ control: form.control, name: "body" })
+    const videoUrl = useWatch({ control: form.control, name: "videoUrl" })
+
+    /* **Photos or a video, and the composer says so by turning one of them off.** The rule is
+     * `createPost`'s (see `MAX_POST_VIDEOS`): every surface that opens a post is built around a
+     * single media box, so a post carrying both would store one of them and draw the other.
+     * Disabled rather than hidden, because a control that vanishes is one somebody goes looking
+     * for — and the line under the field is what makes a dead control an answer rather than a
+     * fault. Typing at all counts, not just a link that parses: a half-pasted URL is somebody
+     * making a video post. */
+    const hasVideo = Boolean(videoUrl?.trim())
+    const hasPhotos = media.length > 0 || uploadingPhotos > 0
+    const exclusive = hasVideo || hasPhotos
+        ? "A post carries photos or a video, not both."
+        : null
 
     /* The viewer's groups arrive with `GET /api/me`, which may land after this mounts — and
      * a select whose only option appeared a beat later must not still be showing nothing. */
@@ -461,7 +567,8 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
     const target = orgs.find(org => org.id === orgId)?.name ?? "your group"
 
     /* Anything typed or picked is worth protecting from a stray click on the backdrop. */
-    const dirty = Boolean(body?.trim()) || media.length > 0 || attachment !== null
+    const dirty =
+        Boolean(body?.trim()) || hasVideo || media.length > 0 || attachment !== null
     useEffect(() => {
         onDirtyChange?.(dirty)
     }, [dirty, onDirtyChange])
@@ -518,6 +625,7 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
     const submit = form.handleSubmit(
         async (values) => {
             if (disabled) return
+            const videoId = youtubeId(values.videoUrl)
             const post = await publish({
                 orgId: values.orgId,
                 /* The title is one line wherever it is rendered, so any break typed into it
@@ -527,13 +635,22 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
                  * renders one now preserves them (see <Caption/> in components/Feed.jsx). */
                 title: values.title.replace(/\s+/g, " ").trim() || null,
                 body: values.body.trim(),
-                /* The photos and the attachment become one media array here — array order is
-                 * carousel order, so the attachment goes last where it cannot displace a
-                 * photo's position. `projectMedia` splits them apart again by `kind`. */
-                media: attachment ? [...media, attachment] : media,
+                /* The video, the photos and the attachment become one media array here — array
+                 * order is carousel order, so the attachment goes last where it cannot displace
+                 * a photo's position. `projectMedia` splits them apart again by `kind`.
+                 *
+                 * The link is sent canonicalized rather than as it was pasted, which is what the
+                 * server will store either way: the optimistic row is built from what goes over,
+                 * so anything the two disagree about is a card that changes when the publish
+                 * confirms. */
+                media: [
+                    ...(videoId ? [{ kind: "YOUTUBE", url: youtubeWatchUrl(videoId) }] : []),
+                    ...media,
+                    ...(attachment ? [attachment] : []),
+                ],
             })
             if (!post) return
-            form.reset({ orgId: values.orgId, title: "", body: "" })
+            form.reset({ orgId: values.orgId, title: "", body: "", videoUrl: "" })
             setMedia([])
             setAttachment(null)
             onDone()
@@ -580,7 +697,15 @@ const ComposeForm = ({ onDone, onDirtyChange, heading = false }) => {
                         onAdd={addPhotos}
                         onRemove={removePhoto}
                         pending={uploadingPhotos}
-                        disabled={!orgId}
+                        disabled={!orgId || hasVideo}
+                    />
+
+                    {/* Under the photos, because the two answer the same question and a parish
+                      * posts ten times as many pictures as recordings. */}
+                    <VideoField
+                        control={form.control}
+                        disabled={!orgId || hasPhotos}
+                        note={exclusive}
                     />
 
                     {/* Below the photos, because it is the rarer of the two and a post with a

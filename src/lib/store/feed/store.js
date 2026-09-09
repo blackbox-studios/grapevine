@@ -6,7 +6,13 @@ import api from '@/lib/api'
 import { API_ENDPOINTS, PAGE_SIZE, ROLES } from '@/lib/constants'
 import { mockId } from '@/lib/mock'
 import useAuthStore from '@/lib/store/auth/store'
-import { documentType, formatBytes, toErrorList } from '@/lib/utils'
+import {
+    documentType,
+    formatBytes,
+    toErrorList,
+    youtubeId,
+    youtubeWatchUrl,
+} from '@/lib/utils'
 
 /* The dashboard feed: one paginated list of posts, and nothing else.
  *
@@ -34,13 +40,18 @@ import { documentType, formatBytes, toErrorList } from '@/lib/utils'
  * It cannot simply *be* `projectMedia`: that one reads database rows behind `server-only`,
  * and these are upload descriptors that have never been near the database. */
 const projectPending = (media) => {
-    const images = media.filter(item => item.kind !== 'DOCUMENT')
+    const images = media.filter(item => (item.kind ?? 'IMAGE') === 'IMAGE')
     const document = media.find(item => item.kind === 'DOCUMENT')
+    /* Parsed rather than taken as pasted, because that is what the server will store and send
+     * back — an optimistic row built off the raw link would show a different poster for the
+     * moment it was on screen, or none at all. See `createPost`. */
+    const videoId = youtubeId(media.find(item => item.kind === 'YOUTUBE')?.url)
 
     return {
         ...(images.length ? { width: images[0].width, height: images[0].height } : {}),
         ...(images.length === 1 ? { image: images[0].url } : {}),
         ...(images.length > 1 ? { images: images.map(item => item.url) } : {}),
+        ...(videoId ? { video: { id: videoId, url: youtubeWatchUrl(videoId) } } : {}),
         ...(document
             ? {
                   document: {

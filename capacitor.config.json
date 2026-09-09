@@ -3,6 +3,9 @@
     "appName": "Grapevine",
     "webDir": "out",
     "backgroundColor": "#0a1014",
+    "server": {
+        "allowNavigation": ["www.youtube.com"]
+    },
     "ios": {
         "contentInset": "never",
         "backgroundColor": "#0a1014",

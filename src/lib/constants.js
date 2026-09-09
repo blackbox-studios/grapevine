@@ -402,6 +402,19 @@ export const MAX_POST_IMAGES = 10
  * projection becomes a list first. */
 export const MAX_POST_DOCUMENTS = 1
 
+/* **One video per post, and a post carrying one carries no photos.**
+ *
+ * Both halves are contracts rather than preferences, and both are for the same reason the line
+ * above is: every surface that opens a post is built around *one* media box. <PostModal/>
+ * measures a single child to size the dialog to it, <PostSlide/> fills the screen with one
+ * thing, and neither has anywhere to put a second. A post published with a video and four
+ * photos would therefore store five rows and render one of them, which is the silent loss
+ * `MAX_POST_DOCUMENTS` exists to prevent, twice over.
+ *
+ * An attachment is the exception and stays allowed beside a video: it is not media, it is a row
+ * under the media, and it is already drawn there. */
+export const MAX_POST_VIDEOS = 1
+
 /* How many digits the emailed sign-in code has.
  *
  * **This is a project setting, not a constant of nature — and the two must agree.** Supabase

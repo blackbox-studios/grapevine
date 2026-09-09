@@ -584,10 +584,17 @@ model Post {
   @@map("post")
 }
 
-/// Media attached to a post, one row per item. This shape covers all four cases the
-/// feed renders without a discriminator column: no rows is a text-only announcement,
-/// one IMAGE row is a single photo, several IMAGE rows ordered by `position` is the
-/// swipeable carousel, and a DOCUMENT row is a PDF attachment.
+/// Media attached to a post, one row per item. This shape covers every case the feed
+/// renders without a discriminator column: no rows is a text-only announcement, one
+/// IMAGE row is a single photo, several IMAGE rows ordered by `position` is the
+/// swipeable carousel, a DOCUMENT row is a PDF attachment, and a YOUTUBE row is an
+/// embedded video.
+///
+/// A YOUTUBE row is the one whose `url` was never uploaded here, and it is the only kind
+/// exempt from the ownership check in `createPost` — which it earns by being rebuilt from
+/// a parsed video id rather than stored as it was pasted (`youtubeId` in `lib/utils.js`).
+/// It carries no `width`/`height` and needs none: the player's box is 16:9 whatever was
+/// filmed, so the surfaces reserve it from the kind rather than from the data.
 ///
 /// `width`/`height` are the media's intrinsic pixel size and are not optional in
 /// practice for images: the feed card reserves the aspect-ratio box from them before
@@ -618,6 +625,7 @@ model PostMedia {
 enum MediaKind {
   IMAGE
   DOCUMENT
+  YOUTUBE
 
   @@map("media_kind")
 }

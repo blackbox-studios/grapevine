@@ -1,0 +1,13 @@
+-- A post may carry an embedded YouTube video.
+--
+-- A value on the existing enum rather than a column on `post`: a video is media attached to a
+-- post exactly as a photo or an attachment is, so it is a row in `post_media` with a kind, and
+-- nothing about the shape of either table changes. Naming the provider rather than adding a
+-- generic VIDEO is deliberate for the same reason `notification_type` names each event: a second
+-- source (a Vimeo recording, a diocesan stream) is then another value here, not a nullable
+-- `provider` column that every existing row would have to answer.
+--
+-- `url` on one of these rows holds the canonical watch address, rebuilt from the eleven-character
+-- id parsed out of whatever was pasted -- see `youtubeId` in src/lib/utils.js and the ownership
+-- check in `createPost` that this kind is the one exemption from.
+ALTER TYPE "media_kind" ADD VALUE 'YOUTUBE';

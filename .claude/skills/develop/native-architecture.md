@@ -328,6 +328,83 @@ That menu is also the whole of copy/paste on a body: selection stays off everywh
 copying a link is a menu item rather than a text selection. In a browser the hold is off
 entirely, because Safari and Chrome already offer their own on the same gesture.
 
+### The one exception: an embedded video
+
+`server.allowNavigation` names exactly one host, `www.youtube.com`, and it is there because
+an embedded player is a **subframe** navigating off-origin.
+
+The two platforms disagree about that. iOS computes `toplevelNavigation` from
+`navigationAction.targetFrame?.isMainFrame` before handing anything to the OS, so a subframe
+loading YouTube falls through to `.allow` and needs no permission. Android's
+`BridgeWebViewClient` is called for subframe navigations too and passes the URL straight to
+`Bridge.launchIntent`, which never asks `request.isForMainFrame()` — so without this entry the
+player's own frame is thrown out to an `ACTION_VIEW` intent and pressing play leaves the app
+for the YouTube app.
+
+**Know what the entry costs before adding a second one.** The list is matched on host alone,
+and iOS consults it *before* the top-level test — so a host on this list is also a host the
+app will navigate its **main frame** to. `www.youtube.com` is exactly what an admin types into
+a post body, so a YouTube link in a post no longer goes out to the phone's browser: it loads
+inside the WebView, with the app's own chrome gone. Android's back gesture walks the WebView's
+history back out of it; iOS has no back, so it is a force-quit. That is the standing trade for
+inline playback on Android, and it is the reason this list is one host and not a convenience.
+
+The narrower fix, if that trade ever stops being worth it, is the check Android omits rather
+than a longer list: a `BridgeWebViewClient` subclass installed through
+`bridge.setWebViewClient()` (not `webView.setWebViewClient()`, which leaves the Bridge's own
+reference stale) returning `false` for `!request.isForMainFrame()`. That is Android's own
+documented guidance, it needs no allow-list at all, and it costs a native file that has to be
+re-verified on a device.
+
+### iOS cannot be the embedder, so a page on our own domain is
+
+An iOS build serves itself from `capacitor://localhost`. YouTube validates the origin
+embedding its player and refuses anything that is not http(s), which is **error 153** drawn
+where the video should be. Android does not have this: its default scheme is already `https`
+(`CAPACITOR_HTTPS_SCHEME`).
+
+**`server.iosScheme` cannot fix it, and fails silently if you try.**
+`CAPInstanceDescriptor.normalize()` accepts a scheme only when
+`WKWebView.handlesURLScheme(scheme) == false` — WebKit reserves http and https, so either
+value fails the check and the scheme is quietly reset to `capacitor`. Nothing warns and the
+config parses. Any scheme that *is* accepted is by definition not http(s), so no value in that
+field solves this.
+
+So the app stops being the embedder. `public/embed.html` is a page served by our own
+deployment that holds the player, and on iOS `<Video/>` points its iframe at that instead of
+at YouTube, which then sees an ordinary web origin embedding it.
+
+**The scheme is the whole of what YouTube wanted, not a public domain.** The page satisfies it
+from `http://192.168.1.x:3000` — a LAN dev server, over cleartext, on an address no registrar
+has heard of — exactly as it does from the deployed site. So this is not a production-only
+path: it works on a device against `next dev` the moment `NEXT_PUBLIC_API_BASE_URL` points at
+your machine, which is what makes it testable at all.
+
+Three things about it are load-bearing:
+
+- **It is a file in `public/`, not a route.** It inherits no layout, no providers and no auth
+  gate, it is copied verbatim into both build targets, and it carries no bundle. An
+  intermediate frame should cost a few hundred bytes.
+- **Its URL comes from `API_BASE`** (`youtubeEmbedPageUrl`), because that is already the one
+  thing a native build is told about its deployment and the same instance serves both. A
+  subpath deploy resolves with nothing new to configure.
+- **`allow` is repeated inside it.** Permissions delegate one frame at a time, so autoplay
+  granted to that page by the app reaches the player only because the page passes it on.
+
+This makes video on iOS depend on whatever `NEXT_PUBLIC_API_BASE_URL` named **at build time**
+being reachable, which is the price of an origin the app cannot otherwise have. That value is
+inlined, so the ordering matters for a release: the web has to be deployed with `embed.html`
+before an iOS build pointing at it is submitted, or video is a dead frame that no setting can
+correct short of another upload. Note that `apiTargetProblems` guards only the Android release
+script — `npm run ios` opens Xcode with whatever was in the environment, so nothing stops a
+LAN address being archived.
+
+If a CSP is ever added to the deployment, its `frame-ancestors` has to admit the app or this
+page stops loading.
+
+`capacitor.config.json` holds no comments, which is why this is written here. Changing it
+needs `npm run sync` before either platform sees it.
+
 ---
 
 ## Push notifications (Firebase)

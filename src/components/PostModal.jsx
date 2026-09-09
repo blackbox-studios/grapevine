@@ -6,6 +6,7 @@ import useMeasure from "react-use-measure"
 import Carousel from "@/components/Carousel"
 import { CommentsPanel } from "@/components/Comments"
 import Img from "@/components/Img"
+import Video from "@/components/Video"
 import { CommentsSkeleton, PostMediaSkeleton } from "@/components/Skeleton"
 import { Overlay } from "@/components/Widgets"
 import { appPath, mediaRatio, postImages } from "@/lib/utils"
@@ -16,6 +17,19 @@ import { appPath, mediaRatio, postImages } from "@/lib/utils"
  * dots overlaid). */
 const PostMedia = ({ post }) => {
     const images = postImages(post)
+
+    /* A video sets its own width rather than deriving one from its height, because the height
+     * here is the dialog's and 16:9 of `90dvh` is wider than most screens — the box would then
+     * be clamped by `max-w` and stop being 16:9 at all. A comfortable reading width, capped the
+     * same way a photo is so the comment rail is never pushed off. */
+    if (post.video) {
+        return (
+            <div className="flex h-full w-[min(calc(95vw-var(--commentbar-width)),56rem)] items-center">
+                <Video video={post.video} />
+            </div>
+        )
+    }
+
     if (images.length === 0) return null
 
     if (images.length > 1) {

@@ -7,6 +7,7 @@ import useMeasure from "react-use-measure"
 import { BackHeader } from "@/components/BackHeader"
 import Carousel from "@/components/Carousel"
 import PinchZoom from "@/components/PinchZoom"
+import Video from "@/components/Video"
 import { PostCommentsThread } from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMenuTrigger } from "@/components/PostMenu"
@@ -37,6 +38,12 @@ const SHEET_RATIO = 0.62
  * letterboxed with side gaps. */
 const SlideMedia = ({ post }) => {
     const images = postImages(post)
+
+    /* Full width in its own 16:9 box, centered by the region above — a video is the one media
+     * here that must not be cropped to fill the screen, because what a crop would take is the
+     * player's own controls. */
+    if (post.video) return <Video video={post.video} className="w-full" />
+
     if (images.length === 0) return null
 
     if (images.length > 1) {

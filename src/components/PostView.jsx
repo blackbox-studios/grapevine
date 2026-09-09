@@ -16,7 +16,7 @@ import { postImages } from "@/lib/utils"
  *  - Desktop → <PostModal/>, a centered dialog on a dimmed backdrop (media + comment rail).
  *  - Mobile  → <PostSlide/>, a full-height Reels-style sheet the media fills, comments raised
  *    on demand.
- *  - No photo → <PostTextView/>, the writing then the conversation in one scroll, on either
+ *  - No media → <PostTextView/>, the writing then the conversation in one scroll, on either
  *    breakpoint. Both of the above are built around media, so a text-only announcement had
  *    been opening a photo viewer with nothing in it.
  *
@@ -49,7 +49,9 @@ const PostView = ({ variant = "modal", postId }) => {
      * there is no feed to borrow from and the fetch is the first thing that can paint. */
     const { post, skeleton } = usePost(postId)
 
-    return post && postImages(post).length === 0 ? (
+    /* A video is media, so it belongs to the media presentations — the text one is for a post
+     * with nothing to look at. */
+    return post && postImages(post).length === 0 && !post.video ? (
         <PostTextView variant={variant} post={post} dismiss={dismiss} />
     ) : isDesktop ? (
         <PostModal post={post} skeleton={skeleton} dismiss={dismiss} />

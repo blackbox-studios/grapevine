@@ -47,9 +47,12 @@ const SlideMedia = ({ post }) => {
     if (images.length === 0) return null
 
     if (images.length > 1) {
+        /* One ratio, read once and handed to both: the box the carousel fills, and the slides
+         * inside it, which shape themselves. */
+        const ratio = mediaRatio(post)
         return (
-            <div className="w-full" style={{ aspectRatio: mediaRatio(post) }}>
-                <Carousel images={images} bare zoomable />
+            <div className="w-full" style={{ aspectRatio: ratio }}>
+                <Carousel images={images} ratio={ratio} bare zoomable />
             </div>
         )
     }

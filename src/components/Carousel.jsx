@@ -121,13 +121,18 @@ const Arrow = ({ dir, onClick, visible }) => {
     )
 }
 
-/* `ratio` (from `mediaRatio`) shapes every slide, so a carousel of portrait photographs is as
- * tall as they are rather than a square with grey down both sides.
+/* `ratio` (from `mediaRatio`) shapes each slide, so a carousel of portrait photographs is as
+ * tall as they are rather than a square with grey down both sides. A slide is shaped from its
+ * own width rather than filling a shaped ancestor, because `height: 100%` inside a box sized
+ * by `aspect-ratio` resolves differently in WebKit than in Blink — the iOS app letterboxes
+ * where the browser fills.
+ *
+ * **Every caller passes it, `bare` included.** A `bare` parent shapes its own box too, and the
+ * default of 1 is a square slide sitting inside a correctly shaped box.
  *
  * `bare` (used inside the desktop comments modal): drop the feed card's border and
  * rounding, fill the parent's height, and overlay the paging dots on the image so
- * they don't add height — letting the modal size itself to the media. The parent shapes
- * its own box there, from the same `ratio`.
+ * they don't add height — letting the modal size itself to the media.
  *
  * `onImageClick` (feed card): fires when the media is *tapped* rather than dragged
  * or paged. Framer suppresses the click that follows a drag, and the arrows are

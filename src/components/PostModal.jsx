@@ -33,12 +33,13 @@ const PostMedia = ({ post }) => {
     if (images.length === 0) return null
 
     if (images.length > 1) {
+        const ratio = mediaRatio(post)
         return (
             <div
-                style={{ aspectRatio: mediaRatio(post) }}
+                style={{ aspectRatio: ratio }}
                 className="h-full max-w-[calc(95vw-var(--commentbar-width))]"
             >
-                <Carousel images={images} bare />
+                <Carousel images={images} ratio={ratio} bare />
             </div>
         )
     }

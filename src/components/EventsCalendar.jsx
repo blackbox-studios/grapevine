@@ -8,12 +8,13 @@ import Badge from "@/components/Badge"
 import Icon from "@/components/Icon"
 import SignupClaim from "@/components/SignupClaim"
 import Transition from "@/components/Transition"
-import { CalendarSkeleton } from "@/components/Skeleton"
+import { Blurred, CalendarSkeleton } from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { CALENDAR_ENTRY, MONTHS } from "@/lib/constants"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { useCalendar } from "@/lib/store/calendar/hook"
+import { useFastingWarm } from "@/lib/store/fasting/hook"
 import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, cn, dateFromKey, formatDayHeading, formatTime, formatTimeRange, slotTally } from "@/lib/utils"
 
@@ -58,7 +59,7 @@ const DayCell = ({ day, onOpen }) => (
     >
         <span
             className={cn(
-                "grid size-9 place-items-center rounded-full border border-transparent tabular-nums transition-colors",
+                "grid aspect-square w-full max-w-11 place-items-center rounded-full border border-transparent tabular-nums transition-colors",
                 day.parish && day.inMonth && PARISH_RING,
                 day.signup && day.inMonth && SIGNUP_RING,
                 day.signup && day.inMonth && (day.mine ? "ring-brand" : "ring-brand/35"),
@@ -431,7 +432,15 @@ const DayView = ({ selected, entries, onBack, onPrevious, onNext, onOpen }) => {
                 <Button variant="ghost" size="icon" onClick={onPrevious} aria-label="Previous day">
                     <Icon size="lg">chevron_left</Icon>
                 </Button>
-                <Button variant="ghost" size="icon" onClick={onNext} aria-label="Next day">
+                {/* Out to the same edge the month's chevrons reach, and gated the same way,
+                    because stepping between the two surfaces must not move them. */}
+                <Button
+                    className="-mr-2 md:mr-0"
+                    variant="ghost"
+                    size="icon"
+                    onClick={onNext}
+                    aria-label="Next day"
+                >
                     <Icon size="lg">chevron_right</Icon>
                 </Button>
             </header>
@@ -547,14 +556,37 @@ const EventsCalendar = () => {
                 mine: entry.mine,
             },
             title: entry.title,
+            /* Its rota's setting, carried on the block for the same reason the capacity is:
+               the surface must open on a tap without a sheet behind it. */
+            showFasting: entry.showFasting,
         })
     }, [])
+
+    /* The rule for whichever dates on this day could be signed up for, read before one is
+     * tapped. A day is one date, so this is one request at most, and it is skipped entirely
+     * unless a rota on it asks for the rule. */
+    const fastingDates = useMemo(
+        () =>
+            entries.some(
+                (entry) => entry.kind === CALENDAR_ENTRY.SIGNUP && entry.showFasting,
+            ) && selected
+                ? [selected]
+                : [],
+        [entries, selected],
+    )
+
+    useFastingWarm(fastingDates)
 
     return (
         <div className="flex flex-col pb-14">
             <AnimatePresence mode="wait" initial={false}>
-                {skeleton ? (
-                    <Transition fast key="skeleton">
+                {/* Keyed as the month, not as a skeleton of its own: a month with no dates yet
+                    is this surface at an earlier stage rather than a different one, so the two
+                    swap in place. Given its own key it would cross-fade — a fade out and a fade
+                    in — and the reader would watch bars resolve into a blurred grid before the
+                    grid resolved into itself. */}
+                {!month ? (
+                    <Transition fast key="month">
                         <CalendarSkeleton />
                     </Transition>
                 ) : view === "day" ? (
@@ -570,6 +602,11 @@ const EventsCalendar = () => {
                     </Transition>
                 ) : (
                     <Transition fast key="month">
+                      {/* The month waits as itself, out of focus, because its dates are known
+                          before its entries are: the grid is drawn from the calendar arithmetic
+                          and only the rings need the request. So the shape a reader is waiting
+                          for is already on screen and what arrives is the detail on it. */}
+                      <Blurred loading={skeleton}>
                         {/* `gap-10` is the month's heading standing clear of its grid, and it is
                            the same figure `<DayView/>` and `<CalendarSkeleton/>` use — all three
                            are the same heading in the same place, and a reader stepping between
@@ -587,7 +624,10 @@ const EventsCalendar = () => {
                                     </span>
                                 </h2>
 
-                                <div className="flex items-center gap-1">
+                                {/* Pulled out to the same edge the grid below now reaches, so
+                                    the chevron sits over the Saturday column rather than short
+                                    of it. Mobile only, like the bleed it is following. */}
+                                <div className="-mr-2 flex items-center gap-1 md:mr-0">
                                     {/* Only once the reader has paged away from it. On the
                                         current month it is a button that does nothing. */}
                                     {away && (
@@ -619,7 +659,14 @@ const EventsCalendar = () => {
                                 </div>
                             </header>
 
-                            <div>
+                            {/* Wider than the shell's mobile gutter allows: seven columns is
+                                the one layout on this surface whose cell size is decided by
+                                division, so every pixel the gutter keeps comes off each square.
+                                Half of it is given back rather than all, because the sign-up
+                                ring is drawn outside its circle and an edge column flush with
+                                the screen has that ring shaved. Desktop keeps the gutter, its
+                                column being capped at 640px anyway. */}
+                            <div className="-mx-2 md:mx-0">
                                 <div className="grid grid-cols-7">
                                     {WEEKDAY_INITIALS.map((initial, index) => (
                                         <span
@@ -651,6 +698,7 @@ const EventsCalendar = () => {
                             </div>
 
                         </div>
+                      </Blurred>
                     </Transition>
                 )}
             </AnimatePresence>
@@ -660,6 +708,7 @@ const EventsCalendar = () => {
             <SignupClaim
                 slot={taking?.slot ?? null}
                 title={taking?.title ?? ""}
+                showFasting={Boolean(taking?.showFasting)}
                 onOpenChange={(open) => {
                     if (!open) setTaking(null)
                 }}

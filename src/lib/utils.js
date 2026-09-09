@@ -1,7 +1,13 @@
 import { clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
-import { MONTHS, NESTED_TRANSITION_ROUTES, ROUTES, RUNTIME_ROUTES } from "@/lib/constants"
+import {
+    API_BASE,
+    MONTHS,
+    NESTED_TRANSITION_ROUTES,
+    ROUTES,
+    RUNTIME_ROUTES,
+} from "@/lib/constants"
 
 /* Custom classes */
 const twMerge = extendTailwindMerge({
@@ -180,7 +186,7 @@ export const formatNameDay = (value, { short = false } = {}) => {
 }
 
 /* "2011-06-12" → "12 Jun 2011". The short form, for a place that has one line to say a whole
- * date in — a column of the profile's metadata strip. `formatDate` is the long one, for prose. */
+ * date in — a row of the profile card's info list. `formatDate` is the long one, for prose. */
 export const formatDateCompact = (iso) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
     if (!match) return ""
@@ -218,13 +224,148 @@ export const addDays = (iso, days) => {
     ].join("-")
 }
 
-/* A post's photos, as one array whatever the wire shape.
+/* A post's photos, as one array of URLs whatever the wire shape.
  *
  * `projectMedia` sends `image` + `width`/`height` for a single photo and `images` for a
  * carousel, so every surface that renders media had its own copy of this two-branch read —
  * and an empty result is not a detail: it is what makes a post a text post, which the feed
  * card and <PostView/> now both decide their whole layout on. One answer, in one place. */
 export const postImages = (post) => post?.images ?? (post?.image ? [post.image] : [])
+
+/* The box a post's photos are drawn in, as a CSS aspect ratio.
+ *
+ * One number for the whole post rather than one per photo: a carousel lays its slides side by
+ * side and pages through them, so a shape per slide would be a height per slide and the card
+ * would change height under the finger. The first photo decides it and the rest are contained
+ * inside it, which is Instagram's rule too. A post carrying no dimensions answers 1, the
+ * square a carousel with nothing to go on is drawn as. */
+export const mediaRatio = (post) =>
+    post?.width && post?.height ? post.width / post.height : 1
+
+/* ---------------------------------------------------------------------------
+ * YouTube
+ *
+ * Shared by both sides for the reason the calendar helpers below are: the composer refuses a
+ * link the server would refuse, at the keystroke rather than three taps later, because it is
+ * the same function deciding.
+ *
+ * **The id is the record and the URL is rebuilt from it.** Everything a post carries about a
+ * video is derived here from eleven characters, so nothing a person pasted is ever stored, put
+ * into an `src`, or rendered. That is what stands in for the `isOwnedUrl` check every other
+ * kind of post media passes (see `createPost`): an upload is trusted because it landed in a
+ * folder this group's own grant created, and a video is trusted because the only thing kept
+ * from the address bar is an id that cannot express anything but a video.
+ * ------------------------------------------------------------------------- */
+
+/* Every shape of YouTube address a person could plausibly paste, and the id in it.
+ *
+ * Six forms, because the one somebody has to hand depends entirely on where they got it: the
+ * watch page is what a desktop browser shows, `youtu.be` is what the Share button copies,
+ * `/shorts` and `/live` are what a phone lands on, `/embed` is what somebody who found the
+ * "copy embed code" button will have, and `/v/` is what a decade-old parish website links to.
+ * Accepting all six is the difference between a feature that works and one that is technically
+ * correct — the same argument `icsFeedUrl` makes below.
+ *
+ * Ids are exactly eleven characters of URL-safe base64 and have been since the beginning, so
+ * the shape is worth asserting: it is what makes this a parser rather than a way to put an
+ * arbitrary string into an iframe's `src`. A pasted link carrying a playlist, a timestamp or a
+ * tracking parameter loses them, which is deliberate — a post links to a video, and `?t=90` on
+ * a parish's feast day recording is somebody's scroll position rather than the parish's. */
+const YOUTUBE_ID = /^[\w-]{11}$/
+
+export const youtubeId = (input) => {
+    const raw = String(input ?? "").trim()
+    if (!raw) return null
+
+    /* A bare id, which is what the composer's own preview round-trips and what a person who
+     * copied out of an embed snippet sometimes has. Checked before the URL parse, since it is
+     * not one. */
+    if (YOUTUBE_ID.test(raw)) return raw
+
+    let url
+    try {
+        /* Scheme-less is the normal way a link is pasted ("youtu.be/…"), and `new URL` refuses
+         * it outright rather than guessing. */
+        url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`)
+    } catch {
+        return null
+    }
+
+    const host = url.hostname.replace(/^(www|m|music)\./i, "").toLowerCase()
+    const segments = url.pathname.split("/").filter(Boolean)
+
+    /* youtu.be/<id> — the whole path is the id. */
+    const candidate =
+        host === "youtu.be"
+            ? segments[0]
+            : host === "youtube.com" || host === "youtube-nocookie.com"
+              ? segments[0] === "watch"
+                  ? url.searchParams.get("v")
+                  : ["embed", "shorts", "live", "v"].includes(segments[0])
+                    ? segments[1]
+                    : null
+              : null
+
+    return candidate && YOUTUBE_ID.test(candidate) ? candidate : null
+}
+
+/* The address the video lives at, which is what a post stores and what "Watch on YouTube"
+ * opens. The canonical watch page rather than `youtu.be`, because it is the one a person
+ * reading the row in a database console recognizes. */
+export const youtubeWatchUrl = (id) => `https://www.youtube.com/watch?v=${id}`
+
+/* What the player iframe loads once somebody has asked for it.
+ *
+ * **`youtube.com` and not `youtube-nocookie.com`, because the privacy-enhanced domain does not
+ * play.** Withholding the visitor cookie is exactly the signal YouTube's abuse systems read as
+ * automation, so a nocookie embed answers the press with "Sign in to confirm you're not a bot"
+ * and the video never starts — reproduced here on every video, on both domains, with and
+ * without autoplay: only the cookie mattered. A player that refuses to play is not a privacy
+ * feature.
+ *
+ * **The facade is what protects the reader instead, and protects it better.** Nothing is
+ * requested from YouTube until somebody presses play (see `<Video/>`), so a parishioner who
+ * scrolls past a video is not served a cookie, a script or a request — which is more than the
+ * nocookie domain ever offered, since that one still loads the player for everyone who sees the
+ * card.
+ *
+ * `autoplay` because the reader has already pressed play: the poster is the play button, so a
+ * player that arrived stopped would be asking twice. `playsinline` keeps iOS from taking the
+ * video fullscreen out of the feed on that same press. `rel=0` keeps the end screen's
+ * suggestions to the same channel, which on a parish's own recording is the parish. */
+export const youtubeEmbedUrl = (id) =>
+    `https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0`
+
+/* The same player, reached through a page on this app's own domain — what iOS loads instead.
+ *
+ * The packaged iOS app serves itself from `capacitor://localhost`, and YouTube refuses to be
+ * embedded by an origin that is not http(s) (error 153). That origin cannot be changed:
+ * `iosScheme` validates against `WKWebView.handlesURLScheme`, which is true for both http and
+ * https, so either value is discarded and the default kept. So the app stops being the
+ * embedder and `public/embed.html` becomes it. What YouTube wants is an http(s) origin, not
+ * a public one — the page satisfies it equally from a LAN dev server over cleartext http, so
+ * this works in development against `next dev` and is not a production-only path.
+ *
+ * Built off `API_BASE` because that is already the one thing a native build is told about its
+ * deployment, and the two are served by the same instance — so a subpath deploy resolves
+ * correctly and nothing new has to be configured for video. A build with no
+ * `NEXT_PUBLIC_API_BASE_URL` gets a relative path, which is right for the web and is the case
+ * that never reaches this function anyway. */
+export const youtubeEmbedPageUrl = (id) =>
+    `${API_BASE.replace(/\/api\/?$/, "")}/embed.html?v=${id}`
+
+/* The still the card shows in place of the player.
+ *
+ * `hqdefault` is the one still **every** video has, whatever it was uploaded at and whenever:
+ * `maxresdefault` is only generated for HD uploads and 404s for the rest, which on a surface
+ * whose entire job is to show a picture is the worst possible failure. So the poster starts at
+ * `maxres` and falls back to this on error (see `<Video/>`), rather than the other way
+ * around.
+ *
+ * Both are 4:3 boxes with the 16:9 frame letterboxed inside them, so a poster is drawn
+ * `object-cover` in a 16:9 box — which crops the bars back off exactly. */
+export const youtubeThumbnail = (id, { max = false } = {}) =>
+    `https://i.ytimg.com/vi/${id}/${max ? "maxresdefault" : "hqdefault"}.jpg`
 
 /* ---------------------------------------------------------------------------
  * Calendars

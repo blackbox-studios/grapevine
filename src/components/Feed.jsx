@@ -13,6 +13,7 @@ import Img from "@/components/Img"
 import Linkify from "@/components/Linkify"
 import { PostMenuTrigger } from "@/components/PostMenu"
 import { Reflow, ReflowItem } from "@/components/Reflow"
+import Video from "@/components/Video"
 import { Attachment, Avatar, HandleLink } from "@/components/Widgets"
 import HeartOutline from "@/assets/svg/icons/heart-outline.svg"
 import Heart from "@/assets/svg/icons/heart.svg"
@@ -34,6 +35,7 @@ import {
     captionPreview,
     cn,
     formatCompact,
+    mediaRatio,
     postImages,
     postPath,
     timeAgoCompact,
@@ -164,8 +166,9 @@ const PostCard = ({ post }) => {
     const name = displayName(post.author)
 
     const images = postImages(post)
-    /* No photo is not a missing photo — it is the other layout. See the header above. */
-    const textOnly = images.length === 0
+    /* No photo is not a missing photo — it is the other layout. See the header above. A video
+     * is media too, so it takes the photo layout: there is something to caption. */
+    const textOnly = images.length === 0 && !post.video
 
     const body = post.body && (
         textOnly ? (
@@ -277,7 +280,12 @@ const PostCard = ({ post }) => {
              * padded, rounded column. The surrounding text keeps the gutter either way. */}
             {images.length > 1 ? (
                 <div className="-mx-4 md:mx-0">
-                    <Carousel images={images} onImageClick={openPost} zoomable />
+                    <Carousel
+                        images={images}
+                        ratio={mediaRatio(post)}
+                        onImageClick={openPost}
+                        zoomable
+                    />
                 </div>
             ) : (
                 images.length === 1 && (
@@ -298,6 +306,17 @@ const PostCard = ({ post }) => {
                         {mediaPinch}
                     </button>
                 )
+            )}
+
+            {/* **The video is not a way into the post, unlike a photo above it.** A tap on the
+              * still is the play — that is the one thing a reader wants from a video where they
+              * are standing, and opening `/p/:id` to make them press it again would be the
+              * gesture answering the wrong question. The comment icon and the tallies below
+              * still open the post, which is where a reader who wants the conversation goes. */}
+            {post.video && (
+                <div className="-mx-4 md:mx-0">
+                    <Video video={post.video} className="md:rounded-lg" />
+                </div>
             )}
 
             {post.document && (

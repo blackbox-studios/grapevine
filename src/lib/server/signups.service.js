@@ -123,6 +123,7 @@ export const slotsInWindow = (orgId, { start, end }) =>
                     status: true,
                     timezone: true,
                     calendarTitle: true,
+                    showFasting: true,
                 },
             },
             claims: { select: { id: true, profileId: true, onBehalfOf: true } },
@@ -130,12 +131,15 @@ export const slotsInWindow = (orgId, { start, end }) =>
         relationLoadStrategy: "join",
     })
 
-/* The slots a sheet shows, and it is deliberately not all of them.
+/* The slots a read carries, and it is deliberately not all of them.
  *
  * A rota that has run since Pascha has forty past Sundays on it and nobody is going to sign up
- * for any of them. The sheet opens on what is still to come, plus a fortnight of what just
- * happened — because "did anybody bring the food last week" is the second question a parish
- * asks about a rota, and answering it costs a handful of rows.
+ * for any of them. The read ships what is still to come plus a fortnight behind it, and the
+ * fortnight is slack rather than something drawn: `<RotaPage/>` drops a date the day after it
+ * happens, on the reader's own clock, which is a question about a timezone the server does not
+ * have. What the tail buys here is `topUpRecurring` — it keeps an ongoing rota's last day inside
+ * the window through a fortnight of nobody opening the app, so the fallback read almost never
+ * fires.
  *
  * `getSheet` takes `all` for the one caller that genuinely wants the whole history: the manage
  * surface, where an admin is editing dates rather than signing up for them. */
@@ -149,6 +153,31 @@ const slotWindow = () => ({ gte: new Date(Date.now() - 14 * 86400000) })
  * steps dates rather than instants. */
 const shiftDays = (date, days, timeZone) =>
     new Date(zonedToInstant(instantToZoned(date.getTime(), timeZone) + days * 86400000, timeZone))
+
+/* The slots on a rota's last day, read straight from the table.
+ *
+ * Both reads hand `topUpRecurring` a **windowed** slice of a sheet's slots, so a rota nobody has
+ * opened for longer than the horizon plus that window arrives with nothing in it at all — and a
+ * rota with no last day has no template to repeat, which would leave an ongoing rota out of
+ * Saturdays permanently, with nothing but Extend to repair it. This is the one path that goes
+ * back to the table for it. It costs a query and only for a rota that has already lapsed; once it
+ * runs the sheet is stocked again and the windowed slice carries it from then on.
+ *
+ * `take` is what one day can hold — `MAX_SLOT_HOURS` split into `MIN_SLOT_MINUTES` shifts. */
+const lastDaySlots = async (sheet) => {
+    const tail = await prisma.signupSlot.findMany({
+        where: { sheetId: sheet.id },
+        orderBy: { startsAt: "desc" },
+        take: Math.ceil((MAX_SLOT_HOURS * 60) / MIN_SLOT_MINUTES),
+        select: { startsAt: true, endsAt: true, capacity: true, note: true },
+    })
+    if (tail.length === 0) return []
+
+    const lastDay = dayIn(tail[0].startsAt, sheet.timezone)
+    return tail
+        .filter((slot) => dayIn(slot.startsAt, sheet.timezone) === lastDay)
+        .reverse()
+}
 
 /* Keeps an ongoing rota stocked to the horizon.
  *
@@ -191,22 +220,35 @@ const topUpRecurring = async (sheets) => {
             if (sheet.status !== SIGNUP_STATUS.OPEN) return
 
             const slots = sheet.slots ?? []
-            if (slots.length === 0) return
-
             const last = slots[slots.length - 1]
-            if (last.startsAt >= horizon) return
+            if (last && last.startsAt >= horizon) return
 
             /* The last day's slots, in order — the template a week is cut from. */
-            const lastDay = dayIn(last.startsAt, sheet.timezone)
-            const template = slots.filter(
-                (slot) => dayIn(slot.startsAt, sheet.timezone) === lastDay,
-            )
+            const template = last
+                ? slots.filter(
+                      (slot) =>
+                          dayIn(slot.startsAt, sheet.timezone) ===
+                          dayIn(last.startsAt, sheet.timezone),
+                  )
+                : await lastDaySlots(sheet)
+            if (template.length === 0) return
+
+            /* A rota picked up again after a long silence resumes at its next occurrence rather
+             * than backfilling every week it slept through, which would put dates nobody can
+             * take between the reader and the ones they can. The first week is found by
+             * arithmetic and confirmed by the guard below, because milliseconds cannot answer a
+             * question about wall clocks across a daylight-saving boundary. */
+            const now = new Date()
+            const elapsed = now.getTime() - template[0].startsAt.getTime()
+            const firstWeek = Math.max(1, Math.floor(elapsed / (7 * 86400000)))
 
             const room = MAX_SHEET_SLOTS - slots.length
             const rows = []
-            for (let week = 1; rows.length + template.length <= room; week++) {
+            for (let week = firstWeek; rows.length + template.length <= room; week++) {
                 const days = week * 7
-                if (shiftDays(template[0].startsAt, days, sheet.timezone) > horizon) break
+                const resumesAt = shiftDays(template[0].startsAt, days, sheet.timezone)
+                if (resumesAt > horizon) break
+                if (resumesAt < now) continue
 
                 for (const slot of template) {
                     rows.push({
@@ -296,6 +338,10 @@ export const getSheet = async (viewer, sheetId, { all = false } = {}) => {
 
     if (!sheet) throw notFound("Sign-up sheet not found.")
     const membership = requireMembership(viewer, sheet.orgId)
+
+    /* An ongoing rota is stocked by whichever read reaches it first, and this one is reached
+     * without the list: a link in a post, a tapped reminder, a cold launch from a push. */
+    await topUpRecurring([sheet])
 
     return projectSignupSheet(sheet, {
         viewerId: viewer.id,
@@ -546,7 +592,7 @@ const readTimezone = (value) => {
  * and neither answer is wrong, so it is not worth holding a connection open for. */
 export const createSheet = async (
     viewer,
-    { orgId, title, description, capacity, schedule } = {},
+    { orgId, title, description, capacity, schedule, showFasting } = {},
 ) => {
     requireMembership(viewer, orgId, { role: "ADMIN" })
 
@@ -579,6 +625,7 @@ export const createSheet = async (
                 description: text,
                 timezone,
                 repeats,
+                showFasting: Boolean(showFasting),
                 createdById: viewer.id,
                 slots: {
                     create: slots.map((slot) => ({ ...slot, capacity: slotCapacity })),
@@ -606,7 +653,8 @@ export const createSheet = async (
     return projectSignupSheet(sheet, { viewerId: viewer.id, canManage: true })
 }
 
-/* Title, description, and whether the rota is still taking people.
+/* Title, description, whether the rota is still taking people, and the two things it shows:
+ * the parish event it folds into, and the day's fasting rule.
  *
  * Every field is optional and absent means "leave alone", so the form can send only what
  * changed — the same partial-update rule `PATCH /api/me` and `updateOrg` follow. Closing is
@@ -615,7 +663,7 @@ export const createSheet = async (
 export const updateSheet = async (
     viewer,
     sheetId,
-    { title, description, status, calendarTitle } = {},
+    { title, description, status, calendarTitle, showFasting } = {},
 ) => {
     const sheet = await manageableSheet(viewer, sheetId)
 
@@ -639,6 +687,7 @@ export const updateSheet = async (
             calendarTitle, MAX_SIGNUP_TITLE_LENGTH, "calendarTitle", "A calendar title",
         )
     }
+    if (showFasting !== undefined) data.showFasting = Boolean(showFasting)
     if (Object.keys(data).length === 0) throw invalid("Nothing to update.", { title: "Required" })
 
     const updated = await prisma.signupSheet.update({

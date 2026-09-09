@@ -104,6 +104,7 @@ const schema = z.object({
     weekday: z.coerce.number().int().min(0).max(6),
     weeks: z.coerce.number().int().min(1, "At least one week.").max(52, "At most a year."),
     repeats: z.boolean(),
+    showFasting: z.boolean(),
     startDate: z.string().min(1, "Pick a start date."),
     endDate: z.string(),
     startTime: z.string().min(1, "Pick a start time."),
@@ -154,6 +155,10 @@ const EditorForm = ({ mode, onSubmit, saving, onClose }) => {
             /* Ongoing by default: the rota a parish is most likely to be publishing is one
              * that does not stop. */
             repeats: true,
+            /* Off, because a rota is as likely to be the cleaning or the car park, where the
+             * day's fasting rule says nothing at all. The rotas it belongs on are the ones
+             * about food, and only the person publishing knows which those are. */
+            showFasting: false,
             startDate: todayLocal(),
             endDate: todayLocal(),
             startTime: "11:00",
@@ -185,6 +190,7 @@ const EditorForm = ({ mode, onSubmit, saving, onClose }) => {
                     ? {
                           title: values.title.trim().replace(/\s+/g, " "),
                           description: values.description.trim(),
+                          showFasting: values.showFasting,
                       }
                     : {}),
                 capacity: values.capacity,
@@ -258,6 +264,39 @@ const EditorForm = ({ mode, onSubmit, saving, onClose }) => {
                                             Optional. Shown at the top of the sheet.
                                         </FormDescription>
                                         <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Sits with the instructions rather than with the schedule,
+                                because it answers the same question they do: what should
+                                somebody bring. See `SignupSheet.showFasting`. */}
+                            <FormField
+                                control={form.control}
+                                name="showFasting"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        {/* The description beside the label, not inside it —
+                                            see the Keep going row below for why. */}
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div className="flex flex-col gap-1">
+                                                <FormLabel htmlFor="showFasting" className="mb-0">
+                                                    Show the fast
+                                                </FormLabel>
+                                                <span className="pl-2 text-xs text-muted-foreground">
+                                                    Whoever signs up sees what the Church keeps
+                                                    that day.
+                                                </span>
+                                            </div>
+                                            <FormControl>
+                                                <Switch
+                                                    id="showFasting"
+                                                    checked={field.value}
+                                                    onCheckedChange={field.onChange}
+                                                    className="shrink-0"
+                                                />
+                                            </FormControl>
+                                        </div>
                                     </FormItem>
                                 )}
                             />

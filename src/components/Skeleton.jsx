@@ -24,6 +24,39 @@ function Skeleton({ className, ...props }) {
     )
 }
 
+/* A placeholder that is the shape of the answer, out of focus, instead of a grey bar.
+ *
+ * The sample and the real thing are the **same element**: the caller renders one or the other
+ * as its children, and the swap happens while the blur is still on, where text is unreadable
+ * anyway. That is what makes it read as one line coming into focus rather than as two states
+ * cutting, and it is why the sample belongs to the caller — the element has to survive the load
+ * for a transition to have anything to run on. Unmount the sample and mount the answer instead,
+ * and the answer simply appears, sharp.
+ *
+ * `aria-hidden` while it holds the sample, because the sample is not true: somebody on a screen
+ * reader would otherwise be told a date the app has not been given yet.
+ *
+ * Worth reaching for where a surface is one line the reader is waiting on a specific answer
+ * from. A grey bar is still right for a list of rows, where the shape *is* the information and
+ * there is no single answer to bring into focus.
+ *
+ * The radius has to beat the text. Anything a reader can nearly make out invites them to try,
+ * and a half-legible wrong date is worse than no date at all. */
+export function Blurred({ loading, className, children }) {
+    return (
+        <div
+            aria-hidden={loading || undefined}
+            className={cn(
+                "transition-[filter,opacity] duration-500 ease-out",
+                loading && "pointer-events-none select-none blur-[10px] opacity-60",
+                className,
+            )}
+        >
+            {children}
+        </div>
+    )
+}
+
 /* Columns for the User Management table skeleton — one entry per column of the roster on
  * the settings user-management page, in its order and at its widths: Name (avatar +
  * stacked name/email), Vocation and Role (both inline pickers), Access (a check or an X),
@@ -294,7 +327,7 @@ export function CalendarSkeleton() {
                 <Skeleton className="h-8 w-20 rounded-full" />
             </div>
 
-            <div>
+            <div className="-mx-2 md:mx-0">
                 <div className="grid grid-cols-7">
                     {Array.from({ length: 7 }).map((_, index) => (
                         <div key={index} className="flex justify-center pb-2">
@@ -305,7 +338,7 @@ export function CalendarSkeleton() {
                 <div className="grid grid-cols-7 gap-y-1">
                     {Array.from({ length: 42 }).map((_, index) => (
                         <div key={index} className="grid aspect-square place-items-center">
-                            <Skeleton className="size-9 rounded-full" />
+                            <Skeleton className="aspect-square w-full max-w-11 rounded-full" />
                         </div>
                     ))}
                 </div>
@@ -373,6 +406,26 @@ export function RotaSkeleton({ count = 4 }) {
                         <Skeleton className="h-8 w-16 rounded-full" />
                     </div>
                 ))}
+            </div>
+        </div>
+    )
+}
+
+/* <ProfileCard/>'s skeleton — for somebody else's card, since the viewer's own is seeded from
+ * `/api/me` and never shows one (see `lib/store/profile/store.js`). Its geometry mirrors the
+ * card header's, so the card does not step as it resolves. */
+export function ProfileCardSkeleton() {
+    return (
+        /* `p-3` is `<Tabs/>`'s own padding, restated so the bar below lands exactly where the real
+         * one does — without it the whole card steps sideways and up as it resolves. */
+        <div className="p-3">
+            <TabsSkeleton />
+            <div className="flex flex-col items-center gap-3 px-4 pb-5 pt-6 text-center">
+                <Skeleton className="size-20 rounded-full" />
+                <Skeleton className="h-7 w-40" />
+                <Skeleton className="h-6 w-20 rounded-full" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="mt-1 h-12 w-full max-w-64 rounded-full" />
             </div>
         </div>
     )

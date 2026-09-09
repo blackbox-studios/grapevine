@@ -2,7 +2,12 @@ import "server-only"
 
 import { Prisma } from "@prisma/client"
 
-import { MAX_POST_DOCUMENTS, MAX_POST_IMAGES, UPLOAD_PURPOSES } from "@/lib/constants"
+import {
+    MAX_POST_DOCUMENTS,
+    MAX_POST_IMAGES,
+    MAX_POST_VIDEOS,
+    UPLOAD_PURPOSES,
+} from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { commentScore } from "@/lib/rank"
 import {
@@ -29,6 +34,7 @@ import {
 import { projectComment, projectPost } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
 import { uploadPrefix } from "@/lib/server/uploads.service"
+import { youtubeId, youtubeWatchUrl } from "@/lib/utils"
 
 /* Posts and comments: all business logic and all data access.
  *
@@ -360,11 +366,17 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
      * media" is what keeps the checks below from throwing a TypeError into a 500. */
     const files = Array.isArray(media) ? media : []
 
+    /* The three kinds, separated once. The kind defaults to IMAGE when the write runs below,
+     * so it has to default the same way here or an omitted `kind` slips every count. */
+    const documents = files.filter((item) => item.kind === "DOCUMENT")
+    const videos = files.filter((item) => item.kind === "YOUTUBE")
+    const images = files.filter((item) => (item.kind ?? "IMAGE") === "IMAGE")
+
     /* **One attachment, refused rather than silently dropped.** `projectMedia` reads a post's
      * document with `find`, so a second row would be written and then never rendered — the
      * kind of data loss that is only noticed months later. The composer allows one; this is
      * what makes that a rule rather than a UI convention. */
-    if (files.filter((item) => item.kind === "DOCUMENT").length > MAX_POST_DOCUMENTS) {
+    if (documents.length > MAX_POST_DOCUMENTS) {
         throw invalid("A post can carry one attachment.", { media: "Too many attachments" })
     }
 
@@ -372,12 +384,35 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
      * `MAX_POST_IMAGES`, but the composer is not a control — an admin session driving this
      * endpoint directly reaches it the same way, and the carousel is the only thing that
      * renders more than one, so an unbounded array is unbounded rows and unbounded objects
-     * behind a post that will never show past the tenth. The kind defaults to IMAGE below,
-     * so it has to default the same way here or an omitted `kind` slips the count. */
-    if (files.filter((item) => (item.kind ?? "IMAGE") !== "DOCUMENT").length > MAX_POST_IMAGES) {
+     * behind a post that will never show past the tenth. */
+    if (images.length > MAX_POST_IMAGES) {
         throw invalid(`A post can carry ${MAX_POST_IMAGES} photos.`, {
             media: "Too many photos",
         })
+    }
+
+    /* **A video is one, and it is instead of the photos.** Both halves are the same `find`
+     * argument again: `projectMedia` reads one video and the open-post surfaces are built
+     * around a single media box, so a second video or a video beside a carousel would be rows
+     * written and never drawn. See `MAX_POST_VIDEOS`. */
+    if (videos.length > MAX_POST_VIDEOS) {
+        throw invalid("A post can carry one video.", { media: "Too many videos" })
+    }
+    if (videos.length > 0 && images.length > 0) {
+        throw invalid("A post can carry photos or a video, not both.", {
+            media: "Photos and a video",
+        })
+    }
+
+    /* **The pasted address is parsed, and only the id survives it.** A video's URL came from a
+     * person's clipboard, so the check below — which trusts every other URL because this
+     * group's own grant produced the folder it sits in — has nothing to say about it. What
+     * carries the same weight is that the address is not stored: `youtubeId` reduces it to
+     * eleven characters, and the row is written from `youtubeWatchUrl` of those. A different
+     * host, a redirect or a query string is then gone by construction rather than by
+     * sanitizing, which is the only version of this that stays true as the surfaces change. */
+    if (videos.some((item) => !youtubeId(item.url))) {
+        throw invalid("That does not look like a YouTube link.", { media: "Unrecognized link" })
     }
 
     /* **Every URL must be one this group's own grant produced.** `url` arrives from the
@@ -387,9 +422,13 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
      * unreachable. `/api/uploads` already ran `requireMembership(..., { role: "ADMIN" })`
      * for this `orgId` before it minted a path under it — so the folder an object sits in
      * *is* the record that the upload was earned, and checking it here is what carries that
-     * authorization forward to the write it was granted for. */
+     * authorization forward to the write it was granted for.
+     *
+     * A video is the one kind exempt, for the reason the parse above gives. Every other kind,
+     * including one this file does not know about, still has to answer here. */
     const prefix = uploadPrefix(UPLOAD_PURPOSES.POST_MEDIA)
-    if (!files.every((item) => isOwnedUrl(item.url, { prefix, ownerId: orgId }))) {
+    const uploaded = files.filter((item) => item.kind !== "YOUTUBE")
+    if (!uploaded.every((item) => isOwnedUrl(item.url, { prefix, ownerId: orgId }))) {
         throw invalid("A post's files must be uploaded through Grapevine.", {
             media: "Unrecognized file",
         })
@@ -414,7 +453,13 @@ export const createPost = async (viewer, { orgId, title, body, media = [] }) => 
                 media: {
                     create: files.map((item, index) => ({
                         kind: item.kind ?? "IMAGE",
-                        url: item.url,
+                        /* The one place a stored URL is not the one that arrived — see the
+                         * parse above. Rebuilt here rather than back there so the array the
+                         * counts were taken over is the array that is written. */
+                        url:
+                            item.kind === "YOUTUBE"
+                                ? youtubeWatchUrl(youtubeId(item.url))
+                                : item.url,
                         width: item.width ?? null,
                         height: item.height ?? null,
                         mimeType: item.mimeType ?? null,

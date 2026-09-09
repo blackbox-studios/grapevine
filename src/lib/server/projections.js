@@ -2,7 +2,7 @@ import "server-only"
 
 import { canDeleteOrg } from "@/lib/server/auth"
 import { SIGNUP_STATUS } from "@/lib/constants"
-import { documentType, formatBytes } from "@/lib/utils"
+import { documentType, formatBytes, youtubeId, youtubeWatchUrl } from "@/lib/utils"
 
 /* Database rows → wire shapes.
  *
@@ -50,29 +50,45 @@ export const projectAuthor = (profile, orgId = null) => ({
     ),
 })
 
-/* Media rows → the three shapes the feed card understands. A post has exactly one of
- * these, or none at all (a text-only announcement):
+/* Media rows → the shapes the feed card understands. A post carries one of the media
+ * shapes, or none at all (a text-only announcement), and may carry a document beside it:
  *
- *   image + width + height   one photo; the dimensions let the card reserve the correct
- *                            aspect-ratio box before the image decodes, without which it
- *                            collapses to zero height on a cold cache and shifts the
- *                            layout as it loads
+ *   image                    one photo
  *   images                   several photos, as the swipeable carousel
+ *   video                    an embedded YouTube video
  *   document                 a file attachment
+ *
+ * `video` is `{ id, url }` and deliberately not a thumbnail or an embed address: both are
+ * derived from the id by `youtubeThumbnail`/`youtubeEmbedUrl`, and a server that sent them
+ * composed would freeze today's answer into every row — the poster the app asks for is a
+ * decision the card makes about its own width, and the embed's parameters change with the
+ * player. `url` goes over because it is the one thing that cannot be derived *back*: it is
+ * where "Watch on YouTube" points.
+ *
+ * Either image shape is accompanied by `width`/`height` — the *first* photo's, since a
+ * carousel is one box its slides page through (`mediaRatio`). They let the card reserve the
+ * right aspect-ratio box before the image decodes, without which it collapses to zero height
+ * on a cold cache and shifts the layout as it loads.
+ *
+ * The dimensions sit beside `images` rather than on each entry of it deliberately: an
+ * installed native build reads whatever the deployment is serving, so a field it does not
+ * know costs it nothing while a changed `images` shape would hand it `undefined` for every
+ * `src`. Adding to this contract is safe; re-shaping it is a coordinated release.
  */
 const projectMedia = (media = []) => {
     const images = media.filter((item) => item.kind === "IMAGE")
     const document = media.find((item) => item.kind === "DOCUMENT")
+    const videoId = youtubeId(media.find((item) => item.kind === "YOUTUBE")?.url)
 
     return {
-        ...(images.length === 1
-            ? {
-                  image: images[0].url,
-                  width: images[0].width,
-                  height: images[0].height,
-              }
+        ...(images.length
+            ? { width: images[0].width, height: images[0].height }
             : {}),
+        ...(images.length === 1 ? { image: images[0].url } : {}),
         ...(images.length > 1 ? { images: images.map((item) => item.url) } : {}),
+        /* Parsed rather than sliced: a row whose URL does not yield an id is dropped, which is
+         * the only answer that keeps an `src` downstream impossible to aim. */
+        ...(videoId ? { video: { id: videoId, url: youtubeWatchUrl(videoId) } } : {}),
         ...(document
             ? {
                   document: {
@@ -370,6 +386,9 @@ export const projectCalendarSlot = (slot, viewerId) => ({
     spotsLeft: slot.canceledAt ? 0 : Math.max(0, slot.capacity - slot.claims.length),
     canceled: slot.canceledAt !== null,
     open: slot.sheet.status === SIGNUP_STATUS.OPEN,
+    /* Its sheet's setting, carried on the block so a date tapped on the day's rail opens the
+     * same sign-up surface as one tapped on the rota, with no sheet loaded behind it. */
+    showFasting: slot.sheet.showFasting,
     /* The viewer's own claim on this date, or null — solid ring on the grid, and the row the
      * Give up button deletes. Answered off the claims already joined, so it costs nothing. */
     mine: slot.claims.find((claim) => claim.profileId === viewerId)?.id ?? null,
@@ -457,6 +476,10 @@ export const projectSignupSheet = (sheet, { viewerId, canManage = false } = {}) 
     /* The title this rota is matched to on the parish calendar, or null for "use the title
      * above". Shipped so the manage surface can edit it; see `mergeCalendar`. */
     calendarTitle: sheet.calendarTitle,
+    /* Whether taking a date on this rota shows the day's fasting rule. The rule itself is not
+     * here and never will be: it is per date and comes from `/api/fasting`, so shipping it
+     * would put an almanac lookup per slot on a list read. */
+    showFasting: sheet.showFasting,
     createdAt: sheet.createdAt.toISOString(),
     /* Composed from the same `requireMembership` the writes run, so a member never sees an
      * Edit affordance and an admin demoted mid-session loses it on the next read. */

@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence } from "motion/react"
 
 import Ripple from "@/assets/svg/ripple.svg"
 import Badge from "@/components/Badge"
-import Skeleton, { PeopleSkeleton, TabsSkeleton } from "@/components/Skeleton"
+import { PeopleSkeleton, ProfileCardSkeleton } from "@/components/Skeleton"
 import { Avatar, Close, FollowButton, Overlay } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import Transition from "@/components/Transition"
@@ -53,29 +53,29 @@ const TABS = [
     { id: "following", label: "Following" },
 ]
 
-/* One column of the Info tab: a small caps label and the value it stands for.
+/* One fact about a person: what it is on the left, what it says on the right.
  *
- * Two lines, where the App Store has three. Its third carries a different *kind* of precision
- * from the value above it ("2.56" over "GB"), and none of these has one to carry: an ordination
- * is a single date, so the column states it rather than making the reader assemble it. */
+ * `truncate` on the value alone, so a long patron ("The Right-Believing Prince Alexander
+ * Nevsky") ellipses instead of wrapping under its own label and breaking the rhythm of the
+ * rows below it. */
 const Stat = ({ label, value }) => (
-    <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2 text-center">
-        <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-        </span>
-        <span className="w-full truncate text-lg font-semibold">{value}</span>
+    <div className="flex items-baseline justify-between gap-6 px-5 py-5">
+        <span className="shrink-0 text-sm font-medium">{label}</span>
+        <span className="min-w-0 truncate text-sm text-muted-foreground">{value}</span>
     </div>
 )
 
-/* What the parish knows about a person, as the App Store lays out an app's: labelled columns
- * between two hairlines, stretched to the width however few there are.
+/* What the parish knows about a person: a labelled row each, between hairlines.
  *
- * These are facts of unrelated kinds (a saint, a feast, a date), and a stacked list of
- * label-and-value rows makes each one look like a setting; side by side they read as a summary.
- * **Columns that have nothing to say are absent, not blank**, so a catechumen who has just
- * joined gets the empty state below rather than a rule across nothing. */
+ * The facts are of unrelated kinds (a saint, a feast, a date) and there are never many, so
+ * the reader is looking one of them up rather than comparing them. A row gives the label its
+ * own words and the value the rest of the line, which is how a phone states a fact everywhere
+ * else in this app.
+ *
+ * **Rows that have nothing to say are absent, not blank**, so a catechumen who has just
+ * joined gets the empty state below rather than a list of dashes. */
 const InfoTab = ({ profile }) => {
-    const columns = [
+    const rows = [
         profile.patronSaint && { label: "Patron", value: profile.patronSaint },
         profile.nameDay && {
             label: "Name day",
@@ -87,7 +87,7 @@ const InfoTab = ({ profile }) => {
         },
     ].filter(Boolean)
 
-    if (columns.length === 0) {
+    if (rows.length === 0) {
         return (
             <p className="px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing here yet.
@@ -96,9 +96,9 @@ const InfoTab = ({ profile }) => {
     }
 
     return (
-        <div className="flex items-stretch divide-x py-4">
-            {columns.map((column) => (
-                <Stat key={column.label} {...column} />
+        <div className="flex flex-col divide-y border-y">
+            {rows.map((row) => (
+                <Stat key={row.label} {...row} />
             ))}
         </div>
     )
@@ -216,7 +216,7 @@ const FollowsTab = ({ list, kind, skeleton, loadingMore, onLoadMore, onOpen }) =
  * that edits it; everybody else's offers the follow. Which it is follows from who they are, so
  * there is never a moment where both are on screen competing. */
 const CardHeader = ({ profile, onEdit }) => (
-    <div className="flex flex-col items-center gap-3 px-4 pb-6 pt-6 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 pb-10 pt-6 text-center">
         <Avatar person={profile} className="size-20 text-2xl" />
 
         <div className="flex flex-col items-center gap-1.5">
@@ -244,24 +244,6 @@ const CardHeader = ({ profile, onEdit }) => (
         ) : (
             <FollowButton person={profile} size="lg" className="mt-1 w-full max-w-64" />
         )}
-    </div>
-)
-
-/* The card's skeleton — for somebody else's, since the viewer's own is seeded from `/api/me`
- * and never shows one (see `lib/store/profile/store.js`). Its geometry mirrors the header's, so
- * the card does not step as it resolves. */
-const CardSkeleton = () => (
-    /* `p-3` is `<Tabs/>`'s own padding, restated so the bar below lands exactly where the real
-     * one does — without it the whole card steps sideways and up as it resolves. */
-    <div className="p-3">
-        <TabsSkeleton />
-        <div className="flex flex-col items-center gap-3 px-4 pb-5 pt-6 text-center">
-            <Skeleton className="size-20 rounded-full" />
-            <Skeleton className="h-7 w-40" />
-            <Skeleton className="h-6 w-20 rounded-full" />
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="mt-1 h-12 w-full max-w-64 rounded-full" />
-        </div>
     </div>
 )
 
@@ -311,7 +293,7 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit 
         <AnimatePresence mode="wait" initial={false}>
             {skeleton ? (
                 <Transition fast key="skeleton">
-                    <CardSkeleton />
+                    <ProfileCardSkeleton />
                 </Transition>
             ) : missing || !profile ? (
                 <Transition fast key="missing">
@@ -423,19 +405,17 @@ const ProfileCard = () => {
         return () => window.removeEventListener("keydown", onKey)
     }, [open, isDesktop, close])
 
-    if (!open) return null
+    /* **The card is drawn from the last subject it was opened at, not from the live store.**
+     * Both presentations animate themselves out, which they can only do while they are still
+     * mounted — and `close` empties the store in the same tick as the tap, so reading it
+     * directly would swap the sheet's contents for a skeleton and snap its tab back to Info
+     * halfway down the screen. Frozen while it leaves, replaced on the next open. */
+    const shown = useRef(null)
+    if (open) shown.current = { handle, openTab, profile, skeleton, missing }
 
-    const body = (
-        <CardBody
-            handle={handle}
-            openTab={openTab}
-            profile={profile}
-            skeleton={skeleton}
-            missing={missing}
-            onOpen={openProfile}
-            onEdit={edit}
-        />
-    )
+    if (!shown.current) return null
+
+    const body = <CardBody {...shown.current} onOpen={openProfile} onEdit={edit} />
 
     if (isDesktop) {
         /* **Portalled to <body>.** The shell mounts this inside its scroll container, which is
@@ -446,30 +426,34 @@ const ProfileCard = () => {
         if (!mounted) return null
 
         return createPortal(
-            /* `close={false}` and the pill drawn here instead: <Overlay/>'s own sits in the
-             * *window's* corner, which reads as the surface's corner only while the surface is
-             * most of the window — true of the photo dialog and not of a narrow card. Anchored
-             * just outside this panel's top-right, it is unmistakably this card's. Same
-             * `<Close/>`, so the two still match. */
-            <Overlay dismiss={close} label="Close profile" close={false}>
-                {/* The pill is a sibling of the panel, not a child of it: the panel clips its
-                    own contents so the tab bar can sit flush against a rounded corner, and
-                    anything positioned outside those bounds is clipped with it. This wrapper is
-                    the panel's box without the clipping, which is what the pill anchors to —
-                    <Overlay/>'s own sits in the *window's* corner, which reads as the surface's
-                    corner only while the surface is most of the window. Same `<Close/>`, so the
-                    two still match. */}
-                <div className="relative z-10 w-full max-w-md">
-                    <Close
-                        onClick={close}
-                        aria-label="Close profile"
-                        className="absolute -top-12 -right-6"
-                    />
-                    <div className="flex h-[min(75dvh,44rem)] w-full flex-col overflow-hidden rounded-4xl border bg-background shadow-lg">
-                        {body}
-                    </div>
-                </div>
-            </Overlay>,
+            /* <Overlay/> fades itself both ways, and an exit only plays inside a presence
+               tree. */
+            <AnimatePresence>
+                {open && (
+                    /* `close={false}` and the pill drawn here instead: <Overlay/>'s own sits in
+                     * the *window's* corner, which reads as the surface's corner only while the
+                     * surface is most of the window — true of the photo dialog and not of a
+                     * narrow card. Anchored just outside this panel's top-right, it is
+                     * unmistakably this card's. Same `<Close/>`, so the two still match. */
+                    <Overlay dismiss={close} label="Close profile" close={false}>
+                        {/* The pill is a sibling of the panel, not a child of it: the panel
+                            clips its own contents so the tab bar can sit flush against a rounded
+                            corner, and anything positioned outside those bounds is clipped with
+                            it. This wrapper is the panel's box without the clipping, which is
+                            what the pill anchors to. */}
+                        <div className="relative z-10 w-full max-w-md">
+                            <Close
+                                onClick={close}
+                                aria-label="Close profile"
+                                className="absolute -top-12 -right-6"
+                            />
+                            <div className="flex h-[min(75dvh,44rem)] w-full flex-col overflow-hidden rounded-4xl border bg-background shadow-lg">
+                                {body}
+                            </div>
+                        </div>
+                    </Overlay>
+                )}
+            </AnimatePresence>,
             document.body,
         )
     }
@@ -478,7 +462,7 @@ const ProfileCard = () => {
         /* repositionInputs is off for the same reason as every other drawer here: Vaul's
          * implementation keeps react-aria's scroll lock installed, which swallows touches
          * inside the Capacitor WebView. */
-        <Drawer open onOpenChange={(next) => !next && close()} repositionInputs={false}>
+        <Drawer open={open} onOpenChange={(next) => !next && close()} repositionInputs={false}>
             {/* dvh, not vh: on a mobile browser vh is the tall viewport, so the foot of the
                 list would sit under the browser's own toolbar. */}
             {/* `overflow-hidden` so the sheet's own radius clips the full-width tab bar sitting

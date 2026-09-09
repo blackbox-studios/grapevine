@@ -7,6 +7,7 @@ import useMeasure from "react-use-measure"
 import { BackHeader } from "@/components/BackHeader"
 import Carousel from "@/components/Carousel"
 import PinchZoom from "@/components/PinchZoom"
+import Video from "@/components/Video"
 import { PostCommentsThread } from "@/components/Comments"
 import Icon from "@/components/Icon"
 import { PostMenuTrigger } from "@/components/PostMenu"
@@ -18,7 +19,14 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { appPath, cn, formatCompact, postImages, SLIDE_TRANSITION } from "@/lib/utils"
+import {
+    appPath,
+    cn,
+    formatCompact,
+    mediaRatio,
+    postImages,
+    SLIDE_TRANSITION,
+} from "@/lib/utils"
 
 /* The comment sheet rises to this share of the surface — the media keeps the rest and shrinks
  * into it. Enough that the thread reads as the focus while the photo stays in view above it. */
@@ -30,11 +38,17 @@ const SHEET_RATIO = 0.62
  * letterboxed with side gaps. */
 const SlideMedia = ({ post }) => {
     const images = postImages(post)
+
+    /* Full width in its own 16:9 box, centered by the region above — a video is the one media
+     * here that must not be cropped to fill the screen, because what a crop would take is the
+     * player's own controls. */
+    if (post.video) return <Video video={post.video} className="w-full" />
+
     if (images.length === 0) return null
 
     if (images.length > 1) {
         return (
-            <div className="aspect-square w-full">
+            <div className="w-full" style={{ aspectRatio: mediaRatio(post) }}>
                 <Carousel images={images} bare zoomable />
             </div>
         )

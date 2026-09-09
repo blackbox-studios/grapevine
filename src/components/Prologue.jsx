@@ -3,19 +3,17 @@
 import { Fragment } from "react"
 
 import CrossVine from "@/assets/svg/monograms/cross-vine.svg"
-import DairyIcon from "@/assets/svg/icons/fast-dairy.svg"
-import FishIcon from "@/assets/svg/icons/fast-fish.svg"
-import MeatIcon from "@/assets/svg/icons/fast-meat.svg"
-import OilIcon from "@/assets/svg/icons/fast-oil.svg"
-import WineIcon from "@/assets/svg/icons/fast-wine.svg"
-import Hint from "@/components/Hint"
+import Tailpiece from "@/assets/svg/monograms/seperator-1.svg"
+import Fasting from "@/components/Fasting"
 import Icon from "@/components/Icon"
-import Skeleton from "@/components/Skeleton"
+import Readings from "@/components/Readings"
+import { Blurred } from "@/components/Skeleton"
 import { Button } from "@/components/ui/button"
 import { haptic } from "@/lib/native"
 import { cn } from "@/lib/utils"
 
-/* The Daily Read: one day of the Prologue of Ohrid, and the day's fasting rule.
+/* The Daily Read: the day's fasting rule, the scripture appointed for it, and one day of
+ * the Prologue of Ohrid.
  *
  * **Renders blocks, not markup.** `lib/server/prologue/parse.js` turns the source into a
  * typed block list precisely so nothing arbitrary reaches the DOM, and the payoff is here —
@@ -220,127 +218,37 @@ const Section = ({ section, label }) => {
     )
 }
 
-/* The five things a fast is reckoned in, and the icon for each.
+/* Where the day's scripture ends and the Prologue proper begins.
  *
- * `covers` is what makes this a display list rather than a mirror of orthocal's: that API
- * counts eggs separately, but no icon reads as "eggs" beside a cheese wedge and the two are
- * lifted and laid down together on every day in the calendar, so dairy stands for both. A
- * category is allowed only when nothing it covers is being abstained from. */
-const FAST_CATEGORIES = [
-    { key: "meat", label: "meat", Icon: MeatIcon, covers: ["meat"] },
-    { key: "dairy", label: "dairy", Icon: DairyIcon, covers: ["dairy", "eggs"] },
-    { key: "fish", label: "fish", Icon: FishIcon, covers: ["fish"] },
-    { key: "wine", label: "wine", Icon: WineIcon, covers: ["wine"] },
-    { key: "oil", label: "oil", Icon: OilIcon, covers: ["oil"] },
-]
-
-/* "meat, dairy, or fish" — the conjunction is a parameter because the same helper writes
- * both halves of the sentence, and a list of what is forbidden joins on "or" while a list of
- * what is permitted joins on "and". */
-const listOf = (items, conjunction) => {
-    if (items.length <= 1) return items[0] ?? ""
-    if (items.length === 2) return `${items[0]} ${conjunction} ${items[1]}`
-    return `${items.slice(0, -1).join(", ")}, ${conjunction} ${items.at(-1)}`
-}
-
-/* The rule in a sentence, because the icons alone cannot say whether a lit row means a
- * feast or a mistake. Written from the same `allowed` split that lights them, so the words
- * and the glyphs can never disagree — which is also why orthocal's own `fast_exception_desc`
- * is not printed alongside: "Wine and Oil Allowed" is the same fact this sentence already
- * states in plainer words, and two phrasings of one rule read as two rules. */
-const fastingSentence = ({ allowed, forbidden }) => {
-    if (!forbidden.length) return "Today is fast-free."
-
-    const labels = (list) => list.map((category) => category.label)
-
-    if (!allowed.length) {
-        return `Today is a strict fast: no ${listOf(labels(forbidden), "or")}.`
-    }
-
-    const permitted = listOf(labels(allowed), "and")
-    const verb = allowed.length > 1 ? "are" : "is"
-
-    return `Today is a fast: no ${listOf(labels(forbidden), "or")}. ${
-        permitted.charAt(0).toUpperCase() + permitted.slice(1)
-    } ${verb} allowed.`
-}
-
-/* The day's fasting rule, from orthocal.info.
+ * A rule rather than a heading, because both halves are the reading and a label would announce
+ * a section break on a page that has none. Red, like everything the printed book rubricates,
+ * and wavy because a straight line is the app's own `border-b` and would read as the edge of a
+ * card rather than as an ornament in a book.
  *
- * Absent whenever that service could not be reached — the reading is the screen and must
- * not wait on an almanac, so this is built to be missing (see the service header).
- *
- * Drawn as a bare row rather than a card: it is the first thing under the date and it is
- * part of the reading, so a bordered box would fence it off as a widget the page had
- * imported from somewhere else.
- *
- * **Lit means permitted.** The glyphs are ornaments rather than controls — nothing here is
- * tappable — so the whole row is one labelled image to a screen reader, and the sentence
- * below carries the same fact in words for anyone the colour does not reach.
- *
- * ── Two things the five glyphs have to keep ──────────────────────────────────
- *
- * **Each is a single `<path>` and none of them strokes.** They are built from overlapping
- * pieces — a drumstick is a ball, a bone and two knuckles — and anything that rasterises those
- * pieces separately gives each its own anti-aliased edge, so a pale hairline shows wherever two
- * meet. Separate elements do that, and so does `fill` plus `stroke` on one element, which is
- * two passes over the same path. Both are invisible in a browser at a desktop pixel ratio and
- * plainly visible in the WebView, which is the only place this row is really read. So each
- * glyph is drawn at its finished size and filled once, and its pieces are subpaths wound the
- * same way so they union under `nonzero` — wind one against the others and the overlap punches
- * a hole instead.
- *
- * **They carry about the same ink**, 29-37% of their box. This row says *permitted* by lighting
- * a glyph and *forbidden* by dimming it, so one that is inherently lighter than its neighbours
- * reads as half-dimmed and argues with the only signal the row sends. */
-const Fasting = ({ fasting }) => {
-    if (!fasting) return null
-
-    const abstain = new Set(fasting.abstain)
-    const allowed = FAST_CATEGORIES.filter(
-        (category) => !category.covers.some((item) => abstain.has(item)),
-    )
-    const forbidden = FAST_CATEGORIES.filter((category) => !allowed.includes(category))
-
-    const sentence = fastingSentence({ allowed, forbidden })
-
-    return (
-        <aside className="flex flex-col items-center gap-8 py-2">
-            {/* A button rather than a list, and its accessible name is the whole sentence.
-                The glyphs are the label — there is no text beside them to name them — so the
-                row has to answer to the keyboard and to a screen reader on its own, and a
-                <ul> could not be the trigger without nesting flow content in a button. */}
-            <Hint content={sentence} className="font-reading">
-                <button
-                    type="button"
-                    aria-label={sentence}
-                    className="flex items-center justify-center gap-7 rounded-lg px-2 py-1 outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                    {FAST_CATEGORIES.map((category) => (
-                        <category.Icon
-                            key={category.key}
-                            aria-hidden="true"
-                            className={cn(
-                                "size-9 transition-colors duration-300",
-                                allowed.includes(category)
-                                    ? "text-foreground"
-                                    : "text-muted-foreground/40",
-                            )}
-                        />
-                    ))}
-                </button>
-            </Hint>
-
-            {(fasting.title || fasting.tone) && (
-                <p className="text-center text-base text-muted-foreground/50 italic font-light">
-                    {[fasting.title, fasting.tone ? `Tone ${fasting.tone}` : null]
-                        .filter(Boolean)
-                        .join(" · ")}
-                </p>
-            )}
-        </aside>
-    )
-}
+ * Tiled from a single period of the wave rather than one path stretched to the column, so the
+ * stroke stays even at any width; the tile's ends carry the same tangent, which is what makes
+ * the joins between repeats invisible. */
+const Squiggle = () => (
+    <svg aria-hidden="true" className="h-3 w-full text-reading">
+        <defs>
+            <pattern
+                id="prologue-squiggle"
+                width="16"
+                height="12"
+                patternUnits="userSpaceOnUse"
+            >
+                <path
+                    d="M0 6q4 -6 8 0t8 0"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                />
+            </pattern>
+        </defs>
+        <rect width="100%" height="12" fill="url(#prologue-squiggle)" />
+    </svg>
+)
 
 /* What each reachable day is called, oldest first, matching the `dates` the hook hands over.
  * Named rather than dated because the stepper reaches exactly one day either side and these
@@ -418,57 +326,184 @@ export const DayStepper = ({ dates, index, onSelect }) => {
     )
 }
 
-/* The mark, the date, and the day switcher beneath it.
+/* The corpus writes every heading as "<Month> <day>", so stepping from the 9th to the 10th
+ * adds a digit to a centred line and slides the month left by half of one. The day is drawn in
+ * a slot held open to two digits by an invisible "00" sharing its grid cell, which fixes the
+ * width of the whole heading: the month keeps its place and only the numeral changes.
+ *
+ * The placeholder is the *same* span in the *same* face, so it measures the real digits at the
+ * real letter-spacing. That is the point of doing it this way rather than with a `ch` width or
+ * `tabular-nums` — both are estimates of a face the app has no other reason to constrain, and
+ * both would show up as tracking that no longer matches the line.
+ *
+ * A single digit sits at the *start* of that slot rather than centred in it. The slack has to
+ * go somewhere, and centring puts half of it between the month and the numeral, where it reads
+ * as a typo in the space the eye is actually measuring. Trailing it leaves the word spacing
+ * exactly as the face sets it and costs half a digit of off-centre on a line nothing else is
+ * aligned to.
+ *
+ * A heading that does not end in a number is printed whole rather than dropped. */
+const DATED = /^(.*\S)\s+(\d+)$/
+
+const PrologueDate = ({ date }) => {
+    const parts = DATED.exec(date)
+    if (!parts) return date
+
+    const [, month, day] = parts
+
+    return (
+        <>
+            {month}{" "}
+            <span className="inline-grid justify-items-start">
+                <span aria-hidden="true" className="invisible col-start-1 row-start-1">
+                    00
+                </span>
+                <span className="col-start-1 row-start-1">{day}</span>
+            </span>
+        </>
+    )
+}
+
+/* What the title reads while the day is still on its way, out of focus. A real date and a real
+ * commemoration rather than lorem: the block is sized by its own text, and this is the shape of
+ * the thing the reader asked for.
+ *
+ * The date goes through <PrologueDate/> like a real one, which is not cosmetic — the real date
+ * gets a slot two digits wide and a bare string does not, so a sample printed straight would be
+ * a digit narrower and slide the month sideways as it came into focus. What is left is the
+ * month's own width, which no placeholder can know in advance.
+ *
+ * Only ever seen on a cold load of /prologue. The reading is warmed at sign-in, so arriving
+ * from anywhere inside the app the day is already in hand. */
+const SAMPLE = {
+    date: "September 9",
+    title: "Wednesday of the 15th week after Pentecost",
+    tone: "Tone 5",
+}
+
+/* The reading's own shape, for the moment before the day arrives (see <Blurred/>).
+ *
+ * **The words are filler and are meant to be.** A placeholder for this screen could only be
+ * written by inventing a saint's life, a hymn and a passage of scripture, and text that reads as
+ * the Church's while being nobody's has no business in this repo — least of all on the one
+ * surface whose whole point is that it carries somebody else's real words. What a reader is
+ * waiting on here is a page of prose under headings, so that is what the sample is, and the blur
+ * is what says it is not the answer yet. It is never drawn in focus: the day replaces it inside
+ * the same element, and a day that never arrives leaves it blurred rather than legible.
+ *
+ * The counts are a weekday's: two readings, one commemoration, the four fixed sections. Nothing
+ * can be right for every day — a feast on a Sunday appoints six readings — and guessing high
+ * would collapse the page on most days to avoid it growing on a few. */
+const FILLER =
+    "The measure of this line is what the placeholder is for, and the words in it are only " +
+    "there to fill a column to about the width and depth that a paragraph of the reading fills " +
+    "it, so that the page below settles onto its shape rather than into it."
+
+const fillerBlocks = (count) =>
+    Array.from({ length: count }, () => ({ type: "text", text: FILLER }))
+
+const fillerSection = (heading, count) => ({ heading, blocks: fillerBlocks(count) })
+
+export const SAMPLE_DAY = {
+    /* A strict fast, so the five glyphs are uniformly dim. Any other rule lights some and not
+     * others, which is a real answer about a real day — and a placeholder that states one is
+     * saying something it cannot know. `<Fasting/>` reads `abstain` and nothing else. */
+    fasting: { abstain: ["meat", "fish", "dairy", "eggs", "wine", "oil"] },
+    readings: [
+        {
+            source: "Epistle",
+            reference: "Galatians 3:15-22",
+            occasion: null,
+            verses: [1, 2, 3, 4, 5, 6].map((verse) => ({
+                chapter: 3,
+                verse,
+                text: FILLER,
+                paragraph: false,
+            })),
+        },
+        {
+            source: "Gospel",
+            reference: "Mark 6:7-13",
+            occasion: null,
+            verses: [1, 2, 3, 4, 5].map((verse) => ({
+                chapter: 6,
+                verse,
+                text: FILLER,
+                paragraph: false,
+            })),
+        },
+    ],
+    lives: [fillerSection("The Holy Martyrs of the Day", 3)],
+    hymn: fillerSection("HYMN OF PRAISE", 2),
+    reflection: fillerSection("REFLECTION", 2),
+    contemplation: fillerSection("CONTEMPLATION", 2),
+    homily: fillerSection("HOMILY", 2),
+    footnotes: [],
+}
+
+/* The mark, the date, what the day commemorates, and the day switcher beneath them.
  *
  * Hoisted out of <Prologue/> and mounted whatever the reading is doing, which is what the
  * switcher needs to work at all: a control must not fade out from under the finger tapping
  * it, and a reader has to be able to step off a day that is still loading or has failed —
  * neither of which is possible if the stepper lives inside the article it steps between.
  *
- * Nothing in here fades. The mark is the same on every day, and the date is one short line
- * that is legible the instant it changes — cross-fading it would draw the eye to the one part
- * of a step that needs no announcing, and would blink the block the switcher is anchored to.
- * The date is the *server's* rendering of the day ("September 3"), not the reader's clock,
- * which is why it arrives with the reading rather than being formatted here, and why a day
- * still loading shows a placeholder in its place.
+ * Nothing in here fades. The mark is the same on every day, and the date and the day it names
+ * are two short lines that are legible the instant they change — cross-fading them would draw
+ * the eye to the part of a step that needs no announcing, and would blink the block the
+ * switcher is anchored to. The date is the *server's* rendering of the day ("September 3"),
+ * not the reader's clock, which is why it arrives with the reading rather than being formatted
+ * here, and why a day still loading shows a placeholder in its place.
+ *
+ * What the day is — "Wednesday of the 15th week after Pentecost", then the tone — is the date
+ * said a second way, so it is set with it in the h1's own face, on a line tighter than `text-xl`
+ * leads itself to, and the switcher keeps its own distance below. The tone holds a line of its
+ * own because the title above it runs from two words to a dozen: sharing one line, where the
+ * tone falls is decided by the length of somebody else's string, and the block changes shape
+ * every time the reader steps a day. Neither line is a heading — the date is the page's `<h1>`,
+ * and a second one would leave a screen reader with two.
+ *
+ * Both lines wait as themselves, blurred, rather than as grey bars — see <Blurred/>. They are
+ * a date and a sentence, not a list, so the placeholder can be the shape of the answer and
+ * simply come into focus. It also holds the block open, which matters because everything under
+ * it is anchored to its bottom, the stepper first, and that must not drop out from under a
+ * thumb after the paint. A day whose almanac never arrives collapses the space instead, which
+ * is a shift on the minute orthocal is down rather than on every load.
  *
  * Set centred, like the title page of the book this is — the one block on the screen that is,
  * so the reading proper still begins flush left where a column of prose belongs. */
-export const PrologueTitle = ({ date, children }) => (
-    <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
-        <CrossVine aria-hidden="true" className="h-16 w-auto" />
+export const PrologueTitle = ({ date, observance, children }) => {
+    const loading = !date
+    const title = loading ? SAMPLE.title : observance?.title
+    const toneLine = loading
+        ? SAMPLE.tone
+        : observance?.tone ? `Tone ${observance.tone}` : null
 
-        {date ? (
-            <h1 className="text-4xl font-bold tracking-tight text-reading">{date}</h1>
-        ) : (
-            <Skeleton className="h-10 w-56" />
-        )}
+    return (
+        <header className="flex flex-col items-center gap-5 pt-6 text-center sm:pt-0">
+            <CrossVine aria-hidden="true" className="h-16 w-auto" />
 
-        {children}
-    </header>
-)
+            <div className="flex flex-col items-center gap-2">
+                <Blurred loading={loading}>
+                    <h1 className="text-4xl font-bold tracking-tight text-reading">
+                        <PrologueDate date={date ?? SAMPLE.date} />
+                    </h1>
+                </Blurred>
 
-/* Shaped to the real article — a date, a commemorations line, the fasting strip, then
- * alternating headings and paragraphs. Widths that disagree with what lands are what make
- * the page jump as it settles. */
-export const PrologueSkeleton = () => (
-    <div className="flex w-full max-w-2xl flex-col gap-10">
-        <div className="flex flex-col items-center gap-4">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-52" />
-        </div>
-
-        {[0, 1, 2].map((section) => (
-            <div key={section} className="flex flex-col gap-4">
-                <Skeleton className="h-4 w-64" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-4/5" />
+                {(title || toneLine) && (
+                    <Blurred loading={loading}>
+                        <div className="flex flex-col items-center gap-0.5 font-display text-xl/6 text-muted-foreground/50">
+                            {title && <p>{title}</p>}
+                            {toneLine && <p>{toneLine}</p>}
+                        </div>
+                    </Blurred>
+                )}
             </div>
-        ))}
-    </div>
-)
+
+            {children}
+        </header>
+    )
+}
 
 export const PrologueError = ({ message, onRetry }) => (
     <div className="flex w-full max-w-2xl flex-col items-start gap-4 py-16">
@@ -492,6 +527,13 @@ const Prologue = ({ day, className }) => {
         >
             <Fasting fasting={day.fasting} />
 
+            {day.readings?.length > 0 && (
+                <>
+                    <Readings readings={day.readings} />
+                    <Squiggle />
+                </>
+            )}
+
             {day.lives.map((life, index) => (
                 <Section key={index} section={life} />
             ))}
@@ -511,6 +553,8 @@ const Prologue = ({ day, className }) => {
                     ))}
                 </section>
             )}
+
+            <Tailpiece aria-hidden="true" className="w-3xs mx-auto text-reading pt-6" />
         </article>
     )
 }

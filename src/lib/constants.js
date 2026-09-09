@@ -7,6 +7,17 @@ export const APP_NAME = "Grapevine"
  * page, so it has to be a mailbox somebody actually reads. */
 export const SUPPORT_EMAIL = "support@blackboxstudios.com"
 
+/* What build the reader is holding, for `/settings/about`. Both are inlined by
+ * `next.config.mjs` — see the note there for why they cannot be read at runtime.
+ *
+ * `APP_BUILD` is YYMMDDHHMM in UTC, which is a stamp rather than a number to compare: it
+ * answers "which bundle is this" when two devices claim the same version, and it sorts. */
+export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"
+export const APP_BUILD = new Date(process.env.NEXT_PUBLIC_BUILT_AT ?? Date.now())
+    .toISOString()
+    .replace(/\D/g, "")
+    .slice(2, 12)
+
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
@@ -36,6 +47,10 @@ export const ROUTES = {
      * `app/(protected)/settings/page.jsx`. Everything below it is a row on that list. */
     SETTINGS: "/settings",
     SETTINGS_GENERAL: "/settings/general",
+    /* The app itself: which build this is, who made it, and the copyright. In the account
+     * tree because it is a fact about the copy of Grapevine in the reader's hand, and that is
+     * where a person looks for one. */
+    SETTINGS_ABOUT: "/settings/about",
     /* Everything about the *person* — name, handle, the parish facts, the picture. "Info"
      * rather than "Profile", so it reads the same as the group tree's own Info a level away:
      * the two settings surfaces are deliberately the same shape asked about different
@@ -211,6 +226,10 @@ export const API_ENDPOINTS = {
     /* Today's reading, or `?date=YYYY-MM-DD` for another day. The client sends its own
      * local date so the reading turns over at the reader's midnight, not the server's. */
     PROLOGUE: "/prologue",
+    /* One day's fasting rule, without the reading around it — `?date=YYYY-MM-DD`. Split out
+     * for the sign-up sheets that show it (`showFasting`), which ask about a date somebody is
+     * about to take rather than about today. */
+    FASTING: "/fasting",
     /* The compiled calendar for one group and one window: the parish's own events, read out
      * of its Google Calendar, and its sign-up slots, in one collection. **One endpoint rather
      * than two**, because the month grid needs both before it can draw a single square, and
@@ -382,6 +401,19 @@ export const MAX_POST_IMAGES = 10
  * database and then never rendered — silently lost. If a post ever needs several, that
  * projection becomes a list first. */
 export const MAX_POST_DOCUMENTS = 1
+
+/* **One video per post, and a post carrying one carries no photos.**
+ *
+ * Both halves are contracts rather than preferences, and both are for the same reason the line
+ * above is: every surface that opens a post is built around *one* media box. <PostModal/>
+ * measures a single child to size the dialog to it, <PostSlide/> fills the screen with one
+ * thing, and neither has anywhere to put a second. A post published with a video and four
+ * photos would therefore store five rows and render one of them, which is the silent loss
+ * `MAX_POST_DOCUMENTS` exists to prevent, twice over.
+ *
+ * An attachment is the exception and stays allowed beside a video: it is not media, it is a row
+ * under the media, and it is already drawn there. */
+export const MAX_POST_VIDEOS = 1
 
 /* How many digits the emailed sign-in code has.
  *

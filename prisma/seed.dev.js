@@ -110,6 +110,9 @@ const SHEETS = [
         startTime: 11 * 60,
         endTime: 12 * 60 + 30,
         split: null,
+        /* The two rotas about food carry the day's fasting rule, and the car park does not —
+         * which is the distinction the column exists to draw. */
+        showFasting: true,
     },
     {
         id: "seed-sheet-kitchen",
@@ -121,6 +124,7 @@ const SHEETS = [
         startTime: 9 * 60,
         endTime: 12 * 60,
         split: null,
+        showFasting: true,
     },
     {
         id: "seed-sheet-festival",
@@ -267,8 +271,8 @@ const PEOPLE = [
 
 /* ── Mapping the fixture corpus onto rows ────────────────────────────────── */
 
-/* A fixture post's media (`image` + dimensions, `images`, `document`) → PostMedia rows.
- * The inverse of `projectMedia` in src/lib/server/projections.js; keep them in step. */
+/* A fixture post's media (`image` + dimensions, `images`, `video`, `document`) → PostMedia
+ * rows. The inverse of `projectMedia` in src/lib/server/projections.js; keep them in step. */
 const mediaRowsFor = (post) => {
     const rows = []
 
@@ -282,8 +286,27 @@ const mediaRowsFor = (post) => {
         })
     }
 
-    for (const url of post.images ?? []) {
-        rows.push({ kind: "IMAGE", url, position: rows.length })
+    /* The fixture records one pair of dimensions, the first photo's, because that is the one
+     * `projectMedia` reads back out to shape the carousel's box. */
+    for (const [index, url] of (post.images ?? []).entries()) {
+        rows.push({
+            kind: "IMAGE",
+            url,
+            width: index === 0 ? (post.width ?? null) : null,
+            height: index === 0 ? (post.height ?? null) : null,
+            position: rows.length,
+        })
+    }
+
+    /* Stored as the link the fixture gives, because that is what `createPost` stores too: a
+     * canonical watch URL, which the projection parses the id back out of. No dimensions —
+     * the player's box is 16:9 whatever was filmed. */
+    if (post.video) {
+        rows.push({
+            kind: "YOUTUBE",
+            url: post.video,
+            position: rows.length,
+        })
     }
 
     if (post.document) {
@@ -741,6 +764,7 @@ const main = async () => {
                 title: sheet.title,
                 description: sheet.description,
                 timezone: zone,
+                showFasting: Boolean(sheet.showFasting),
                 createdById: byHandle.get("cathedraldean"),
                 slots: { create: slots },
             },

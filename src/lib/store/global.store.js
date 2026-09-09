@@ -5,6 +5,7 @@ import { create } from 'zustand'
 import useAppStore from '@/lib/store/app/store'
 import useAuthStore from '@/lib/store/auth/store'
 import useCalendarStore from '@/lib/store/calendar/store'
+import useFastingStore from '@/lib/store/fasting/store'
 import useFeedStore from '@/lib/store/feed/store'
 import useFollowsStore from '@/lib/store/follows/store'
 import usePostStore from '@/lib/store/post/store'
@@ -55,7 +56,11 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * already been granted, so a boot path can hold it safely. The ask itself is `enable()`,
  * which belongs to a deliberate tap — iOS spends its system prompt once per install, and
  * firing it from a splash screen is how an app becomes permanently unreachable. Off-device
- * the whole thing resolves to nothing. */
+ * the whole thing resolves to nothing.
+ *
+ * `fasting` resets and nothing else: it has no boot fetch (its dates come from whichever rota is
+ * on screen), and it has no errors to clear or aggregate, because a rule that could not be read
+ * is a strip that is not drawn. See its header. */
 const useStore = create(() => ({
     initAuthorizedStores: () => Promise.all([
         useAppStore.getState().init(),
@@ -69,6 +74,7 @@ const useStore = create(() => ({
         useCalendarStore.getState().reset()
         useSignupsStore.getState().reset()
         useSheetStore.getState().reset()
+        useFastingStore.getState().reset()
         useOrgStore.getState().reset()
         useFeedStore.getState().reset()
         usePostStore.getState().reset()

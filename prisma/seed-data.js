@@ -20,13 +20,14 @@
  * card. Posts carry one of a few media shapes: an uploaded `image` (photos, e.g.
  * a birth announcement), multiple images (`images: [...]`, rendered as a
  * swipeable Instagram-style carousel), no media at all (a text-only
- * announcement), or a `document` attachment (a shared PDF). A post uses either
- * `image` (single) or `images` (carousel). Images live under public/img/mock and
+ * announcement), a `video` (a YouTube link, embedded with a still in front of it), or a
+ * `document` attachment (a shared PDF). A post uses one of `image` (single), `images`
+ * (carousel) or `video` — never two of them, which is the rule `createPost` enforces. Images live under public/img/mock and
  * are referenced root-absolute; render them through appPath() so they resolve
- * under a subpath. Single-`image` posts also carry the media's intrinsic
- * `width`/`height` (px) so the feed card can reserve the correct aspect-ratio box
- * before the image decodes — otherwise the img collapses to 0 height on a cold
- * cache and shifts the layout as it loads.
+ * under a subpath. Either media shape carries the intrinsic `width`/`height` (px) of
+ * the *first* photo, so the feed card can reserve the correct aspect-ratio box before
+ * the image decodes — otherwise the img collapses to 0 height on a cold cache and
+ * shifts the layout as it loads, and a carousel falls back to a square.
  *
  * Newest first, which is the order `GET /api/feed` pages through (see
  * posts.service.js → listFeed). A real backend would sort by `created_at`. */
@@ -105,6 +106,8 @@ export const FEED = [
             "/img/mock/cross-2.jpg",
             "/img/mock/cross-3.jpg",
         ],
+        width: 356,
+        height: 534,
         title: "20 Years of Priesthood — Fr. Thomas",
         body: "Today, August 6, the Great Feast of the Transfiguration of the Lord, we celebrate the 20th anniversary of ordination of Fr. Thomas. Fr. Thomas has a long history of serving the Cathedral that dates well before his diaconal service — as Parish Council President, catechist, singer, Reader, and Subdeacon.",
         likes: 13,
@@ -153,6 +156,30 @@ export const FEED = [
         likes: 7,
         likedBy: "mat.carly",
         comments: 1,
+        liked: false,
+        saved: false,
+    },
+    {
+        id: "post-007",
+        author: {
+            handle: "cathedraldean",
+            avatar: "/img/mock/priest-alexander.png",
+        },
+        group: "Holy Trinity Cathedral",
+        created_at: "2026-08-05T14:00:00.000000Z",
+        /* The one media shape that is a link rather than a file, so the corpus carries one:
+         * the card, the open post and the composer's preview all branch on it, and a shape
+         * nothing in the seed produces is a layout nobody looks at until a parish does.
+         *
+         * The id is YouTube's own documentation example rather than a parish recording, and
+         * that is the point: a fixture must not go blank the day somebody's channel is tidied
+         * up, and every surface here is drawing a still fetched from YouTube by id. */
+        video: "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+        title: "Sunday's homily is up on the Cathedral's channel",
+        body: "For those who could not be with us, the homily from the Divine Liturgy is now online. We are posting them each week through the Nativity Fast.",
+        likes: 5,
+        likedBy: "geoffrey.k",
+        comments: 0,
         liked: false,
         saved: false,
     },

@@ -121,15 +121,19 @@ const Arrow = ({ dir, onClick, visible }) => {
     )
 }
 
-/* `bare` (used inside the desktop comments modal): drop the feed card's border and
+/* `ratio` (from `mediaRatio`) shapes every slide, so a carousel of portrait photographs is as
+ * tall as they are rather than a square with grey down both sides.
+ *
+ * `bare` (used inside the desktop comments modal): drop the feed card's border and
  * rounding, fill the parent's height, and overlay the paging dots on the image so
- * they don't add height — letting the modal size itself to the media.
+ * they don't add height — letting the modal size itself to the media. The parent shapes
+ * its own box there, from the same `ratio`.
  *
  * `onImageClick` (feed card): fires when the media is *tapped* rather than dragged
  * or paged. Framer suppresses the click that follows a drag, and the arrows are
  * siblings of the track (their clicks don't bubble here), so this only runs on a
  * genuine tap — used to open the post (modal on desktop, `/p/:id` on mobile). */
-const Carousel = ({ images, bare = false, zoomable = false, onImageClick }) => {
+const Carousel = ({ images, ratio = 1, bare = false, zoomable = false, onImageClick }) => {
     const n = images.length
 
     const [index, setIndex] = useState(0)
@@ -238,7 +242,8 @@ const Carousel = ({ images, bare = false, zoomable = false, onImageClick }) => {
                     {images.map((src, i) => (
                         <div
                             key={i}
-                            className="aspect-square w-full shrink-0 select-none bg-black"
+                            style={{ aspectRatio: ratio }}
+                            className="w-full shrink-0 select-none bg-black"
                         >
                             <Img
                                 src={appPath(src)}

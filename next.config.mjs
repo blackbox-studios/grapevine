@@ -1,5 +1,18 @@
 /** @type {import('next').NextConfig} */
+import { createRequire } from "node:module"
+
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants.js"
+
+const { version } = createRequire(import.meta.url)("./package.json")
+
+/* What `/settings/about` prints, inlined here because neither value can be read at runtime:
+ * the native target is a static export inside a WebView with no process to ask, and the
+ * version lives in package.json, which the client bundle must not import.
+ *
+ * The build stamp is the one that earns its place. `npm run sync` copies `out/` into the
+ * native projects, so a device can be running a bundle several syncs older than the version
+ * it names; the timestamp is the only thing that separates them. */
+const builtAt = new Date().toISOString()
 
 /* Subpath the app is served under. Empty for local dev; the combined image can set
  * NEXT_PUBLIC_BASE_PATH=/<slug> to match the backend mount. Kept in sync with
@@ -22,6 +35,11 @@ const native = process.env.NEXT_PUBLIC_NATIVE === "1"
 
 const nextConfig = {
     ...(rawBasePath ? { basePath: rawBasePath } : {}),
+
+    env: {
+        NEXT_PUBLIC_APP_VERSION: version,
+        NEXT_PUBLIC_BUILT_AT: builtAt,
+    },
 
     /* Which filenames Next treats as routes — and the seam that keeps the API out of the
      * native bundle. Route handlers live in `route.api.js` files, so they are only routes

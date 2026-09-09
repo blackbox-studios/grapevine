@@ -1,5 +1,6 @@
 "use client"
 
+import AppsIcon from "@/assets/svg/icons/apps-outline.svg"
 import PowerIcon from "@/assets/svg/icons/power.svg"
 import SettingsIcon from "@/assets/svg/icons/settings.svg"
 import UsersIcon from "@/assets/svg/icons/users.svg"
@@ -114,6 +115,7 @@ const SettingsPage = () => {
                     label="General"
                     href={ROUTES.SETTINGS_GENERAL}
                 />
+                <SettingsRow icon={AppsIcon} label="About" href={ROUTES.SETTINGS_ABOUT} />
                 <SettingsRow icon={PowerIcon} label="Log out" onClick={logout} destructive />
             </nav>
         </div>

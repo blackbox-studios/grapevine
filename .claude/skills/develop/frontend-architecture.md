@@ -67,6 +67,7 @@ Reference files:
 │   │       ├── settings/
 │   │       │   ├── layout.jsx       # Shared frame + NESTED <PageTransition/> for sub-pages
 │   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
+│   │       │   ├── about/page.jsx   # /settings/about — the build, and who made it
 │   │       │   ├── general/page.jsx # /settings/general
 │   │       │   └── info/page.jsx    # /settings/info — the viewer's own details
 │   │       ├── events/page.jsx      # /events — the parish's calendar and its sign-up sheets
@@ -1539,7 +1540,11 @@ import Icon from '@/components/Icon'
 
 ### Skeletons
 
-- Wrap skeletons in named components in `components/Skeleton.jsx` (e.g. `HeaderSkeleton`, `TableSkeleton`, `VERSION_TABLE_COLUMNS`). **Avoid using the bare `<Skeleton/>` directly in pages** — extract a named component if you find yourself composing rows of skeletons inline.
+- **Every named `*Skeleton` component lives in `components/Skeleton.jsx`**, whatever renders it. That file holds the primitive, one named component per surface (`FeedSkeleton`, `CommentsSkeleton`, `NotificationsSkeleton`, `CalendarSkeleton`, `SignupsSkeleton`, `RotaSkeleton`, `PeopleSkeleton`, `ProfileCardSkeleton`, `TableSkeleton`), and any geometry the real surface and its placeholder both read (`NOTIFICATION_ROW`, `USER_TABLE_COLUMNS`) so the two cannot drift a pixel apart. **A component file is no more exempt than a page is.** The point of the rule is that the app's skeletons are all in one place: one defined beside the surface it stands in for is one nobody looking in `Skeleton.jsx` will find, and one that quietly stops matching the surface it sits next to.
+- **A bare `<Skeleton/>` inline is for a placeholder that stands in for one element, in place** — the in-flight upload tile in `<ComposeForm/>`, the date in `<PrologueTitle/>`, the fasting strip in `<SignupClaim/>`. A bar or two in the same ternary as the thing they replace, small enough that reading the swap means reading one screen. **The threshold is scale, not syntax** — a two-bar wrapper mirroring one line-pair is still in place; repeated rows, several regions, or a container the whole surface is laid out in is a surface skeleton. Name it and move it, because at that size the placeholder is carrying geometry the real surface also carries, and keeping those two in step is what `Skeleton.jsx` is for.
+- **A blurred sample is the other placeholder, and it is deliberately narrow.** `<Blurred/>` (same file) holds a surface's *own shape* out of focus and brings it into focus when the answer lands. It suits a surface whose **shape is known before its content is**: the Daily Read (a title, then a page of prose under headings) and the Events calendar (a grid whose dates come from arithmetic, where only the rings need the request). Two things it requires: the caller renders the sample into the **same element** the answer will occupy, or there is no transition to run; and the sample is `aria-hidden` while it stands, because it is not true. A grey bar is still right where there is genuinely no shape yet — `<CalendarSkeleton/>` covers the frame before a month is even chosen — and for a list, where the rows *are* the information and there is no single answer to bring into focus.
+
+  **The sample is the caller's, and what is in it is a decision.** The Daily Read's is filler prose (`SAMPLE_DAY` in `Prologue.jsx`) rather than an invented saint's life or passage of scripture: text that reads as the Church's while being nobody's does not belong in this repo, least of all on the surface whose point is that it carries somebody else's real words. Blurred, only the measure of the lines is doing any work anyway.
 - Always render skeleton/content under an `<AnimatePresence mode="wait">`, with each branch wrapped in `<Transition fast key="...">`. This produces the standard fade between loading and loaded states:
 
 ```jsx
@@ -1563,6 +1568,23 @@ import { TableSkeleton } from '@/components/Skeleton'
 - The `skeleton` flag comes from the hook, derived from readiness (`!ready`, or `items.length === 0` for a secondary resource) so it paints on the **first** frame and is only true on the first load — refreshes update silently. See the hook-layer section.
 - Neither the store nor the hook adds a floor or a debounce (`useDelay` was removed). Deriving `skeleton` from readiness so it is truthy on the first render (see **The hook layer**) is what removes the flash; an artificial delay would only make every load slower.
 - **A silent load has no skeleton at all.** When there is already a complete surface on screen — the post overlay, seeded from the feed's cached row — a background refresh must not cover it. Gate the skeleton on a readiness flag the cache can satisfy (`ready` in `lib/store/post/store.js`), not on the fetch being in flight.
+
+### Closing an overlay — it has to still be mounted
+
+A surface animates on the way out, and every mechanism for that (Vaul's slide-down, an `exit` on a `motion` child) needs the component to outlive the close by a few hundred milliseconds. So an overlay whose open state lives in a store must not turn that state into its own unmounting — the store empties on the tap, the guard returns `null` on the very next render, and the sheet is gone before anything can move it. The entrance still looks right, which is what makes it easy to miss.
+
+```jsx
+// FORBIDDEN — nothing is left on screen to animate.
+if (!open) return null
+return <Drawer open onOpenChange={(next) => !next && close()}>…</Drawer>
+
+// REQUIRED — the primitive is told it is closing, and plays the exit itself.
+return <Drawer open={open} onOpenChange={(next) => !next && close()}>…</Drawer>
+```
+
+A hand-rolled overlay is the same rule through `<AnimatePresence>`: `<Overlay/>` declares its own `exit`, and an exit only plays inside a presence tree, so it is `<AnimatePresence>{open && <Overlay …/>}</AnimatePresence>` rather than a bare conditional.
+
+**Freeze what it draws while it leaves.** A store's `close` clears the subject along with the flag (the `profile` store resets to `INIT`), so a surface still reading the store during its exit swaps its content for a skeleton and resets its tabs halfway down the screen. Hold the last opened subject in a ref and render the body from that, as `<ProfileCard/>` does.
 
 ### Page transitions
 
@@ -1691,7 +1713,7 @@ Use this whenever you add a new top-level entity (e.g. `installs`, `users`, `rel
    - [ ] Add the route folder under `app/(protected)/<domain>/` with a `page.jsx` (and `[param]/page.jsx` for dynamic routes). No router config file to edit — the folder *is* the route.
    - [ ] Add a sidebar entry in `app/(protected)/layout.jsx` (`NAV` array) — provide an SVG icon in `assets/svg/icons/`.
 5. **Skeletons**
-   - [ ] Add named skeleton components / column configs to `components/Skeleton.jsx`.
+   - [ ] Add named skeleton components / column configs to `components/Skeleton.jsx` — never beside the surface they stand in for.
 6. **Pages**
    - [ ] `app/(protected)/<domain>/page.jsx` — start with `"use client"` — consuming the hook. No `fetch`, no direct store access, no inline error strings.
 7. **shadcn primitives**

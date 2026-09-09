@@ -53,29 +53,29 @@ const TABS = [
     { id: "following", label: "Following" },
 ]
 
-/* One column of the Info tab: a small caps label and the value it stands for.
+/* One fact about a person: what it is on the left, what it says on the right.
  *
- * Two lines, where the App Store has three. Its third carries a different *kind* of precision
- * from the value above it ("2.56" over "GB"), and none of these has one to carry: an ordination
- * is a single date, so the column states it rather than making the reader assemble it. */
+ * `truncate` on the value alone, so a long patron ("The Right-Believing Prince Alexander
+ * Nevsky") ellipses instead of wrapping under its own label and breaking the rhythm of the
+ * rows below it. */
 const Stat = ({ label, value }) => (
-    <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2 text-center">
-        <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">
-            {label}
-        </span>
-        <span className="w-full truncate text-lg font-semibold">{value}</span>
+    <div className="flex items-baseline justify-between gap-6 px-5 py-5">
+        <span className="shrink-0 text-sm font-medium">{label}</span>
+        <span className="min-w-0 truncate text-sm text-muted-foreground">{value}</span>
     </div>
 )
 
-/* What the parish knows about a person, as the App Store lays out an app's: labelled columns
- * between two hairlines, stretched to the width however few there are.
+/* What the parish knows about a person: a labelled row each, between hairlines.
  *
- * These are facts of unrelated kinds (a saint, a feast, a date), and a stacked list of
- * label-and-value rows makes each one look like a setting; side by side they read as a summary.
- * **Columns that have nothing to say are absent, not blank**, so a catechumen who has just
- * joined gets the empty state below rather than a rule across nothing. */
+ * The facts are of unrelated kinds (a saint, a feast, a date) and there are never many, so
+ * the reader is looking one of them up rather than comparing them. A row gives the label its
+ * own words and the value the rest of the line, which is how a phone states a fact everywhere
+ * else in this app.
+ *
+ * **Rows that have nothing to say are absent, not blank**, so a catechumen who has just
+ * joined gets the empty state below rather than a list of dashes. */
 const InfoTab = ({ profile }) => {
-    const columns = [
+    const rows = [
         profile.patronSaint && { label: "Patron", value: profile.patronSaint },
         profile.nameDay && {
             label: "Name day",
@@ -87,7 +87,7 @@ const InfoTab = ({ profile }) => {
         },
     ].filter(Boolean)
 
-    if (columns.length === 0) {
+    if (rows.length === 0) {
         return (
             <p className="px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing here yet.
@@ -96,9 +96,9 @@ const InfoTab = ({ profile }) => {
     }
 
     return (
-        <div className="flex items-stretch divide-x py-4">
-            {columns.map((column) => (
-                <Stat key={column.label} {...column} />
+        <div className="flex flex-col divide-y border-y">
+            {rows.map((row) => (
+                <Stat key={row.label} {...row} />
             ))}
         </div>
     )
@@ -216,7 +216,7 @@ const FollowsTab = ({ list, kind, skeleton, loadingMore, onLoadMore, onOpen }) =
  * that edits it; everybody else's offers the follow. Which it is follows from who they are, so
  * there is never a moment where both are on screen competing. */
 const CardHeader = ({ profile, onEdit }) => (
-    <div className="flex flex-col items-center gap-3 px-4 pb-6 pt-6 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 pb-10 pt-6 text-center">
         <Avatar person={profile} className="size-20 text-2xl" />
 
         <div className="flex flex-col items-center gap-1.5">

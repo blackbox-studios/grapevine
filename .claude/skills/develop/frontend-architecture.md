@@ -67,6 +67,7 @@ Reference files:
 │   │       ├── settings/
 │   │       │   ├── layout.jsx       # Shared frame + NESTED <PageTransition/> for sub-pages
 │   │       │   ├── page.jsx         # /settings — the account surface AND the tree's index
+│   │       │   ├── about/page.jsx   # /settings/about — the build, and who made it
 │   │       │   ├── general/page.jsx # /settings/general
 │   │       │   └── info/page.jsx    # /settings/info — the viewer's own details
 │   │       ├── events/page.jsx      # /events — the parish's calendar and its sign-up sheets

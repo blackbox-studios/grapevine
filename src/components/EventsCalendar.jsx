@@ -58,7 +58,7 @@ const DayCell = ({ day, onOpen }) => (
     >
         <span
             className={cn(
-                "grid size-9 place-items-center rounded-full border border-transparent tabular-nums transition-colors",
+                "grid aspect-square w-full max-w-11 place-items-center rounded-full border border-transparent tabular-nums transition-colors",
                 day.parish && day.inMonth && PARISH_RING,
                 day.signup && day.inMonth && SIGNUP_RING,
                 day.signup && day.inMonth && (day.mine ? "ring-brand" : "ring-brand/35"),
@@ -431,7 +431,15 @@ const DayView = ({ selected, entries, onBack, onPrevious, onNext, onOpen }) => {
                 <Button variant="ghost" size="icon" onClick={onPrevious} aria-label="Previous day">
                     <Icon size="lg">chevron_left</Icon>
                 </Button>
-                <Button variant="ghost" size="icon" onClick={onNext} aria-label="Next day">
+                {/* Out to the same edge the month's chevrons reach, and gated the same way,
+                    because stepping between the two surfaces must not move them. */}
+                <Button
+                    className="-mr-2 md:mr-0"
+                    variant="ghost"
+                    size="icon"
+                    onClick={onNext}
+                    aria-label="Next day"
+                >
                     <Icon size="lg">chevron_right</Icon>
                 </Button>
             </header>
@@ -587,7 +595,10 @@ const EventsCalendar = () => {
                                     </span>
                                 </h2>
 
-                                <div className="flex items-center gap-1">
+                                {/* Pulled out to the same edge the grid below now reaches, so
+                                    the chevron sits over the Saturday column rather than short
+                                    of it. Mobile only, like the bleed it is following. */}
+                                <div className="-mr-2 flex items-center gap-1 md:mr-0">
                                     {/* Only once the reader has paged away from it. On the
                                         current month it is a button that does nothing. */}
                                     {away && (
@@ -619,7 +630,14 @@ const EventsCalendar = () => {
                                 </div>
                             </header>
 
-                            <div>
+                            {/* Wider than the shell's mobile gutter allows: seven columns is
+                                the one layout on this surface whose cell size is decided by
+                                division, so every pixel the gutter keeps comes off each square.
+                                Half of it is given back rather than all, because the sign-up
+                                ring is drawn outside its circle and an edge column flush with
+                                the screen has that ring shaved. Desktop keeps the gutter, its
+                                column being capped at 640px anyway. */}
+                            <div className="-mx-2 md:mx-0">
                                 <div className="grid grid-cols-7">
                                     {WEEKDAY_INITIALS.map((initial, index) => (
                                         <span

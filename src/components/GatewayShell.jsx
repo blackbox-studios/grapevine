@@ -2,7 +2,7 @@
 
 import Ripple from "@/assets/svg/ripple.svg"
 import TypeLogo from "@/assets/svg/type-logo.svg"
-import GlossyMark, { paletteFor, useMarkCycle } from "@/components/GlossyMark"
+import GlossyMark, { MARK_ENTRANCE_DELAY, paletteFor, useMarkCycle } from "@/components/GlossyMark"
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
 import { Button } from "@/components/ui/button"
@@ -11,11 +11,6 @@ import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { cn } from "@/lib/utils"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import useMeasure from "react-use-measure"
-
-/* How long everything but the mark waits before fading in: the entrance spring is still
- * travelling for most of it, so the content arrives to a mark that has landed rather than
- * racing it. Both layouts read from it, which is what keeps them staggering alike. */
-const CONTENT_DELAY = 0.75
 
 /* The chrome shared by every screen that stands between arriving and being in the app:
  * sign-in, first-run orientation, and the access-removed notice.
@@ -95,7 +90,7 @@ const FormScreen = ({ heading, subheading, children, footer, onBack, mark, revea
         mark && !reduceMotion
             ? {
                   animate: { opacity: revealed ? 1 : 0.01 },
-                  transition: { duration: 0.3, ease: "easeInOut", delay: CONTENT_DELAY },
+                  transition: { duration: 0.3, ease: "easeInOut", delay: MARK_ENTRANCE_DELAY },
               }
             : {}
 
@@ -283,7 +278,7 @@ const GatewayShell = ({
 
                 {/* Everything but the mark fades in together. */}
                 <Transition
-                    delay={CONTENT_DELAY}
+                    delay={MARK_ENTRANCE_DELAY}
                     className="flex h-auto w-full flex-col items-center gap-6 px-6 pb-12 sm:pb-16 lg:gap-8 lg:px-0 lg:pb-0"
                 >
                     {(heading || subheading) && (

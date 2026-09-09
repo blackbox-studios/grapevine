@@ -38,9 +38,8 @@ const projectPending = (media) => {
     const document = media.find(item => item.kind === 'DOCUMENT')
 
     return {
-        ...(images.length === 1
-            ? { image: images[0].url, width: images[0].width, height: images[0].height }
-            : {}),
+        ...(images.length ? { width: images[0].width, height: images[0].height } : {}),
+        ...(images.length === 1 ? { image: images[0].url } : {}),
         ...(images.length > 1 ? { images: images.map(item => item.url) } : {}),
         ...(document
             ? {

@@ -7,6 +7,17 @@ export const APP_NAME = "Grapevine"
  * page, so it has to be a mailbox somebody actually reads. */
 export const SUPPORT_EMAIL = "support@blackboxstudios.com"
 
+/* What build the reader is holding, for `/settings/about`. Both are inlined by
+ * `next.config.mjs` — see the note there for why they cannot be read at runtime.
+ *
+ * `APP_BUILD` is YYMMDDHHMM in UTC, which is a stamp rather than a number to compare: it
+ * answers "which bundle is this" when two devices claim the same version, and it sorts. */
+export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"
+export const APP_BUILD = new Date(process.env.NEXT_PUBLIC_BUILT_AT ?? Date.now())
+    .toISOString()
+    .replace(/\D/g, "")
+    .slice(2, 12)
+
 export const ROUTES = {
     DEFAULT: "/",
     INBOX: "/inbox",
@@ -36,6 +47,10 @@ export const ROUTES = {
      * `app/(protected)/settings/page.jsx`. Everything below it is a row on that list. */
     SETTINGS: "/settings",
     SETTINGS_GENERAL: "/settings/general",
+    /* The app itself: which build this is, who made it, and the copyright. In the account
+     * tree because it is a fact about the copy of Grapevine in the reader's hand, and that is
+     * where a person looks for one. */
+    SETTINGS_ABOUT: "/settings/about",
     /* Everything about the *person* — name, handle, the parish facts, the picture. "Info"
      * rather than "Profile", so it reads the same as the group tree's own Info a level away:
      * the two settings surfaces are deliberately the same shape asked about different

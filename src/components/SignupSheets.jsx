@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { AnimatePresence } from "motion/react"
 import { toast } from "sonner"
@@ -25,7 +25,7 @@ import { pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { useSheet } from "@/lib/store/sheet/hook"
 import { useEventsView, useSignupAdmin, useSignups } from "@/lib/store/signups/hook"
-import { cn, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts, sphereFor } from "@/lib/utils"
+import { cn, dayKey, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts, sphereFor } from "@/lib/utils"
 
 /* The parish's rotas: reading them, taking a place on one, and — for an admin — running them.
  *
@@ -602,8 +602,25 @@ const SheetActions = ({ row }) => {
 export const RotaPage = ({ row, editing, onBack }) => {
     const [taking, setTaking] = useState(null)
     const onTake = useCallback((slot, title) => setTaking({ slot, title }), [])
+    const now = useNow()
 
     useBackHandler(true, onBack)
+
+    /* A date leaves the rota the day after it happens, on the **reader's** clock — the one
+     * `<SlotWhen/>` prints it against, which is the whole reason this is a filter here and not a
+     * `where` in the query: the server has no reader in the room. It stays up for the rest of
+     * its own day, because "who is bringing the food this morning" is a live question at ten
+     * o'clock and that row is the answer.
+     *
+     * Edit mode keeps every date, and asks for the whole history besides: an admin is reading a
+     * record rather than signing up. */
+    const slots = useMemo(
+        () =>
+            editing
+                ? row.slots
+                : row.slots.filter((slot) => dayKey(slot.endsAt) >= dayKey(now)),
+        [editing, row.slots, now],
+    )
 
     return (
         <div className="flex flex-col gap-6">
@@ -631,16 +648,18 @@ export const RotaPage = ({ row, editing, onBack }) => {
 
             {editing && <SheetActions row={row} />}
 
-            {row.slots.length === 0 ? (
+            {slots.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">
-                    No dates on this sheet yet.
+                    {row.slots.length === 0
+                        ? "No dates on this sheet yet."
+                        : "Nothing coming up on this sheet."}
                 </p>
             ) : (
                 /* Rules rather than boxes. A rota is a list of dates in order, and a column of
                    bordered cards makes each one look like a thing that could be moved about;
                    a divided list reads as one rota with dates in it. */
                 <ul className="flex flex-col divide-y">
-                    {row.slots.map((slot) =>
+                    {slots.map((slot) =>
                         editing ? (
                             <ManageSlot key={slot.id} slot={slot} />
                         ) : (

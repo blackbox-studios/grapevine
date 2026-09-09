@@ -282,8 +282,16 @@ const mediaRowsFor = (post) => {
         })
     }
 
-    for (const url of post.images ?? []) {
-        rows.push({ kind: "IMAGE", url, position: rows.length })
+    /* The fixture records one pair of dimensions, the first photo's, because that is the one
+     * `projectMedia` reads back out to shape the carousel's box. */
+    for (const [index, url] of (post.images ?? []).entries()) {
+        rows.push({
+            kind: "IMAGE",
+            url,
+            width: index === 0 ? (post.width ?? null) : null,
+            height: index === 0 ? (post.height ?? null) : null,
+            position: rows.length,
+        })
     }
 
     if (post.document) {

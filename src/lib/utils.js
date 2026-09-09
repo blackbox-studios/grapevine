@@ -180,7 +180,7 @@ export const formatNameDay = (value, { short = false } = {}) => {
 }
 
 /* "2011-06-12" → "12 Jun 2011". The short form, for a place that has one line to say a whole
- * date in — a column of the profile's metadata strip. `formatDate` is the long one, for prose. */
+ * date in — a row of the profile card's info list. `formatDate` is the long one, for prose. */
 export const formatDateCompact = (iso) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "")
     if (!match) return ""
@@ -218,13 +218,23 @@ export const addDays = (iso, days) => {
     ].join("-")
 }
 
-/* A post's photos, as one array whatever the wire shape.
+/* A post's photos, as one array of URLs whatever the wire shape.
  *
  * `projectMedia` sends `image` + `width`/`height` for a single photo and `images` for a
  * carousel, so every surface that renders media had its own copy of this two-branch read —
  * and an empty result is not a detail: it is what makes a post a text post, which the feed
  * card and <PostView/> now both decide their whole layout on. One answer, in one place. */
 export const postImages = (post) => post?.images ?? (post?.image ? [post.image] : [])
+
+/* The box a post's photos are drawn in, as a CSS aspect ratio.
+ *
+ * One number for the whole post rather than one per photo: a carousel lays its slides side by
+ * side and pages through them, so a shape per slide would be a height per slide and the card
+ * would change height under the finger. The first photo decides it and the rest are contained
+ * inside it, which is Instagram's rule too. A post carrying no dimensions answers 1, the
+ * square a carousel with nothing to go on is drawn as. */
+export const mediaRatio = (post) =>
+    post?.width && post?.height ? post.width / post.height : 1
 
 /* ---------------------------------------------------------------------------
  * Calendars

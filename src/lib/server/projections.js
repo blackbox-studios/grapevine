@@ -53,25 +53,29 @@ export const projectAuthor = (profile, orgId = null) => ({
 /* Media rows → the three shapes the feed card understands. A post has exactly one of
  * these, or none at all (a text-only announcement):
  *
- *   image + width + height   one photo; the dimensions let the card reserve the correct
- *                            aspect-ratio box before the image decodes, without which it
- *                            collapses to zero height on a cold cache and shifts the
- *                            layout as it loads
+ *   image                    one photo
  *   images                   several photos, as the swipeable carousel
  *   document                 a file attachment
+ *
+ * Either image shape is accompanied by `width`/`height` — the *first* photo's, since a
+ * carousel is one box its slides page through (`mediaRatio`). They let the card reserve the
+ * right aspect-ratio box before the image decodes, without which it collapses to zero height
+ * on a cold cache and shifts the layout as it loads.
+ *
+ * The dimensions sit beside `images` rather than on each entry of it deliberately: an
+ * installed native build reads whatever the deployment is serving, so a field it does not
+ * know costs it nothing while a changed `images` shape would hand it `undefined` for every
+ * `src`. Adding to this contract is safe; re-shaping it is a coordinated release.
  */
 const projectMedia = (media = []) => {
     const images = media.filter((item) => item.kind === "IMAGE")
     const document = media.find((item) => item.kind === "DOCUMENT")
 
     return {
-        ...(images.length === 1
-            ? {
-                  image: images[0].url,
-                  width: images[0].width,
-                  height: images[0].height,
-              }
+        ...(images.length
+            ? { width: images[0].width, height: images[0].height }
             : {}),
+        ...(images.length === 1 ? { image: images[0].url } : {}),
         ...(images.length > 1 ? { images: images.map((item) => item.url) } : {}),
         ...(document
             ? {

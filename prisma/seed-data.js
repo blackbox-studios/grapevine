@@ -23,10 +23,10 @@
  * announcement), or a `document` attachment (a shared PDF). A post uses either
  * `image` (single) or `images` (carousel). Images live under public/img/mock and
  * are referenced root-absolute; render them through appPath() so they resolve
- * under a subpath. Single-`image` posts also carry the media's intrinsic
- * `width`/`height` (px) so the feed card can reserve the correct aspect-ratio box
- * before the image decodes — otherwise the img collapses to 0 height on a cold
- * cache and shifts the layout as it loads.
+ * under a subpath. Either media shape carries the intrinsic `width`/`height` (px) of
+ * the *first* photo, so the feed card can reserve the correct aspect-ratio box before
+ * the image decodes — otherwise the img collapses to 0 height on a cold cache and
+ * shifts the layout as it loads, and a carousel falls back to a square.
  *
  * Newest first, which is the order `GET /api/feed` pages through (see
  * posts.service.js → listFeed). A real backend would sort by `created_at`. */
@@ -105,6 +105,8 @@ export const FEED = [
             "/img/mock/cross-2.jpg",
             "/img/mock/cross-3.jpg",
         ],
+        width: 356,
+        height: 534,
         title: "20 Years of Priesthood — Fr. Thomas",
         body: "Today, August 6, the Great Feast of the Transfiguration of the Lord, we celebrate the 20th anniversary of ordination of Fr. Thomas. Fr. Thomas has a long history of serving the Cathedral that dates well before his diaconal service — as Parish Council President, catechist, singer, Reader, and Subdeacon.",
         likes: 13,

@@ -18,7 +18,14 @@ import Heart from "@/assets/svg/icons/heart.svg"
 import CommentOutline from "@/assets/svg/icons/comment-outline.svg"
 import { useBackHandler } from "@/lib/hooks/useNative.hook"
 import { usePostLike } from "@/lib/store/post/hook"
-import { appPath, cn, formatCompact, postImages, SLIDE_TRANSITION } from "@/lib/utils"
+import {
+    appPath,
+    cn,
+    formatCompact,
+    mediaRatio,
+    postImages,
+    SLIDE_TRANSITION,
+} from "@/lib/utils"
 
 /* The comment sheet rises to this share of the surface — the media keeps the rest and shrinks
  * into it. Enough that the thread reads as the focus while the photo stays in view above it. */
@@ -34,7 +41,7 @@ const SlideMedia = ({ post }) => {
 
     if (images.length > 1) {
         return (
-            <div className="aspect-square w-full">
+            <div className="w-full" style={{ aspectRatio: mediaRatio(post) }}>
                 <Carousel images={images} bare zoomable />
             </div>
         )

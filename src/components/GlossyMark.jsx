@@ -25,6 +25,12 @@ const MARK_WIPE_MS = 220
 const MARK_WIPE_ORIGIN = { x: 1.12, y: 0.5 }
 const MARK_WIPE_FEATHER = 0.28
 
+/* How long anything staggered behind the mark waits before it fades in: the entrance spring
+ * below is still travelling for most of it, so the content arrives to a mark that has landed
+ * rather than racing it. Every screen that leads with the mark reads from this, which is what
+ * keeps them staggering alike. */
+export const MARK_ENTRANCE_DELAY = 0.75
+
 /* Measured off the reference: the mark flies up and to the right from below
  * while scaling in, overshooting ~6% before it settles. */
 const MARK_ENTER_FROM = { opacity: 0, scale: 0.06, x: "-47%", y: "80%" }

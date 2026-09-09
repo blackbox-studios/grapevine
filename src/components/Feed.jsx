@@ -34,6 +34,7 @@ import {
     captionPreview,
     cn,
     formatCompact,
+    mediaRatio,
     postImages,
     postPath,
     timeAgoCompact,
@@ -277,7 +278,12 @@ const PostCard = ({ post }) => {
              * padded, rounded column. The surrounding text keeps the gutter either way. */}
             {images.length > 1 ? (
                 <div className="-mx-4 md:mx-0">
-                    <Carousel images={images} onImageClick={openPost} zoomable />
+                    <Carousel
+                        images={images}
+                        ratio={mediaRatio(post)}
+                        onImageClick={openPost}
+                        zoomable
+                    />
                 </div>
             ) : (
                 images.length === 1 && (

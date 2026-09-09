@@ -294,7 +294,7 @@ export function CalendarSkeleton() {
                 <Skeleton className="h-8 w-20 rounded-full" />
             </div>
 
-            <div>
+            <div className="-mx-2 md:mx-0">
                 <div className="grid grid-cols-7">
                     {Array.from({ length: 7 }).map((_, index) => (
                         <div key={index} className="flex justify-center pb-2">
@@ -305,7 +305,7 @@ export function CalendarSkeleton() {
                 <div className="grid grid-cols-7 gap-y-1">
                     {Array.from({ length: 42 }).map((_, index) => (
                         <div key={index} className="grid aspect-square place-items-center">
-                            <Skeleton className="size-9 rounded-full" />
+                            <Skeleton className="aspect-square w-full max-w-11 rounded-full" />
                         </div>
                     ))}
                 </div>

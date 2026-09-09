@@ -8,7 +8,7 @@ import { CommentsPanel } from "@/components/Comments"
 import Img from "@/components/Img"
 import { CommentsSkeleton, PostMediaSkeleton } from "@/components/Skeleton"
 import { Overlay } from "@/components/Widgets"
-import { appPath, postImages } from "@/lib/utils"
+import { appPath, mediaRatio, postImages } from "@/lib/utils"
 
 /* The post's media. Sized by a *definite* height so the box width derives from the media's
  * aspect ratio (the dialog then shrinks to media + rail), capped at `95vw − rail` so a wide
@@ -20,7 +20,10 @@ const PostMedia = ({ post }) => {
 
     if (images.length > 1) {
         return (
-            <div className="aspect-square h-full max-w-[calc(95vw-var(--commentbar-width))]">
+            <div
+                style={{ aspectRatio: mediaRatio(post) }}
+                className="h-full max-w-[calc(95vw-var(--commentbar-width))]"
+            >
                 <Carousel images={images} bare />
             </div>
         )

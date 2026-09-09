@@ -23,23 +23,26 @@ import { API_ENDPOINTS } from '@/lib/constants'
  * There is no `error` here and this store is absent from `useErrors`: a day whose rule could not
  * be read renders **nothing**, exactly as the Daily Read's strip does, because neither surface is
  * about the fast. A toast over a sign-up form apologising for an almanac is worse than the plain
- * form that was there before this feature existed. A null answer is deliberately not cached — the
- * almanac having a bad minute is not a fact about the day — so the next date that asks for it
- * tries again. */
+ * form that was there before this feature existed.
+ *
+ * A miss is remembered only far enough to stop the surface waiting on it — `blank` settles the
+ * skeleton, and nothing consults it before fetching, so the next open of that date asks again.
+ * The almanac having a bad minute is not a fact about the day. */
 
 const INIT = {
     /* Rules by `YYYY-MM-DD`. Only rules that actually resolved; see the header. */
     days: {},
-    /* Dates being read right now, so the surface waiting on one can show a skeleton. Keyed
-     * rather than a single flag, because a warm of four dates runs behind whichever one the
-     * reader is looking at. */
-    loading: {},
+    /* Dates read that yielded no rule. **This is the readiness half of the pair**: a surface
+     * knows it is still waiting because a date is in neither map, which is what lets the
+     * skeleton be true on the very first frame rather than after the fetch effect has run.
+     * Keyed like `days`, because a warm of four dates runs behind whichever one is open. */
+    blank: {},
 }
 
 /* Requests in flight. Module-level rather than in the store for the reason the calendar's is:
  * it is request bookkeeping, nothing renders from it, and a Set in immer state would mean a
- * copy per write. It also has to be checked *before* the loading flag is set, which is what
- * makes a warm and an open of the same date one request rather than two. */
+ * copy per write. Checking it is what makes a warm and an open of the same date one request
+ * rather than two. */
 const inFlight = new Set()
 
 const useStore = create(immer((set, get) => ({
@@ -51,17 +54,22 @@ const useStore = create(immer((set, get) => ({
     fetch: async (date) => {
         if (!date || get().days[date] || inFlight.has(date)) return
         inFlight.add(date)
-        set(state => { state.loading[date] = true })
+        /* A retry puts the date back to unread, so a second look at a date the almanac missed
+         * waits on the new request rather than sitting on the blank the first one settled to. */
+        set(state => { delete state.blank[date] })
 
         try {
             const { fasting } = await api.get(API_ENDPOINTS.FASTING, { params: { date } })
+            /* Both arms settle the date. A rule that never arrives has to end the wait as
+             * surely as one that does, or the skeleton spins for the rest of the session. */
             if (fasting) set(state => { state.days[date] = fasting })
+            else set(state => { state.blank[date] = true })
         } catch {
             /* Swallowed on purpose: see the header. Nothing asked for this out loud, and the
              * surface that wanted it degrades to not drawing the strip. */
+            set(state => { state.blank[date] = true })
         } finally {
             inFlight.delete(date)
-            set(state => { delete state.loading[date] })
         }
     },
 

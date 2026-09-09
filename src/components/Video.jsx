@@ -69,8 +69,8 @@ const Poster = ({ id, alt }) => {
     )
 }
 
-const Video = ({ video, className, autoPlay = false }) => {
-    const [playing, setPlaying] = useState(autoPlay)
+const Video = ({ video, className }) => {
+    const [playing, setPlaying] = useState(false)
 
     if (!video?.id) return null
 

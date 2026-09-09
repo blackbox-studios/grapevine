@@ -13,10 +13,10 @@ import useFastingStore from "./store"
  * path of every other sign-up. A date already warmed resolves synchronously and the skeleton is
  * never drawn, which is the ordinary case — see `useFastingWarm`. */
 export const useFasting = (date, enabled = true) => {
-    const [fasting, loading, fetch] = useFastingStore(
+    const [fasting, blank, fetch] = useFastingStore(
         useShallow(state => ([
             state.days[date] ?? null,
-            Boolean(state.loading[date]),
+            Boolean(state.blank[date]),
             state.fetch,
         ])),
     )
@@ -27,10 +27,13 @@ export const useFasting = (date, enabled = true) => {
 
     return {
         fasting: enabled ? fasting : null,
-        /* Only while it is genuinely being read. A date that resolved to nothing — the almanac
-         * was unreachable — leaves both false, and the surface draws no strip at all rather
-         * than a skeleton that never settles. */
-        skeleton: enabled && !fasting && loading,
+        /* Reads as "no answer yet", and is therefore truthy on the very first render. The fetch
+         * below runs in an effect, so a flag raised when the request starts is still false at
+         * the first paint — deriving the skeleton from one gives nothing, then a skeleton, then
+         * the strip, which is two shifts on a form this sits at the top of. A date the almanac
+         * had nothing for is `blank` rather than absent, which is what settles this to no strip
+         * instead of a skeleton that never resolves. */
+        skeleton: enabled && !fasting && !blank,
     }
 }
 

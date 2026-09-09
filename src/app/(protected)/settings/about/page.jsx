@@ -1,5 +1,7 @@
 "use client"
 
+import { useSyncExternalStore } from "react"
+
 import { BackHeader } from "@/components/BackHeader"
 import GlossyMark, { MARK_ENTRANCE_DELAY, useMarkCycle } from "@/components/GlossyMark"
 import Hyperlink from "@/components/Hyperlink"
@@ -9,6 +11,20 @@ import { APP_BUILD, APP_VERSION, ROUTES } from "@/lib/constants"
 
 /* Which copy of Grapevine this is, and who stands behind it. A version is looked up rather
  * than read, so nothing on the page is louder than it has to be. */
+
+/* The copyright year, which the clock cannot be asked for during render.
+ *
+ * This page prerenders to static HTML in both build targets, so a year read there is the build
+ * machine's, and a browser reaching a different one on its first render is a hydration mismatch.
+ * `useSyncExternalStore` is this repo's answer to a client-only value (see `useMounted`): the
+ * server snapshot is the year off the front of `APP_BUILD`'s `YYMMDDHHMM`, already sitting in
+ * that HTML, and the client snapshot is what the reader sees. The second is the half that
+ * matters to them, since a native bundle can sit on a phone for months and a copyright a year
+ * stale is the one line here somebody would notice. Both are numbers, so the identity check
+ * React makes between the two settles at once. */
+const emptySubscribe = () => () => {}
+const currentYear = () => new Date().getFullYear()
+const buildYear = () => 2000 + Number(APP_BUILD.slice(0, 2))
 
 const MAKER = { name: "Blackbox Studios", url: "https://blackboxstudios.com" }
 const PARISH = {
@@ -32,6 +48,8 @@ const SettingsAboutPage = () => {
      * `animate` animates anything — see the hook's header. Without it the words are simply up
      * on the first frame when somebody lands here by refresh or by a link. */
     const entered = useEntered()
+
+    const year = useSyncExternalStore(emptySubscribe, currentYear, buildYear)
 
     return (
         <>
@@ -75,11 +93,8 @@ const SettingsAboutPage = () => {
                         Made by <Out to={MAKER} /> in coordination <br/> with <Out to={PARISH} />
                     </p>
 
-                    {/* The year is read off the clock at render rather than baked in at build:
-                        a native bundle can sit in a store for months, and a copyright a year
-                        stale is the one line on this page a reader would notice. */}
                     <p className="text-sm">
-                        Copyright {new Date().getFullYear()} {MAKER.name}, LLC
+                        Copyright {year} {MAKER.name}, LLC
                         <br />
                         All rights reserved
                     </p>

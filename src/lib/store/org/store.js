@@ -120,6 +120,25 @@ const useStore = create(
                     router.push(ROUTES.GROUP, { scroll: false })
                 },
 
+                /* Going to a group, which is what a notification saying somebody added you to
+                 * one opens.
+                 *
+                 * **Selecting it is the substantive half**, exactly as it is for the gear
+                 * above: the feed is scoped to the selection rather than to an id in the URL,
+                 * so switching *is* the navigation, and the route is only where the reader has
+                 * to be standing to see it.
+                 *
+                 * `router.push` rather than a slide dismissal, and it covers both entrances
+                 * without knowing which it is: moving the URL off a slide route is what closes
+                 * one (see `activeSlides`), so the notifications panel a group was tapped in
+                 * comes down on the way to the feed, and a tapped push banner on a cold launch
+                 * lands there with nothing to unwind. */
+                openOrg: (orgId, router) => {
+                    if (!orgId) return
+                    get().select(orgId)
+                    router.push(ROUTES.DEFAULT, { scroll: false })
+                },
+
                 /* The switcher's open state. Every transition is confirmed by a tap, on the
                  * way in and on the way out, because the panel does not cover the content —
                  * it pushes it — and a shove with no tactile edge reads as a mis-scroll. */

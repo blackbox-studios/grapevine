@@ -70,7 +70,15 @@ const LOADING_INIT = {
 }
 
 const INIT = {
-    /* Adult viewer with a registered device — the gate every surface checks. */
+    /* Whether messaging is this viewer's to use at all: an adult. **A fact about the
+     * person, so it is settled from the profile in the same frame the boot starts,
+     * before any request** — the nav entrance and the surfaces' gates are drawn off it,
+     * and one drawn off `available` instead is absent for the width of a round trip and
+     * then snaps in, on every refresh. */
+    permitted: false,
+    /* Adult viewer *with a registered device* — the gate for everything that needs
+     * `deviceId`, which is everything that reads or writes an envelope. Distinct from
+     * `permitted` because it cannot be known without asking the server. */
     available: false,
     booting: false,
     /* Whether the automatic attempt has been spent, win or lose. Distinct from
@@ -176,6 +184,7 @@ const useStore = create(
 
             if (!isAdult(user.birthday)) {
                 set((state) => {
+                    state.permitted = false
                     state.available = false
                     state.booted = true
                     state.profileId = user.id
@@ -184,6 +193,7 @@ const useStore = create(
             }
 
             set((state) => {
+                state.permitted = true
                 state.booting = true
                 state.profileId = user.id
             })

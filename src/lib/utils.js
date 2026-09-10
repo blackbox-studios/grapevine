@@ -1001,7 +1001,7 @@ export function hashColorScheme(value) {
  * `<Grain/>` already lays one over the whole app, so a second per orb would be grain over
  * grain, at 25 times the weight of the thing it decorates. What is left is ~7KB apiece.
  *
- * Hashed the same way a badge colour is, so a rota keeps its sphere across devices and years,
+ * Hashed the same way a badge colour is, so a value keeps its sphere across devices and years,
  * and `appPath` because a subpath deploy has to reach it too. */
 const SPHERE_COUNT = 25
 

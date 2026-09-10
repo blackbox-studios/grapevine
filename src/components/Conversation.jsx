@@ -97,6 +97,17 @@ const RAIL_TOP_GAP = 12
  * field for the pixels between them, while the box is still visibly growing. */
 const COMPOSER_MAX_HEIGHT = 132
 
+/* The composer's height with one line in it, which is twice its corner radius.
+ *
+ * **A radius of exactly half the collapsed height is what makes the field a pill at one line
+ * and keeps those same corners once it has grown.** `rounded-full` would follow the box up and
+ * draw a stadium around a five-line paragraph; a token from the radius scale is 22px, which is
+ * a pixel and a half short of half of this and leaves a flat spot at each end.
+ *
+ * It is `py-3` either side of a 15px `leading-snug` line, plus the border. Read by the style
+ * below and nothing else. */
+const COMPOSER_MIN_HEIGHT = 47
+
 /* The width the send button claims from the field when it appears: the button itself plus
  * the gap it needs from the field. The row has no `gap` of its own, so that space is inside
  * the animated width and collapses with it. */
@@ -723,7 +734,10 @@ const Composer = ({ ref, onSend, sending }) => {
                 carries the treatment, which is why the space either side of it stays clear. */
             className="absolute inset-x-0 bottom-0 z-10 flex items-end px-3 pt-2 pb-[max(0.5rem,calc(var(--bottom-inset)-var(--keyboard-inset)))] md:px-6 md:pt-3 md:pb-4"
         >
-            <div className="flex min-w-0 flex-1 items-end rounded-full border border-border bg-background/70 px-4 py-3 backdrop-blur-md supports-backdrop-filter:bg-background/55">
+            <div
+                style={{ borderRadius: COMPOSER_MIN_HEIGHT / 2 }}
+                className="flex min-w-0 flex-1 items-end border border-border bg-background/70 px-4 py-3 backdrop-blur-md supports-backdrop-filter:bg-background/55"
+            >
                 <textarea
                     ref={areaRef}
                     rows={1}
@@ -739,7 +753,7 @@ const Composer = ({ ref, onSend, sending }) => {
                         }
                     }}
                     style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
-                    className="w-full resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
+                    className="w-full resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
                 />
             </div>
             {/* **The slot itself opens; the field gives up the width to it.** An empty

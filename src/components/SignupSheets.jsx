@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import EyeIcon from "@/assets/svg/icons/eye.svg"
 import PencilIcon from "@/assets/svg/icons/pencil.svg"
+import SheetIcon from "@/assets/svg/icons/sheet.svg"
 import Ripple from "@/assets/svg/ripple.svg"
 import Hint from "@/components/Hint"
 import Icon from "@/components/Icon"
@@ -27,7 +28,7 @@ import { useFastingWarm } from "@/lib/store/fasting/hook"
 import { useCurrentOrg } from "@/lib/store/org/hook"
 import { useSheet } from "@/lib/store/sheet/hook"
 import { useEventsView, useSignupAdmin, useSignups } from "@/lib/store/signups/hook"
-import { cn, dayKey, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts, sphereFor } from "@/lib/utils"
+import { cn, dayKey, formatDayHeading, formatTimeRange, signupIdFor, signupPath, slotTallyParts } from "@/lib/utils"
 
 /* The parish's rotas: reading them, taking a place on one, and — for an admin — running them.
  *
@@ -774,24 +775,16 @@ export const RotaPage = ({ row, editing, onBack }) => {
  * lighting up. Two of the seven units of padding move to the `li`, which is outside the hover,
  * so the plate sits inset while the text stays exactly where it was.
  *
- * ── The orb ─────────────────────────────────────────────────────────────────
+ * ── The leading glyph ───────────────────────────────────────────────────────
  *
  * A list of rotas is a list of things a parish named itself, and with nothing at the leading
  * edge every row is two lines of grey text the eye has to read before it can tell them apart.
- * The orb is the anchor that makes the title read as a heading and the tally as its subtitle.
+ * The glyph is the anchor that makes the title read as a heading and the tally as its subtitle.
  *
- * **Hashed from the title rather than picked**, through the same `hashString` a vocation badge
- * uses, so the colour belongs to the rota rather than to its position: coffee hour keeps its
- * colour when the kitchen rota is added above it, on every device and in every year. Nothing is
- * stored and nothing has to be chosen, which matters because the person creating a rota is
- * filling in a form about volunteers, not picking a swatch.
- *
- * It carries no mark and states nothing, so it is `aria-hidden`: every rota is the same kind of
- * thing, and a glyph would repeat down the column while still asking to be read. Colour is
- * decoration here, never urgency. The one distinction it does carry is off/on — a finished or
- * closed rota drops to flat muted, because a bright orb on a rota nobody can join draws the eye
- * to the one row that wants nothing. Small for the same reason: a bullet rather than an avatar,
- * since at portrait size a decoration begins to look like the row's subject. */
+ * It is the same mark on every row and states nothing a reader could not see, so it is
+ * `aria-hidden`. The one distinction it carries is off/on: a finished or closed rota drops to
+ * muted, because a lit mark on a rota nobody can join draws the eye to the one row that wants
+ * nothing. */
 const RotaRow = ({ row, onOpen }) => {
     /* Nothing to join: the rota has been closed, or its last date has passed and it does not
        repeat. Either way it is history, and it sinks below the standing ones already. */
@@ -804,10 +797,9 @@ const RotaRow = ({ row, onOpen }) => {
             onClick={() => onOpen(row.id)}
             className="flex w-full cursor-pointer items-center gap-4 rounded-2xl px-3 py-5 text-left transition-colors hover:bg-accent"
         >
-            <span
+            <SheetIcon
                 aria-hidden="true"
-                className={cn("size-7 shrink-0 rounded-full bg-cover bg-center", dormant && "bg-muted")}
-                style={dormant ? undefined : { backgroundImage: `url("${sphereFor(row.title)}")` }}
+                className={cn("size-7 shrink-0", dormant ? "text-muted-foreground" : "text-foreground")}
             />
 
             <span className="flex min-w-0 flex-1 flex-col">

@@ -7,6 +7,29 @@ export const APP_NAME = "Grapevine"
  * page, so it has to be a mailbox somebody actually reads. */
 export const SUPPORT_EMAIL = "support@blackboxstudios.com"
 
+/* Where somebody who has been admitted to a group goes to get the app. Sent in the
+ * invitation email, which is the one place a person is told Grapevine exists at all.
+ *
+ * The web address is not here: it is the deploy's own `APP_BASE_URL`, which the server reads
+ * (see `invites.js`), and a copy of it in the client bundle would be a second answer to
+ * "where does this app live".
+ *
+ * `ios` is null until the app is accepted, and the email omits a row it has no link for
+ * rather than sending a parishioner to a 404. */
+export const APP_STORES = {
+    /* Keyed by the `appId` in capacitor.config.json, which is what Play indexes the listing
+     * under.
+     *
+     * TODO: confirm this resolves once the listing is public. It is only reachable while the
+     * app is on a closed or internal track if the reader is on the tester list, so until
+     * production rollout an invited parishioner may land on "item not found". */
+    android: "https://play.google.com/store/apps/details?id=com.throughgrapevine.app",
+    /* TODO: set this to `https://apps.apple.com/app/id<APPLE_ID>` once the app is accepted.
+     * The email already renders the row and its button off this value, so filling it in is
+     * the whole of shipping the iOS link. */
+    ios: null,
+}
+
 /* What build the reader is holding, for `/settings/about`. Both are inlined by
  * `next.config.mjs` — see the note there for why they cannot be read at runtime.
  *

@@ -143,8 +143,25 @@ ended up with an **Approve** button that nothing could populate and `/access` wi
 able to ask, that is a new model — a `JoinRequest` with its own table and its own gate — not
 a third value on this enum.
 
-**No email is sent.** Also deliberate: a priest can add forty people without touching a rate
-limit, and telling them happens out of band, which for a parish is how it actually happens.
+**They are told, and the channel depends on whether they have ever signed in.** Admission
+writes an ADDED_TO_GROUP notification, as every other event in the app does. Somebody who has
+signed in before is delivered it by push. Somebody who has not is sent the **invitation email**
+instead, because they have no device registered and, more to the point, nothing to install
+from: that letter carries the download links and tells them to sign in with the address it
+arrived at, which is the only way somebody the gate has just admitted can learn the account
+exists. It goes out over the Resend HTTP API (`RESEND_API_KEY`) and is inert without it, so an
+unconfigured deploy admits people exactly as before and only the letter is missing.
+
+**The letter is queued rather than sent during the request.** Admission writes the `Invite` row
+owing one and returns; `sendOwedInvites` delivers it afterwards, and `sweepOwedInvites` runs
+that off the back of `GET /api/notifications/unread` — the same shape as the sign-up reminders,
+and for the same reason. A send the provider refuses stays owed and is retried on a backoff, so
+a daily quota reached halfway through a roster costs a few hours rather than the letter. See
+the header of `src/lib/server/invites.js`.
+
+That mail is **our** letter and not Supabase's, so it does not touch the hourly auth-email
+limit. Nothing about it lets anybody in: there is no token in it and no accept route, and the
+reader signs in through the ordinary code flow.
 
 Consequences worth knowing:
 

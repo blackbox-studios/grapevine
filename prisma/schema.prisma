@@ -425,11 +425,12 @@ model Organization {
   parentId String?       @map("parent_id")
   parent   Organization? @relation("OrgHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
 
-  children    Organization[] @relation("OrgHierarchy")
-  memberships Membership[]
-  posts       Post[]
-  invites     Invite[]
-  sheets      SignupSheet[]
+  children      Organization[] @relation("OrgHierarchy")
+  memberships   Membership[]
+  posts         Post[]
+  invites       Invite[]
+  sheets        SignupSheet[]
+  notifications Notification[]
 
   @@index([parentId])
   /// Serves "which groups does this owner own", which is the delete authorization check and
@@ -525,8 +526,10 @@ enum MembershipStatus {
 /// the spot, and the person simply signs in. A redemption link could not work here
 /// anyway: it needs an origin to land on, and a Capacitor WebView has none.
 ///
-/// The row is written after the admission and its failure is swallowed, because
-/// losing the audit line is not worth failing an admission over.
+/// **It is also the invitation letter's queue**, which is why it is written inside the
+/// admission's transaction rather than after it: a swallowed write here would be a person
+/// admitted and never told, and being told is the only way somebody the invite-only gate has
+/// just let in can learn the account exists.
 model Invite {
   id          String   @id @default(cuid())
   email       String
@@ -537,6 +540,20 @@ model Invite {
   invitedById String   @map("invited_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 
+  /// When the letter went out, and null while one is still owed.
+  sentAt        DateTime? @map("sent_at")
+  /// The earliest a send may next be tried, and **null when no letter is owed at all**.
+  ///
+  /// That null is the whole of how the queue is expressed. Somebody who has signed in before
+  /// is told by push, so their admission leaves an audit row with nothing to deliver; a
+  /// `lte: now` filter does not match null, so those rows are invisible to the sweep without
+  /// needing a flag of their own. On a row that does owe a letter this carries the backoff,
+  /// which is what lets a send refused for the day be retried tomorrow rather than lost.
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  /// How many sends have been tried. The backoff is computed from it, and it is what stops an
+  /// address that can never be delivered to being retried forever.
+  attempts      Int       @default(0)
+
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   invitedBy Profile      @relation("InviteInviter", fields: [invitedById], references: [id], onDelete: Cascade)
 
@@ -544,6 +561,10 @@ model Invite {
   @@unique([email, orgId])
   @@index([orgId])
   @@index([invitedById])
+  /// The sweep's one query: the letters still owed, soonest first. Leading with the two
+  /// columns it filters on keeps a run that finds nothing an index-only scan, which is what
+  /// it almost always is.
+  @@index([sentAt, nextAttemptAt])
   @@map("invite")
 }
 
@@ -788,16 +809,24 @@ model Notification {
   /// the foreign key, so cancelling or deleting a slot takes its notifications with it, and it
   /// is what the panel joins to name the sign-up a row is about without a second query.
   signupSlotId  String?          @map("signup_slot_id")
+  /// The group an ADDED_TO_GROUP is about, and null for everything else.
+  ///
+  /// A third nullable link for the same reason `signupSheetId` is a second one: the event is
+  /// about a *group*, and there is nothing else on the row that could carry it. It is what
+  /// lets the panel name the parish somebody was added to without a query per row, and the
+  /// cascade is what stops a deleted group leaving an announcement pointing at nothing.
+  orgId         String?          @map("org_id")
 
   /// Null until the viewer opens the panel — this is what the bell's dot counts.
   readAt    DateTime? @map("read_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  recipient   Profile      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  actor       Profile      @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
-  post        Post?        @relation(fields: [postId], references: [id], onDelete: Cascade)
-  signupSlot  SignupSlot?  @relation(fields: [signupSlotId], references: [id], onDelete: Cascade)
-  signupSheet SignupSheet? @relation(fields: [signupSheetId], references: [id], onDelete: Cascade)
+  recipient   Profile       @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor       Profile       @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  post        Post?         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  signupSlot  SignupSlot?   @relation(fields: [signupSlotId], references: [id], onDelete: Cascade)
+  signupSheet SignupSheet?  @relation(fields: [signupSheetId], references: [id], onDelete: Cascade)
+  org         Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([recipientId, actorId, type, subjectId])
   /// The panel's one query: this viewer's notifications, newest first, paged by keyset.
@@ -812,6 +841,7 @@ model Notification {
   @@index([postId])
   @@index([signupSlotId])
   @@index([signupSheetId])
+  @@index([orgId])
   @@map("notification")
 }
 
@@ -844,6 +874,13 @@ enum NotificationType {
   /// for the same reason: a rota nobody knows about gets no volunteers. The subject is the
   /// sheet, and it is the only sign-up notification that is not about a date.
   SIGNUP_PUBLISHED
+  /// An admin admitted you to a group. The subject is the **group**, so re-admitting somebody
+  /// an admin had revoked settles at one row rather than accumulating them, and the row is
+  /// what the panel opens: tapping it selects that group.
+  ///
+  /// Delivered by push to somebody who has signed in before and by email to somebody who has
+  /// not, since a person provisioned a minute ago has no device to push to. See `admitOne`.
+  ADDED_TO_GROUP
 
   @@map("notification_type")
 }

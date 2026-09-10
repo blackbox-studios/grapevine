@@ -28,10 +28,18 @@ export const useMessagingBoot = () => {
 /* Whether the viewer may see messaging at all — the nav entries render off this, so
  * a minor never sees the entrance. The server refuses them regardless.
  *
- * **Read off the store rather than recomputed from the viewer.** `boot` applies `isAdult`
- * and parks the answer in `available`; a second copy of the test here answers differently
- * for the width of the boot, offering a door to a surface whose own hooks still refuse. */
-export const useMessagingAvailable = () => useMessagesStore((state) => state.available)
+ * **`permitted`, not `available`.** The entrance asks whether messaging is this person's
+ * to use, which is their birthday and nothing else; `available` additionally waits for
+ * this install's keys to be registered, so a door drawn off it is missing on every
+ * refresh until a round trip comes back and then appears under the reader's thumb. What
+ * the wait actually protects is the paths that need `deviceId`, and those still check
+ * `available` themselves — the inbox holds its skeleton and a thread opens when the boot
+ * lands, rather than the whole entrance being withheld.
+ *
+ * Still read off the store rather than recomputed from the viewer: `boot` applies
+ * `isAdult` once, and a second copy of that test here is a second place the age gate
+ * has to be got right. */
+export const useMessagingPermitted = () => useMessagesStore((state) => state.permitted)
 
 /* The badge on the send icon: how many conversations hold something unread. Lives in
  * the notifications store because it arrives on that store's poll. */
@@ -40,8 +48,9 @@ export const useUnreadMessages = () => useNotificationsStore((state) => state.me
 /* The inbox list. Polls while mounted — messaging is the one surface where ten
  * seconds of staleness reads as broken — and leans on push to cover the background. */
 export const useInbox = () => {
-    const [available, ready, conversations, loading, error, refreshInbox] = useMessagesStore(
+    const [permitted, available, ready, conversations, loading, error, refreshInbox] = useMessagesStore(
         useShallow((state) => [
+            state.permitted,
             state.available,
             state.ready,
             state.conversations,
@@ -62,15 +71,18 @@ export const useInbox = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [available, refreshInbox])
 
+    /* The surface opens on `permitted` and holds a skeleton until the list has answered
+     * — which now covers the boot as well as the first fetch, since the fetch cannot
+     * start before the device is registered. */
     return useMemo(
         () => ({
-            available,
+            available: permitted,
             conversations,
-            skeleton: available && !ready,
+            skeleton: permitted && !ready,
             loading: loading.inbox,
             error: error.inbox,
         }),
-        [available, conversations, ready, loading.inbox, error.inbox],
+        [permitted, conversations, ready, loading.inbox, error.inbox],
     )
 }
 
@@ -154,7 +166,7 @@ export const useStartConversation = () => {
     const [opening, startWith] = useMessagesStore(
         useShallow((state) => [state.loading.open, state.startWith]),
     )
-    const available = useMessagingAvailable()
+    const available = useMessagingPermitted()
     const openRoute = useRouteOpener()
 
     const start = useCallback(

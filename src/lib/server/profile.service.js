@@ -13,6 +13,7 @@ import {
 import { prisma } from "@/lib/db"
 import { requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
+import { notifyAddedToGroup, pushAddedToGroup } from "@/lib/server/notifications.service"
 import { projectViewer } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
 import { findAuthUserByEmail, supabaseAdmin } from "@/lib/server/supabase"
@@ -567,6 +568,55 @@ const deriveHandle = async (email) => {
     return `${base}-${Math.random().toString(36).slice(2, 7)}`
 }
 
+/* Does this admission owe a letter?
+ *
+ * A **null `lastSeenAt` is not a device with push turned off, it is nobody**: the account
+ * exists because an admin typed an address, and until somebody signs in there is no
+ * installation to reach and no reason to think they know Grapevine exists. So they are written
+ * to. Anybody else is told by push, which is instant and costs no quota. */
+const owesLetter = (profile) => !profile.lastSeenAt
+
+/* The audit row, and — when one is owed — the letter's place in the queue.
+ *
+ * `nextAttemptAt` is the whole of that queue: a date means a letter is owed from then, and null
+ * means none is, so an admission announced by push writes a row the sweep cannot see. They are
+ * reset when a letter is owed, because somebody let back into a parish is owed the same letter
+ * again and the row from last time has already been marked sent.
+ *
+ * Returned as arguments rather than written here, so the caller can put it in the transaction
+ * that admits the person. That placement is the point: when a letter is owed, this row is the
+ * only record that anybody is owed one, so a swallowed failure is somebody admitted and never
+ * told. */
+const inviteWrite = ({ email, orgId, role, vocation, viewerId, letter, now }) => {
+    const queue = { sentAt: null, attempts: 0, nextAttemptAt: letter ? now : null }
+    const audit = { role, vocation, invitedById: viewerId }
+
+    return {
+        where: { email_orgId: { email, orgId } },
+        /* An admission that owes no letter touches the audit half and nothing else. Writing the
+         * queue columns anyway would clear a letter still waiting to go out, and the admin who
+         * corrects somebody's role a minute after adding them takes exactly this branch: the
+         * person would be admitted, the queue emptied, and nobody ever told. A row left owing a
+         * letter that is no longer wanted is `sendOwedInvites`'s to retire. */
+        update: letter ? { ...audit, ...queue } : audit,
+        create: { email, orgId, ...audit, ...queue },
+    }
+}
+
+/* Tells somebody who is already here, which is the delivery that is not a row.
+ *
+ * Detached like every push in the app: it follows the commit, because there is no unsending a
+ * message about a write that then rolled back, and it is not awaited, because Google having a
+ * bad minute must not fail a roster of thirty. */
+const announce = (viewer, org, profile) => {
+    pushAddedToGroup({
+        recipientId: profile.id,
+        actor: viewer,
+        orgName: org.name,
+        orgId: org.id,
+    })
+}
+
 /* Admits one person to a group.
  *
  * **Provisioned immediately, not on acceptance.** The Supabase auth user, the Profile, and
@@ -575,37 +625,102 @@ const deriveHandle = async (email) => {
  * fight both the invite-only gate and the static export, and because a redemption link is
  * exactly the thing that cannot work inside the native WebView.
  *
- * The `Invite` row is kept purely as the audit trail: who admitted whom, to what role and
- * vocation, and when. It carries no token and no expiry, because there is nothing to
- * redeem — and nobody can ask to join in the first place, so it is never a request either.
+ * The `Invite` row carries no token and no expiry, because there is nothing to redeem — and
+ * nobody can ask to join in the first place, so it is never a request either. It is the audit
+ * trail of who admitted whom, and it is where a letter that is owed waits to be sent.
  *
- * No email is sent. That is deliberate rather than a shortcut — it means a priest can add
- * forty people without touching a rate limit, and each of them signs in whenever they
- * choose. Telling them is out of band, which for a parish is how it actually happens. */
-const admitOne = async (viewer, orgId, { email, role, vocation }) => {
+ * ── Telling them, and why the channel is decided by `lastSeenAt` ─────────────
+ *
+ * Being admitted writes an ADDED_TO_GROUP notification whenever the membership newly grants
+ * access, which is the same rule the rest of the app follows: the row is the notification, and
+ * a delivery is one attempt at reaching somebody with it. What differs here is that the
+ * recipient may not have the app.
+ *
+ * So the delivery is chosen on whether they have ever signed in. Somebody who has gets a
+ * **push**, which is enough — they know what Grapevine is and their groups are one tap apart.
+ * Somebody who has not is owed the **invitation email**, because they have no device
+ * registered and nothing to install from: a push to them is delivered to nobody, and the
+ * invite-only gate means they cannot even be sent a sign-in code until they ask for one. That
+ * email is the only thing in the app that carries a download link.
+ *
+ * **The letter is queued here, not sent here.** All this does is write the `Invite` row owing
+ * one; `sendOwedInvites` delivers it afterwards. That is what makes a provider refusing the
+ * day's hundredth message, or a serverless instance freezing on the way out of the request, a
+ * few minutes of delay rather than a person admitted and never told. See the header of
+ * `lib/server/invites.js`.
+ *
+ * A person already APPROVED in this group is told nothing, because nothing happened: a
+ * re-invite of an existing member is how an admin changes somebody's role, and a notification
+ * for it would be an announcement of a no-op. */
+const admitOne = async (viewer, org, { email, role, vocation }) => {
+    const orgId = org.id
     const address = String(email ?? "").trim().toLowerCase()
     if (!EMAIL_PATTERN.test(address)) {
         throw invalid(`"${email}" is not a valid email address.`, { email: "Invalid" })
     }
 
     /* Already known to this parish? Re-admitting is an update, not a duplicate — this is
-     * the path back for someone previously revoked. */
-    const existingProfile = await prisma.profile.findUnique({ where: { email: address } })
+     * the path back for someone previously revoked.
+     *
+     * Their membership in *this* group rides along on the same statement, because whether the
+     * upsert below grants access or merely adjusts a role is what decides whether anybody is
+     * told about it, and the upsert itself cannot answer that after the fact. */
+    const existingProfile = await prisma.profile.findUnique({
+        where: { email: address },
+        include: { memberships: { where: { orgId }, select: { status: true } } },
+        relationLoadStrategy: "join",
+    })
 
     if (existingProfile) {
-        const membership = await prisma.membership.upsert({
-            where: { profileId_orgId: { profileId: existingProfile.id, orgId } },
-            update: { role, status: "APPROVED", decidedAt: new Date(), decidedById: viewer.id },
-            create: {
-                profileId: existingProfile.id,
-                orgId,
-                role,
-                status: "APPROVED",
-                decidedAt: new Date(),
-                decidedById: viewer.id,
-            },
-            include: { profile: true },
-        })
+        const admitting = existingProfile.memberships[0]?.status !== "APPROVED"
+        const letter = admitting && owesLetter(existingProfile)
+        const now = new Date()
+
+        const [membership] = await prisma.$transaction([
+            prisma.membership.upsert({
+                where: { profileId_orgId: { profileId: existingProfile.id, orgId } },
+                update: {
+                    role,
+                    status: "APPROVED",
+                    decidedAt: new Date(),
+                    decidedById: viewer.id,
+                },
+                create: {
+                    profileId: existingProfile.id,
+                    orgId,
+                    role,
+                    status: "APPROVED",
+                    decidedAt: new Date(),
+                    decidedById: viewer.id,
+                },
+                include: { profile: true },
+            }),
+            /* In the same transaction as the membership that justifies it, like every other
+             * notification in the app: the two commit together or not at all. */
+            ...(admitting
+                ? [
+                      notifyAddedToGroup(prisma, {
+                          recipientId: existingProfile.id,
+                          actorId: viewer.id,
+                          orgId,
+                      }),
+                  ]
+                : []),
+            /* In the transaction rather than after it: when a letter is owed, this row is the
+             * only record that it is. */
+            prisma.invite.upsert(
+                inviteWrite({
+                    email: address,
+                    orgId,
+                    role,
+                    vocation,
+                    viewerId: viewer.id,
+                    letter,
+                    now,
+                }),
+            ),
+        ])
+
         /* Vocation is the admin's to set, here and later. */
         if (vocation && vocation !== existingProfile.vocation) {
             await prisma.profile.update({
@@ -614,6 +729,9 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
             })
             membership.profile.vocation = vocation
         }
+
+        if (admitting && !letter) announce(viewer, org, existingProfile)
+
         return projectMember(membership)
     }
 
@@ -662,7 +780,7 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
                 vocation,
             },
         })
-        return tx.membership.create({
+        const created = await tx.membership.create({
             data: {
                 profileId: authUserId,
                 orgId,
@@ -673,16 +791,32 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
             },
             include: { profile: true },
         })
-    })
 
-    await prisma.invite
-        .upsert({
-            where: { email_orgId: { email: address, orgId } },
-            update: { role, vocation, invitedById: viewer.id },
-            create: { email: address, orgId, role, vocation, invitedById: viewer.id },
+        /* `tx`, not `prisma`: the profile this row points at was created two statements ago
+         * and does not exist outside this transaction for the foreign key to hold. */
+        await notifyAddedToGroup(tx, {
+            recipientId: authUserId,
+            actorId: viewer.id,
+            orgId,
         })
-        /* The audit row is not worth failing an admission over. */
-        .catch(() => {})
+
+        /* Always a letter here: the profile was created a statement ago, so nobody has ever
+         * signed in on it. In the transaction with the admission it records, because it is
+         * the only record that anybody is owed one. */
+        await tx.invite.upsert(
+            inviteWrite({
+                email: address,
+                orgId,
+                role,
+                vocation,
+                viewerId: viewer.id,
+                letter: true,
+                now: new Date(),
+            }),
+        )
+
+        return created
+    })
 
     return projectMember(membership)
 }
@@ -691,7 +825,10 @@ const admitOne = async (viewer, orgId, { email, role, vocation }) => {
  * rather than aborting the rest — a priest pasting in thirty emails should not lose
  * twenty-nine of them to one typo. */
 export const inviteMembers = async (viewer, orgId, { emails, ...input }) => {
-    requireMembership(viewer, orgId, { role: "ADMIN" })
+    /* The group itself, not just the assertion: `announce` names it in a push banner and in
+     * the invitation email, and `requireMembership` reads it off the memberships the viewer
+     * already arrived with. */
+    const { org } = requireMembership(viewer, orgId, { role: "ADMIN" })
 
     const role = readEnum(OrgRole, input.role, "role") ?? "MEMBER"
     const vocation = readEnum(Vocation, input.vocation, "vocation") ?? "FAITHFUL"
@@ -714,7 +851,7 @@ export const inviteMembers = async (viewer, orgId, { emails, ...input }) => {
 
     for (const email of unique) {
         try {
-            admitted.push(await admitOne(viewer, orgId, { email, role, vocation }))
+            admitted.push(await admitOne(viewer, org, { email, role, vocation }))
         } catch (error) {
             /* This is reported in a 200 body, so it never passes through the handler's
              * reduction to INTERNAL — only an AppError's message is safe to repeat. */

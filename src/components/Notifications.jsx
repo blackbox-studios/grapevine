@@ -15,6 +15,7 @@ import { ROUTES } from "@/lib/constants"
 import { useNow } from "@/lib/hooks/useNow.hook"
 import { openSlide, pushRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useNotifications, useUnreadCount } from "@/lib/store/notifications/hook"
+import { useOpenOrg } from "@/lib/store/org/hook"
 import { useOpenProfile } from "@/lib/store/profile/hook"
 import { useEventsView } from "@/lib/store/signups/hook"
 import { cn, formatDayHeading, postPath, signupPath, timeAgoCompact } from "@/lib/utils"
@@ -45,6 +46,8 @@ const LINES = {
     FOLLOW: () => "followed you",
     NEW_POST: (item) =>
         item.orgName ? `posted in ${item.orgName}` : "shared a new post",
+    ADDED_TO_GROUP: (item) =>
+        item.orgName ? `added you to ${item.orgName}` : "added you to a group",
 }
 
 /* The two kinds nobody did to you.
@@ -217,6 +220,7 @@ const EmptyState = () => (
 export const NotificationList = ({ className, onOpened }) => {
     const { items, skeleton, hasMore, loadingMore, loadMore } = useNotifications()
     const { openProfile } = useOpenProfile()
+    const { openOrg } = useOpenOrg()
     const { setTab } = useEventsView()
     const now = useNow()
 
@@ -228,11 +232,15 @@ export const NotificationList = ({ className, onOpened }) => {
             setTab("signups")
             pushRoute(signupPath(item.signup.sheetId))
         } else if (item.postId) openSlide(postPath(item.postId))
+        /* Before the handle, because an admission has an actor too and the group is what the
+           row is about. Ordering the branches the other way would open the priest who added
+           you instead of the parish he added you to. */
+        else if (item.orgId) openOrg(item.orgId)
         else if (item.actor?.handle) openProfile(item.actor.handle)
         else return
 
         onOpened?.()
-    }, [onOpened, openProfile, setTab])
+    }, [onOpened, openOrg, openProfile, setTab])
 
     /* The picture, which goes to the person whatever the row is about. */
     const openActor = useCallback((item) => {

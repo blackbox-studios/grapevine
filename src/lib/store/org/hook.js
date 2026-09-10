@@ -109,6 +109,22 @@ export const useEditOrg = () => {
     return useMemo(() => ({ editOrg }), [editOrg])
 }
 
+/* Going to a group, which is what a notification saying somebody added you to one opens.
+ *
+ * The router is handed to the store action, which selects and navigates together — see
+ * `openOrg` in the org store for why the selection is the substantive half. */
+export const useOpenOrg = () => {
+    const openGroup = useOrgStore(state => state.openOrg)
+    const router = useRouter()
+
+    const openOrg = useCallback(
+        (orgId) => openGroup(orgId, router),
+        [openGroup, router],
+    )
+
+    return useMemo(() => ({ openOrg }), [openOrg])
+}
+
 /* The selected group, and everything the group-settings pages need to act on it.
  *
  * **Reads the group out of the viewer rather than fetching it**, for the reason the org store's

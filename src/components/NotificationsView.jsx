@@ -15,10 +15,10 @@ import { useSlideDismiss } from "@/lib/hooks/useSlideRoute.hook"
  * gesture, and <SlidePage/> handles the cold load. What is left is a header and the list, and
  * the list is the same <NotificationList/> the desktop popover renders.
  *
- * **Desktop presents it as a centered dialog**, through the shared <SlideDialog/> — the same
- * one the conversation surface uses, so both fade the way an open post does. The bell in the
- * nav rail opens the popover rather than this route, so the only ways here on a wide screen
- * are a bookmarked URL or a window resized while it was open; both are reachable. */
+ * **Desktop presents it as a centered dialog**, through the shared <SlideDialog/>, which is
+ * what fades it the way an open post does. The bell in the nav rail opens the popover rather
+ * than this route, so the only ways here on a wide screen are a bookmarked URL or a window
+ * resized while it was open; both are reachable. */
 const NotificationsView = ({ variant = "modal" }) => {
     const isDesktop = useIsDesktop()
     const dismiss = useSlideDismiss()

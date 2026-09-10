@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { usePathname } from "next/navigation"
 import { AnimatePresence } from "motion/react"
 
+import { ConversationPane } from "@/components/Conversation"
 import Icon from "@/components/Icon"
 import Transition from "@/components/Transition"
 import { Avatar } from "@/components/Widgets"
@@ -25,7 +27,7 @@ import { Input } from "@/components/ui/input"
 import { ROUTES } from "@/lib/constants"
 import useDebounce from "@/lib/hooks/useDebounce.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
-import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useRouteOpener } from "@/lib/hooks/useSlideRoute.hook"
 import { displayName } from "@/lib/name"
 import { useInbox, useNewMessage, useStartConversation } from "@/lib/store/messages/hook"
 import { cn } from "@/lib/utils"
@@ -94,15 +96,18 @@ const rowTime = (iso) => {
     return at.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "2-digit" })
 }
 
-const ConversationRow = ({ conversation }) => {
+const ConversationRow = ({ conversation, active, onOpen }) => {
     const { other, snippet, unread, isRequest } = conversation
     const name = other ? displayName(other) : "Conversation"
 
     return (
         <button
             type="button"
-            onClick={() => openSlide(`${ROUTES.CONVERSATION}/${conversation.id}`)}
-            className="group flex w-full cursor-pointer items-center gap-3 text-left"
+            onClick={() => onOpen(`${ROUTES.CONVERSATION}/${conversation.id}`)}
+            className={cn(
+                "group flex w-full cursor-pointer items-center gap-3 rounded-xl px-1 text-left transition-colors",
+                active ? "bg-accent" : "hover:bg-accent/50",
+            )}
         >
             {/* The unread dot sits in the gutter, as the phone's own list draws it, so
                 a read row and an unread row keep their avatars on one vertical line. */}
@@ -121,7 +126,12 @@ const ConversationRow = ({ conversation }) => {
                     </span>
                     <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground">
                         {rowTime(conversation.lastMessageAt)}
-                        <Icon size="sm" className="text-muted-foreground/60">chevron_right</Icon>
+                        {/* The chevron promises a push, which is what a tap does on a
+                            phone. Beside a pane that simply changes contents it promises
+                            the wrong thing, and it costs the name the room to be read. */}
+                        <Icon size="sm" className="text-muted-foreground/60 md:hidden">
+                            chevron_right
+                        </Icon>
                     </span>
                 </span>
                 <span
@@ -139,10 +149,35 @@ const ConversationRow = ({ conversation }) => {
     )
 }
 
+/* The inbox, in the two shapes it takes.
+ *
+ * **On a phone it is one column and the thread is somewhere else** — a slide route that
+ * pushes in over it, which is how a phone's own messages app works and what the back
+ * gesture expects.
+ *
+ * **On a desktop the list and the thread are on screen together**, because there is room
+ * and because a conversation read beside the list it came from is the whole reason a wide
+ * screen is worth having. That makes the same URL two layouts rather than two screens:
+ * `/inbox/c/:id` above the breakpoint changes which conversation the right half holds and
+ * nothing else, which is why <ConversationView/> draws nothing there. The id is read from
+ * the pathname rather than from state, so a link, a refresh and a tapped row all land in
+ * the same place.
+ *
+ * A row is highlighted when it is the open one — the only affordance the desktop layout
+ * needs that the phone's does not, since on a phone the open thread is covering the list.
+ */
 export const MessagesList = () => {
     const { available, conversations, skeleton } = useInbox()
+    const isDesktop = useIsDesktop()
+    const openRoute = useRouteOpener()
+    const pathname = usePathname()
     const [query, setQuery] = useState("")
     const [composing, setComposing] = useState(false)
+
+    const openId = useMemo(() => {
+        const prefix = `${ROUTES.CONVERSATION}/`
+        return pathname.startsWith(prefix) ? pathname.slice(prefix.length).split("/")[0] : null
+    }, [pathname])
 
     const rows = useMemo(() => {
         const needle = query.trim().toLowerCase()
@@ -156,10 +191,12 @@ export const MessagesList = () => {
 
     if (!available) return null
 
-    return (
-        <div className="mx-auto flex w-full max-w-[470px] flex-col pb-10">
+    const list = (
+        <>
             <header className="flex items-center justify-between pb-4">
-                <h1 className="text-4xl font-medium">Messages</h1>
+                <h1 className={cn("font-medium", isDesktop ? "text-2xl" : "text-4xl")}>
+                    Messages
+                </h1>
                 <Button
                     type="button"
                     variant="secondary"
@@ -209,12 +246,79 @@ export const MessagesList = () => {
                     <Transition fast key="content">
                         <div className="flex flex-col">
                             {rows.map((conversation) => (
-                                <ConversationRow key={conversation.id} conversation={conversation} />
+                                <ConversationRow
+                                    key={conversation.id}
+                                    conversation={conversation}
+                                    active={conversation.id === openId}
+                                    onOpen={openRoute}
+                                />
                             ))}
                         </div>
                     </Transition>
                 )}
             </AnimatePresence>
+        </>
+    )
+
+    if (!isDesktop) {
+        return (
+            <div className="mx-auto flex w-full max-w-[470px] flex-col pb-10">
+                {list}
+                <NewMessage open={composing} onOpenChange={setComposing} />
+            </div>
+        )
+    }
+
+    /* **No card, no border around the whole thing.** The surface *is* the page here: it
+       fills the area beside the rail (the shell drops its column for this route — see
+       `FULL_BLEED_ROUTES`) and the only rule left is the hairline between the two panes.
+       A bordered box floating in the middle of the viewport would read as a window
+       inside the app rather than as the app.
+
+       The list is bounded and the thread is not: a list of names has a measure it stops
+       wanting to exceed, while a conversation keeps using whatever width a monitor
+       offers. So the aside is clamped and the section simply takes the rest. */
+    return (
+        <div className="flex h-dvh w-full overflow-hidden">
+            {/* Scrolls inside its own column, so the thread beside it keeps its composer
+                pinned to the foot instead of both sharing one page scroll. */}
+            <aside className="flex w-[clamp(19rem,24vw,25rem)] shrink-0 flex-col border-r border-border/60 px-5 pt-6">
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-none">
+                    {list}
+                </div>
+            </aside>
+
+            {/* **Conversations cross-fade rather than cut.** Switching threads swaps the
+                entire right half, and on a desktop the list stays put while it happens —
+                so a hard cut reads as the page having been replaced under a cursor that
+                only moved a few pixels. Keyed on the id, so the fade fires on a change of
+                subject and not on a message arriving inside one.
+
+                `mode="wait"` is doing more than sequencing here: it keeps the outgoing
+                pane mounted until it has left, which means exactly one <ConversationPane/>
+                exists at any moment. Two would open and poll two threads and race over the
+                read cursor. */}
+            <section className="flex min-w-0 flex-1 flex-col pt-4">
+                <AnimatePresence mode="wait" initial={false}>
+                    {openId ? (
+                        <Transition fast key={openId} className="flex min-h-0 flex-1 flex-col">
+                            <ConversationPane conversationId={openId} />
+                        </Transition>
+                    ) : (
+                        <Transition
+                            fast
+                            key="empty"
+                            className="flex flex-1 flex-col items-center justify-center gap-2 px-8 pb-16 text-center"
+                        >
+                            <p className="font-serif text-xl italic">Your messages</p>
+                            <p className="max-w-xs text-sm text-muted-foreground">
+                                Choose a conversation, or start one with someone from a group
+                                you are in. Messages are end-to-end encrypted.
+                            </p>
+                        </Transition>
+                    )}
+                </AnimatePresence>
+            </section>
 
             <NewMessage open={composing} onOpenChange={setComposing} />
         </div>
@@ -230,6 +334,7 @@ export const MessagesList = () => {
 const NewMessage = ({ open, onOpenChange }) => {
     const isDesktop = useIsDesktop()
     const { contacts, loaded, searching, opening, search, startWith } = useNewMessage()
+    const openRoute = useRouteOpener()
     const [query, setQuery] = useState("")
     const debounced = useDebounce(query, 250)
 
@@ -245,7 +350,7 @@ const NewMessage = ({ open, onOpenChange }) => {
         if (conversationId) {
             onOpenChange(false)
             setQuery("")
-            openSlide(`${ROUTES.CONVERSATION}/${conversationId}`)
+            openRoute(`${ROUTES.CONVERSATION}/${conversationId}`)
         }
     }
 

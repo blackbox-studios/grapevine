@@ -47,9 +47,12 @@ export default SlideSurface
  * **A slide route has two presentations, not two implementations.** The mechanism is
  * one URL resolved out of `RUNTIME_ROUTES`; what changes with the breakpoint is only
  * how it is put on screen — a full-height sheet that pushes the page aside on a phone
- * (<SlideSurface/> above), a dialog on a desktop, where a full-screen takeover would
- * read as the app having navigated somewhere. Every surface that answers a slide route
- * needs both halves, so both live here rather than being rebuilt per surface.
+ * (<SlideSurface/> above), and this on a desktop, where a full-screen takeover would
+ * read as the app having navigated somewhere. Both live here rather than being rebuilt
+ * per surface.
+ *
+ * A dialog is the *default* desktop half, not the only one: a route marked `inline`
+ * has somewhere better to be above the breakpoint and never reaches this.
  *
  * It is <Overlay/> underneath, which is what carries the **fade in and out** — the same
  * one the open post uses. That matters more than it looks: these are rendered inside

@@ -173,6 +173,32 @@ export const closeSlide = () => {
     return true
 }
 
+/* Opens a runtime route the way *that* route presents, which is not always the same way.
+ *
+ * A slide route is normally `openSlide`: it records the path on the overlay stack, which is
+ * what draws the surface and pushes the base aside. An `inline` route above the breakpoint
+ * is not an overlay at all — it is a selection inside a page that is already on screen — so
+ * it takes `pushRoute` and changes nothing but the URL.
+ *
+ * **Using `openSlide` for one anyway is not merely redundant.** The stack would gain an entry
+ * per tap for a surface that draws nothing, so switching between two conversations pushes the
+ * same path twice and <SlideRouter/> renders two children with one key; and `useActiveSlide`
+ * would report `open`, which is exactly what <SlidePage/> checks before handling a cold load.
+ *
+ * Not a hook out of preference — it needs the breakpoint, which is one. */
+export const useRouteOpener = () => {
+    const isDesktop = useIsDesktop()
+
+    return useCallback(
+        (path) => {
+            const route = runtimeRouteFor(path)
+            const overlay = route?.slide && !(isDesktop && route.inline)
+            return overlay ? openSlide(path) : pushRoute(path)
+        },
+        [isDesktop],
+    )
+}
+
 /* Shell side. Resolves what should be on screen right now:
  *
  *   slides — every open surface, outermost first, each with its registry entry, its dynamic

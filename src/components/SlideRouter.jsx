@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "motion/react"
 
 import { RUNTIME_SURFACES } from "@/components/RuntimeRoute"
 import { useActiveSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import { useOrgNav } from "@/lib/store/org/hook"
 import { SLIDE_TRANSITION, slideRouteFor } from "@/lib/utils"
@@ -114,6 +115,7 @@ export const SlideRouter = () => {
 export const SlidePage = ({ fallback = null }) => {
     const pathname = usePathname()
     const mounted = useMounted()
+    const isDesktop = useIsDesktop()
     const { open } = useActiveSlide()
     const route = slideRouteFor(pathname)
     const surface = route ? RUNTIME_SURFACES[route.prefix] : null
@@ -128,6 +130,13 @@ export const SlidePage = ({ fallback = null }) => {
      * already covers this pathname, which is exactly when this must render nothing. */
     if (open) return null
     if (!surface) return fallback
+
+    /* An `inline` route above the breakpoint is a page, not an overlay, so it renders
+     * *here* — in the shell's page slot, where this catch-all already sits — rather than
+     * being portalled out of it. The portal is right for a surface that covers the screen
+     * and wrong for one that has to sit inside the shell's own layout. */
+    if (isDesktop && route.inline) return surface(route.param, "inline")
+
     return mounted ? createPortal(surface(route.param, "page"), document.body) : null
 }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { MESSAGES_POLL_MS, ROUTES } from "@/lib/constants"
-import { openSlide } from "@/lib/hooks/useSlideRoute.hook"
+import { useRouteOpener } from "@/lib/hooks/useSlideRoute.hook"
 import { isAdult } from "@/lib/utils"
 import { useUser } from "@/lib/store/auth/hook"
 import useNotificationsStore from "@/lib/store/notifications/store"
@@ -150,14 +150,15 @@ export const useStartConversation = () => {
         useShallow((state) => [state.loading.open, state.startWith]),
     )
     const available = useMessagingAvailable()
+    const openRoute = useRouteOpener()
 
     const start = useCallback(
         async (profileId) => {
             const conversationId = await startWith(profileId)
-            if (conversationId) openSlide(`${ROUTES.CONVERSATION}/${conversationId}`)
+            if (conversationId) openRoute(`${ROUTES.CONVERSATION}/${conversationId}`)
             return conversationId
         },
-        [startWith],
+        [startWith, openRoute],
     )
 
     return useMemo(() => ({ start, opening, available }), [start, opening, available])

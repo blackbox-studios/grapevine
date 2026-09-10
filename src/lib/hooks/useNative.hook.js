@@ -258,20 +258,39 @@ const useKeyboardDismiss = () => {
  * therefore every `dvh` — at full height. So on mobile web at throughgrapevine.com the keyboard
  * covered anything pinned to the bottom, silently, while the same screen was correct in the
  * native app. `useVisualViewportInset` below fills that in. */
-/* How long a keyboard has to stay gone before the layout believes it.
+/* How long a keyboard has to stay gone before the layout believes it, and why almost nothing
+ * asks for it.
  *
  * A multi-step form unmounts the focused field and mounts the next one a beat later, and in
  * that gap nothing on the page is focused — so the keyboard begins to dismiss and every
  * surface sized against it lunges down, only to be shoved back up when the incoming step
  * autofocuses. The keyboard never really left; the layout should not act as though it did.
  *
- * Longer than the step cross-fade, so a swap produces no movement at all, and short enough
- * that a genuine dismissal still feels immediate. Growth is never delayed — a keyboard
- * appearing must reach the layout at once, since that is the direction that hides things. */
+ * It has to outlast the step cross-fade to be worth anything, which makes it by construction
+ * longer than the keyboard's own dismiss animation (~250ms on iOS) — so a surface that waits
+ * this out without needing to does not merely feel slow: the keyboard is entirely gone before
+ * the composer has moved a pixel, and the two stop reading as one gesture. Hence opt-in, per
+ * surface. <GatewaySteps/> is the only thing in the app that swaps a focused field, so it is
+ * the only thing that asks. */
 const KEYBOARD_SETTLE_MS = 320
 
-/* Writes --keyboard-inset, applying growth immediately and collapse only once it has held.
- * Returns the writer plus a cancel for effect teardown. */
+/* A count rather than a flag: the sign-in and orientation flows overlap for the length of a
+ * route change, and the one unmounting must not switch this off under the one arriving. */
+let settlers = 0
+
+/* Opt a surface's lifetime into the deferred collapse above. See KEYBOARD_SETTLE_MS. */
+export const useKeyboardSettle = () => {
+    useEffect(() => {
+        settlers += 1
+        return () => {
+            settlers -= 1
+        }
+    }, [])
+}
+
+/* Writes --keyboard-inset. Everything lands the frame it arrives, so a CSS transition on the
+ * far side rides the keyboard's own animation; the one exception is a collapse while some
+ * surface is asking to wait it out. Returns the writer plus a cancel for effect teardown. */
 const insetWriter = () => {
     let timer = null
 
@@ -289,9 +308,15 @@ const insetWriter = () => {
         ) || 0
 
     return {
-        set: (px) => {
+        /* `collapsing` is whether this height is the keyboard leaving, and only the caller
+         * knows: iOS fires keyboardWillShow *repeatedly* for one presentation as the
+         * predictive bar and the accessory view come and go, so a shorter height from one of
+         * those is the keyboard resizing itself mid-animation. Waiting it out strands the
+         * opening half way up. The visual-viewport path has no events to read it off and
+         * falls back to comparing heights. */
+        set: (px, collapsing = px < current()) => {
             cancel()
-            if (px >= current()) return write(px)
+            if (!collapsing || settlers === 0) return write(px)
             timer = setTimeout(() => write(px), KEYBOARD_SETTLE_MS)
         },
         cancel,
@@ -305,10 +330,12 @@ const useKeyboardInset = () => {
 
         const inset = insetWriter()
 
+        /* The event names which direction this is, so neither call has to infer it from
+         * the height it carries. */
         const shown = Keyboard.addListener("keyboardWillShow", ({ keyboardHeight }) =>
-            inset.set(keyboardHeight),
+            inset.set(keyboardHeight, false),
         )
-        const hidden = Keyboard.addListener("keyboardWillHide", () => inset.set(0))
+        const hidden = Keyboard.addListener("keyboardWillHide", () => inset.set(0, true))
 
         return () => {
             shown.then((handle) => handle.remove()).catch(() => {})

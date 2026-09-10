@@ -102,6 +102,8 @@ export const ROUTES = {
  *   slide  — how it presents. See below.
  *   base   — slide routes only: the route whose surface stays mounted underneath and gets
  *            pushed, and the fallback a cold deep link dismisses to.
+ *   inline — slide routes only: above the md breakpoint this is an ordinary page rather
+ *            than an overlay, because the surface it would cover has room to hold it.
  *
  * ── Two presentations, one mechanism ────────────────────────────────────────
  *
@@ -129,8 +131,17 @@ export const RUNTIME_ROUTES = [
     /* A thread slides in over the inbox, exactly the push-navigation a phone's own
      * messages app performs — and the id is a cuid, so it could never be a page file
      * anyway. `base` makes a cold deep link (a tapped push banner) dismiss to the
-     * inbox rather than to the feed. */
-    { prefix: ROUTES.CONVERSATION, slide: true, base: ROUTES.INBOX },
+     * inbox rather than to the feed.
+     *
+     * `inline` is the third presentation, and the first route to need it: **above the
+     * breakpoint this is not an overlay at all.** A desktop has room to show the list
+     * and the thread at once, so the URL selects which conversation the inbox's right
+     * half holds rather than opening anything over it. The surface therefore draws
+     * nothing on a desktop and <MessagesList/> reads the id straight off the pathname;
+     * what this flag changes is the *cold load*, where nothing is mounted underneath
+     * and <SlidePage/> would otherwise portal a surface to `document.body`, outside the
+     * shell's page slot and every layout it provides. */
+    { prefix: ROUTES.CONVERSATION, slide: true, inline: true, base: ROUTES.INBOX },
 ]
 
 /* Route trees that collapse to a single top-level page-transition key.
@@ -142,6 +153,21 @@ export const RUNTIME_ROUTES = [
  * which it fades itself. Without the collapse the shell would cross-fade the whole screen on the
  * way into a rota, which is the tell that a place has been mistaken for a destination. */
 export const NESTED_TRANSITION_ROUTES = [ROUTES.SETTINGS, ROUTES.GROUP, ROUTES.EVENTS]
+
+/* Routes that take the whole area beside the nav rail on a desktop, rather than sitting in
+ * the shell's reading column.
+ *
+ * Every other page in the app is a column of content with a measure — a feed, a list, a
+ * form — so the shell gives them all one gutter, one maximum width and one run-in from the
+ * top, and no page has to think about it. A messages surface is the other kind: two panes
+ * that divide the space between them, one of which wants to be flush against the rail and
+ * the other of which should keep growing on a wide monitor. Cancelling the shell's own
+ * padding from inside a page means negative margins that have to track it, so the shell is
+ * told instead.
+ *
+ * **Desktop only.** On a phone the inbox is an ordinary column like everything else, so
+ * this only ever drops the `md:` half of those classes. */
+export const FULL_BLEED_ROUTES = [ROUTES.INBOX]
 
 /* Simulated network latency for what is *still* mocked.
  *

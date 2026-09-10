@@ -3,6 +3,7 @@
 import { useState } from "react"
 
 import ConversationView from "@/components/ConversationView"
+import { MessagesList } from "@/components/Messages"
 import NotificationsView from "@/components/NotificationsView"
 import EventsView from "@/components/EventsView"
 import PostView from "@/components/PostView"
@@ -33,9 +34,17 @@ import { useRuntimePage } from "@/lib/hooks/useSlideRoute.hook"
 export const RUNTIME_SURFACES = {
     [ROUTES.POST]: (param, variant) => <PostView variant={variant} postId={param} />,
     [ROUTES.NOTIFICATIONS]: (param, variant) => <NotificationsView variant={variant} />,
-    [ROUTES.CONVERSATION]: (param, variant) => (
-        <ConversationView variant={variant} conversationId={param} />
-    ),
+    /* Three presentations, because a conversation is a different *kind* of thing at each
+     * size. "modal" and "page" are the phone's sheet, opened in-app or cold-loaded.
+     * "inline" is the desktop, where the thread is not a surface of its own at all — it is
+     * the right half of the inbox, so the URL draws the inbox and <MessagesList/> reads the
+     * id off the pathname. */
+    [ROUTES.CONVERSATION]: (param, variant) =>
+        variant === "inline" ? (
+            <MessagesList />
+        ) : (
+            <ConversationView variant={variant} conversationId={param} />
+        ),
     /* A page route, so it takes no `variant` — there is one presentation. It also takes no
      * `param`: `<EventsView/>` reads the pathname itself, which is what lets the *page* at
      * `/events` and this surface be the same component, so a rota reached by a link lands on

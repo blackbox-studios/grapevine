@@ -3,6 +3,7 @@ import { extendTailwindMerge } from "tailwind-merge"
 
 import {
     API_BASE,
+    FULL_BLEED_ROUTES,
     MONTHS,
     NESTED_TRANSITION_ROUTES,
     ROUTES,
@@ -679,6 +680,13 @@ export const pageTransitionKey = (pathname) =>
 /* Whether a nav destination should read as current. Resolves through `baseRouteFor`, so a
  * slide-route pathname still lights a tab rather than none; the shell passes `useShellRoute`,
  * which is what lights the tab the overlay was opened from. */
+/* Does this route take the full width beside the rail? See `FULL_BLEED_ROUTES`. Resolved
+ * through `baseRouteFor` like `isRouteActive`, so a conversation still counts as the inbox. */
+export const isFullBleed = (pathname) => {
+    const base = baseRouteFor(pathname)
+    return FULL_BLEED_ROUTES.some((prefix) => isUnder(base, prefix))
+}
+
 export const isRouteActive = (pathname, href) => {
     const base = baseRouteFor(pathname)
     return href === ROUTES.DEFAULT ? base === ROUTES.DEFAULT : isUnder(base, href)

@@ -86,8 +86,14 @@ const INIT = {
 
 /* Sorts wire messages ascending, decrypts the unknown ones, merges with the cache,
  * persists, and returns the merged ascending list. The one path every envelope
- * takes. */
-const absorb = async (profileId, deviceId, conversationId, wire) => {
+ * takes.
+ *
+ * `held` is whatever the thread is currently rendering, and it is here for one reason:
+ * to carry `localId` across the merge. The cache is keyed by the server's id and knows
+ * nothing about the temporary identity a row was sent under, so a rebuild would hand
+ * every recently-sent bubble a new React key — remounting it, replaying the send
+ * animation, and re-registering it with the rail's spring engine, on every poll. */
+const absorb = async (profileId, deviceId, conversationId, wire, held = []) => {
     const cached = await loadMessages(profileId, conversationId)
     const known = new Map(cached.map((item) => [item.id, item]))
 
@@ -114,7 +120,15 @@ const absorb = async (profileId, deviceId, conversationId, wire) => {
         a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1,
     )
     if (changed) await saveMessages(profileId, conversationId, merged)
-    return merged
+
+    /* Written back onto the returned rows only, never into the cache: `localId` is a
+     * fact about this session's render, not about the message. */
+    const locals = new Map(held.filter((item) => item.localId).map((item) => [item.id, item.localId]))
+    return locals.size
+        ? merged.map((item) =>
+              locals.has(item.id) ? { ...item, localId: locals.get(item.id) } : item,
+          )
+        : merged
 }
 
 /* The line under a conversation's name. Newest readable text wins; an envelope this
@@ -303,7 +317,13 @@ const useStore = create(
                     API_ENDPOINTS.CONVERSATION(thread.id),
                     { params: { deviceId, limit: PAGE_SIZE.MESSAGES } },
                 )
-                const merged = await absorb(profileId, deviceId, thread.id, messages.items)
+                const merged = await absorb(
+                    profileId,
+                    deviceId,
+                    thread.id,
+                    messages.items,
+                    thread.items,
+                )
 
                 const before = get().thread
                 if (before?.id !== thread.id) return
@@ -335,7 +355,13 @@ const useStore = create(
                 const { messages } = await api.get(API_ENDPOINTS.CONVERSATION(thread.id), {
                     params: { deviceId, limit: PAGE_SIZE.MESSAGES, cursor: thread.cursor },
                 })
-                const merged = await absorb(profileId, deviceId, thread.id, messages.items)
+                const merged = await absorb(
+                    profileId,
+                    deviceId,
+                    thread.id,
+                    messages.items,
+                    thread.items,
+                )
 
                 set((state) => {
                     if (state.thread?.id !== thread.id) return
@@ -368,12 +394,20 @@ const useStore = create(
                 (target) => target.deviceId !== deviceId,
             )
 
+            /* **A stable key across the ack, separate from the id.** The optimistic row
+             * is written with a temporary id and replaced by the server's record a
+             * moment later; keying the bubble on `id` would unmount it and mount a
+             * different element in its place, which restarts the send animation
+             * half-played and re-registers the row with the rail's spring engine. The
+             * id still changes — everything that addresses a message uses it — but the
+             * row keeps one identity from the tap to the receipt. */
             const tempId = `pending-${Date.now()}`
             set((state) => {
                 state.loading.send = true
                 state.error.send = false
                 state.thread.items.push({
                     id: tempId,
+                    localId: tempId,
                     senderId: profileId,
                     text: body,
                     at: new Date().toISOString(),
@@ -425,6 +459,7 @@ const useStore = create(
 
                 const record = {
                     id: message.id,
+                    localId: tempId,
                     senderId: profileId,
                     text: body,
                     at: message.at,

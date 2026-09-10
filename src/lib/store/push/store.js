@@ -64,7 +64,7 @@ const INIT = {
     token: null,
 
     /* Where a banner tapped before the app could route anywhere wants to go — the payload's
-     * `{ postId }` or `{ handle }`, or null.
+     * `{ postId }`, `{ handle }`, `{ sheetId }` or `{ conversationId }`, or null.
      *
      * A cold launch replays the tap that started the process, which arrives well before the
      * session is resolved and the shell is mounted. Navigating then would push a history
@@ -206,12 +206,12 @@ const useStore = create(immer((set, get) => ({
      * The list is re-read regardless. The reader is arriving at the app *because* of a
      * notification, so the panel is certainly behind — this is the moment the notifications
      * store's header describes as the gap push closes. */
-    openFromPush: ({ postId = null, handle = null, sheetId = null } = {}) => {
+    openFromPush: ({ postId = null, handle = null, sheetId = null, conversationId = null } = {}) => {
         useNotificationsStore.getState().sync()
         clearPushNotifications()
 
-        if (postId || handle || sheetId) {
-            set(state => { state.pending = { postId, handle, sheetId } })
+        if (postId || handle || sheetId || conversationId) {
+            set(state => { state.pending = { postId, handle, sheetId, conversationId } })
         }
     },
 

@@ -12,6 +12,7 @@ import usePostStore from '@/lib/store/post/store'
 import useProfileStore from '@/lib/store/profile/store'
 import useCommentsStore from '@/lib/store/comments/store'
 import useMembersStore from '@/lib/store/members/store'
+import useMessagesStore from '@/lib/store/messages/store'
 import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
 import usePrologueStore from '@/lib/store/prologue/store'
@@ -30,6 +31,11 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * open. `members` is additionally admin-only, so booting it eagerly would fire a 403 for every
  * ordinary member on every sign-in. All five still participate in reset/clearErrors and error
  * aggregation.
+ *
+ * `messages` is out of initAuthorizedStores for its own reason: its boot depends on the
+ * *viewer* (the adult gate reads the birthday), so `useMessagingBoot` in the protected
+ * shell drives it once /api/me has answered. It resets and clears errors here like the
+ * rest.
  *
  * `calendar`, `signups` and `sheet` are out for the two reasons above between them.
  * `calendar` and `signups` are scoped to the selected group, exactly as `feed` is, and their
@@ -82,6 +88,7 @@ const useStore = create(() => ({
         useProfileStore.getState().reset()
         useFollowsStore.getState().reset()
         useMembersStore.getState().reset()
+        useMessagesStore.getState().reset()
         useNotificationsStore.getState().reset()
         usePrologueStore.getState().reset()
         usePushStore.getState().reset()
@@ -100,6 +107,7 @@ const useStore = create(() => ({
         useProfileStore.getState().clearErrors()
         useFollowsStore.getState().clearErrors()
         useMembersStore.getState().clearErrors()
+        useMessagesStore.getState().clearErrors()
         useNotificationsStore.getState().clearErrors()
         usePrologueStore.getState().clearErrors()
         usePushStore.getState().clearErrors()

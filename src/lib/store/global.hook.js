@@ -9,6 +9,7 @@ import usePostStore from "@/lib/store/post/store"
 import useProfileStore from "@/lib/store/profile/store"
 import useCommentsStore from "@/lib/store/comments/store"
 import useMembersStore from "@/lib/store/members/store"
+import useMessagesStore from "@/lib/store/messages/store"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import useOrgStore from "@/lib/store/org/store"
 import usePushStore from "@/lib/store/push/store"
@@ -29,6 +30,7 @@ export const useErrors = () => {
     const profileError = useProfileStore(state => state.error)
     const followsError = useFollowsStore(state => state.error)
     const membersError = useMembersStore(state => state.error)
+    const messagesError = useMessagesStore(state => state.error)
     const notificationsError = useNotificationsStore(state => state.error)
     const orgError = useOrgStore(state => state.error)
     const calendarError = useCalendarStore(state => state.error)
@@ -52,6 +54,7 @@ export const useErrors = () => {
             profile: profileError,
             follows: followsError,
             members: membersError,
+            messages: messagesError,
             notifications: notificationsError,
             push: pushError,
             uploads: uploadsError,
@@ -60,7 +63,7 @@ export const useErrors = () => {
     }), [
         appError, authError, orgError, calendarError, signupsError, sheetError,
         feedError, postError, commentsError,
-        profileError, followsError, membersError, notificationsError, pushError,
+        profileError, followsError, membersError, messagesError, notificationsError, pushError,
         uploadsError, clearErrors,
     ])
 }

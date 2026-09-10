@@ -8,6 +8,7 @@ import Transition from "@/components/Transition"
 import { Button } from "@/components/ui/button"
 import { useEntered } from "@/lib/hooks/useEntered.hook"
 import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
+import { useKeyboardSettle } from "@/lib/hooks/useNative.hook"
 import { cn } from "@/lib/utils"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import useMeasure from "react-use-measure"
@@ -322,6 +323,9 @@ const GatewayShell = ({
 export const GatewaySteps = ({ stepKey, children }) => {
     const isDesktop = useIsDesktop()
     const [measureRef, bounds] = useMeasure()
+    /* A step swap leaves nothing focused for the length of the fade, which the keyboard reads
+     * as a dismissal and begins to leave on. See KEYBOARD_SETTLE_MS in useNative.hook.js. */
+    useKeyboardSettle()
 
     if (!isDesktop) return <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 

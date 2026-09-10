@@ -537,6 +537,7 @@ const message = ({
     postId = null,
     handle = null,
     sheetId = null,
+    conversationId = null,
     image = null,
     type,
 }) => ({
@@ -550,6 +551,7 @@ const message = ({
          * surface can then expand the right rota rather than dropping the reader at the top of
          * a list of them. */
         ...(sheetId ? { sheetId } : {}),
+        ...(conversationId ? { conversationId } : {}),
     },
     android: {
         /* `high` is what wakes a dozing device; the default is `normal`, which Android is
@@ -557,7 +559,7 @@ const message = ({
         priority: "high",
         /* The tag collapses repeats about the same subject into one banner, so it follows
          * whichever destination this message carries. */
-        notification: { sound: "default", tag: postId ?? handle ?? sheetId },
+        notification: { sound: "default", tag: postId ?? handle ?? sheetId ?? conversationId },
     },
     apns: {
         payload: { aps: { sound: "default", ...(image ? { "mutable-content": 1 } : {}) } },
@@ -753,6 +755,30 @@ export const pushSignupPublished = ({ recipients, orgName, title, sheetId }) => 
                 body: `${title} needs people`,
                 sheetId,
                 type: "SIGNUP_PUBLISHED",
+            }),
+        ),
+    )
+}
+
+/* "Fr. Alexander — New message." The one push with no Notification row behind it: a
+ * direct message's record is the envelope itself, and the panel deliberately does not
+ * list conversations (see messages.service.js). The body never says more than "New
+ * message", because the server has only ciphertext and it must stay that way — the
+ * banner's job is who, not what.
+ *
+ * A recipient who has not accepted the thread gets no name and no face either:
+ * their inbox row is blurred until they accept, and a lock screen must not say more
+ * than the app would. */
+export const pushMessage = ({ recipientId, actor, conversationId, request = false }) => {
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: request ? "Grapevine" : displayName(actor),
+                body: request ? "New message request" : "New message",
+                conversationId,
+                image: request ? null : pushableImage(actor.avatarUrl),
+                type: "MESSAGE",
             }),
         ),
     )

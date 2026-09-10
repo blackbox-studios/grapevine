@@ -405,6 +405,10 @@ const main = async () => {
             ordinationDate: person.ordinationDate
                 ? new Date(`${person.ordinationDate}T00:00:00.000Z`)
                 : null,
+            /* Every fixture is an adult unless the person says otherwise: messaging is
+             * gated on `isAdult(birthday)`, and a roster of null birthdays would hide
+             * the whole DM surface from the two sign-innable dev accounts. */
+            birthday: new Date(`${person.birthday ?? "1985-06-15"}T00:00:00.000Z`),
         }
 
         const profile = await prisma.profile.upsert({

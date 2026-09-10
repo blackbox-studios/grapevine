@@ -3,6 +3,7 @@ import { extendTailwindMerge } from "tailwind-merge"
 
 import {
     API_BASE,
+    FULL_BLEED_ROUTES,
     MONTHS,
     NESTED_TRANSITION_ROUTES,
     ROUTES,
@@ -679,6 +680,13 @@ export const pageTransitionKey = (pathname) =>
 /* Whether a nav destination should read as current. Resolves through `baseRouteFor`, so a
  * slide-route pathname still lights a tab rather than none; the shell passes `useShellRoute`,
  * which is what lights the tab the overlay was opened from. */
+/* Does this route take the full width beside the rail? See `FULL_BLEED_ROUTES`. Resolved
+ * through `baseRouteFor` like `isRouteActive`, so a conversation still counts as the inbox. */
+export const isFullBleed = (pathname) => {
+    const base = baseRouteFor(pathname)
+    return FULL_BLEED_ROUTES.some((prefix) => isUnder(base, prefix))
+}
+
 export const isRouteActive = (pathname, href) => {
     const base = baseRouteFor(pathname)
     return href === ROUTES.DEFAULT ? base === ROUTES.DEFAULT : isUnder(base, href)
@@ -999,3 +1007,25 @@ const SPHERE_COUNT = 25
 
 export const sphereFor = (value) =>
     appPath(`/spheres/${String((hashString(value) % SPHERE_COUNT) + 1).padStart(2, "0")}.svg`)
+
+/* Eighteen or older, by calendar arithmetic on the date alone — a birthday is a
+ * calendar date (see `Profile.birthday`), so the comparison must not involve hours or
+ * timezones. Null is **not** adult: messaging is gated on this, and an unknown age
+ * failing open would put the one feature with an age floor in front of the one person
+ * whose age nobody recorded. Shared by the server gate (`requireAdult`) and the client
+ * chrome that hides the entrance, so the two cannot disagree.
+ *
+ * Accepts a Date or an ISO string, because the server holds the column as a Date and
+ * the client receives it as a string. */
+export const isAdult = (birthday) => {
+    if (!birthday) return false
+    const date = new Date(birthday)
+    if (Number.isNaN(date.getTime())) return false
+
+    const now = new Date()
+    let age = now.getUTCFullYear() - date.getUTCFullYear()
+    const monthDay = (now.getUTCMonth() + 1) * 100 + now.getUTCDate()
+    const birthMonthDay = (date.getUTCMonth() + 1) * 100 + date.getUTCDate()
+    if (monthDay < birthMonthDay) age -= 1
+    return age >= 18
+}

@@ -179,6 +179,16 @@ Component / Page                              ← consumes the hook
 2. **No store usage outside `hook.js`.** Components never call `useXxxStore(...)` directly — they call the matching `useXxx()` hook (e.g. the login page uses `useLogin()`).
 3. **Cross-store communication happens inside stores** via `useOtherStore.getState()` (see "Cross-store reads" below). Never wire two stores together inside a component.
 
+**`lib/crypto/` sits beside `lib/api.js`, on the same rung.** It is the second thing a store
+may reach down to and the only other one — the Signal protocol engine that turns text into
+envelopes and envelopes back into text, plus the device-local storage holding private keys
+and decrypted plaintext. It is placed there because of what it must *not* do: the engine
+never fetches (it is handed prekey bundles and returns registration payloads), and `api.js`
+never holds a key. `lib/store/messages/store.js` is the one place the two meet, which is what
+keeps "the server can never read a message" a property of one file rather than a convention
+spread across the app. A component reaching into `lib/crypto` directly is the same violation
+as a component calling `api.get`.
+
 ---
 
 ## API Layer (`lib/api.js`, `lib/constants.js`)

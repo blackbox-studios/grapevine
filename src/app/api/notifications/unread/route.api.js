@@ -1,10 +1,13 @@
 import { requireViewer } from "@/lib/server/auth"
 import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
+import { unreadConversations } from "@/lib/server/messages.service"
 import { sendResource } from "@/lib/server/respond"
 import { unreadCount } from "@/lib/server/notifications.service"
 
 /* GET /api/notifications/unread — `{ unread }`, the number the bell's dot stands for.
+ *
+ * `GET /api/notifications/unread` — `{ unread, messages }`, the bell's tally and the inbox's.
  *
  * **A separate endpoint from the list, deliberately.** The two are asked at completely
  * different rates: the chrome needs this on every boot, while the list is only wanted when
@@ -14,9 +17,9 @@ import { unreadCount } from "@/lib/server/notifications.service"
  *
  * **The highest-frequency route in the app, and the one to keep cheapest.** Every client push
  * cannot reach polls it on a timer (`useNotificationsWatch`), so its cost is paid per viewer
- * per interval whether or not anything has happened — floor load rather than traffic. It is
- * two statements: `requireViewer`, then an index-only count over `(recipient_id, read_at)`.
- * Do not add a third.
+ * per interval whether or not anything has happened — floor load rather than traffic. Both
+ * tallies are index-only counts issued in parallel, so the cost is one round trip on top of
+ * `requireViewer`. Keep it that way: anything added here is paid by every viewer every tick.
  *
  * The `requireViewer` half is the larger one and is pure overhead here — the count needs only
  * an id, which the verified JWT already carries, so a viewer-id-only variant of it would halve
@@ -32,7 +35,15 @@ export const GET = route(async (request) => {
      * worth hanging a sweep off. Not awaited, and it cannot fail this request; see
      * `sweepDueReminders` for why that is safe. */
     sweepDueReminders()
-    return sendResource({ unread: await unreadCount(viewer) })
+
+    /* The message badge rides on the same tick rather than costing a poll of its own —
+     * the count is per-viewer like the bell's, and this is already the request every
+     * client makes at every interval. In parallel: the two counts share nothing. */
+    const [unread, messages] = await Promise.all([
+        unreadCount(viewer),
+        unreadConversations(viewer),
+    ])
+    return sendResource({ unread, messages })
 })
 
 export const OPTIONS = preflight

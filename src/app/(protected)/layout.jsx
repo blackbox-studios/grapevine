@@ -10,8 +10,10 @@ import MugIcon from "@/assets/svg/icons/mug.svg"
 import MugOutlineIcon from "@/assets/svg/icons/mug-outline.svg"
 import CalendarIcon from "@/assets/svg/icons/calendar.svg"
 import CalendarOutlineIcon from "@/assets/svg/icons/calendar-outline.svg"
+import SendIcon from "@/assets/svg/icons/send.svg"
+import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import { ROUTES } from "@/lib/constants";
-import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
+import { SLIDE_TRANSITION, cn, isFullBleed, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook";
 import { ProtectedGate } from "@/components/AuthGate";
 import Compose from "@/components/Compose";
@@ -26,6 +28,11 @@ import ProfileCard from "@/components/ProfileCard";
 import RuntimeRoute from "@/components/RuntimeRoute";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
+import {
+    useMessagingAvailable,
+    useMessagingBoot,
+    useUnreadMessages,
+} from "@/lib/store/messages/hook";
 import { useOrgNav } from "@/lib/store/org/hook";
 import { useScroll } from "@/lib/providers/Scroll";
 import Grain from "@/components/Grain";
@@ -49,6 +56,16 @@ const NAV = [
         Outline: MugOutlineIcon,
         Filled: MugIcon,
     },
+    /* The only entry drawn for some viewers and not others: messaging is 18+, so a
+     * minor never sees the door. It is also the only one carrying a count — every
+     * other glyph here names a place rather than a number of things waiting in it. */
+    {
+        title: "Messages",
+        href: ROUTES.INBOX,
+        Outline: SendOutlineIcon,
+        Filled: SendIcon,
+        adultOnly: true,
+    },
     {
         title: "Events",
         href: ROUTES.EVENTS,
@@ -57,18 +74,21 @@ const NAV = [
     },
 ]
 
-/* Where the composer sits among the mobile bar's entries, counting itself and the profile
- * trigger: the middle. The plus is the only thing on that bar that acts rather than
- * navigates, and the centre is both where a thumb rests and where every phone app a
- * parishioner already uses puts it. Derived rather than written down, so a fourth
- * destination re-centres the plus instead of shunting it off-centre. The desktop rail is a
- * column with no equivalent position, and keeps the plus below the destinations. */
-const COMPOSE_SLOT = Math.floor((NAV.length + 2) / 2)
+/* Where the composer sits among the mobile bar's entries: after the two you read (Home,
+ * Daily Read) and before the two you act in (Messages, Events). The plus is the only
+ * thing on that bar that does something rather than going somewhere, so it sits on that
+ * seam rather than at an arithmetic middle — which is also what puts Messages directly
+ * to its right for an admin, and dead centre for everyone else, whose bar has no plus in
+ * it at all. Events is last either way, at the far edge.
+ *
+ * The desktop rail is a column with no equivalent position, and keeps the plus below the
+ * destinations. */
+const COMPOSE_SLOT = 2
 
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
  * the label fades in only while the rail (the `group`) is hovered. */
-const NavItem = ({ item, route, onNavigate }) => {
+const NavItem = ({ item, route, onNavigate, count = 0 }) => {
     const { title, href, Outline, Filled } = item
     /* `route` is the shell's, not the URL's, so a post opened over the daily reading keeps the
      * daily reading lit rather than moving the highlight to whatever the overlay sits on. */
@@ -77,7 +97,7 @@ const NavItem = ({ item, route, onNavigate }) => {
     return (
         <Link
             href={href}
-            aria-label={title}
+            aria-label={count > 0 ? `${title} (${count} unread)` : title}
             data-current={active}
             onClick={onNavigate}
             /* The layout scrolls to top itself once the cross-fade has played out;
@@ -86,7 +106,29 @@ const NavItem = ({ item, route, onNavigate }) => {
             className="flex items-center justify-center md:justify-start select-none cursor-pointer md:h-12 md:rounded-md md:transition-colors md:hover:bg-accent"
         >
             <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
-                <NavIcon Outline={Outline} Filled={Filled} active={active} />
+                {/* **The badge anchors to the glyph, not to the slot.** This inner span
+                    shrink-wraps the icon; the one outside it is a fixed-width column on
+                    desktop that keeps the glyph from moving as the rail expands. Hang the
+                    badge off that outer box and it positions against the *column* — which
+                    on a wide rail parks it well clear of a centred icon, reading as a
+                    stray pill rather than as a count on the thing it counts. */}
+                <span className="relative flex">
+                    <NavIcon Outline={Outline} Filled={Filled} active={active} />
+                    {/* **A count, not a dot**: an inbox is a number of things waiting, and
+                        a reader deciding whether to open it wants to know whether that is
+                        one message or nine. It overlaps the glyph, with a ring in the
+                        rail's own colour punching it out of the strokes underneath.
+
+                        `min-w-*` with horizontal padding rather than a fixed circle, so it
+                        stays round on one digit and grows into a pill on two. Capped,
+                        because past a point the exact number stops being the useful part
+                        of the answer. */}
+                    {count > 0 && (
+                        <span className="pointer-events-none absolute -top-1.5 -right-2 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-brand-foreground ring-2 ring-background">
+                            {count > 99 ? "99+" : count}
+                        </span>
+                    )}
+                </span>
             </span>
             <span
                 className={cn(
@@ -135,6 +177,20 @@ const ProtectedShell = ({ children }) => {
     const { scrollRef, scrollToTop } = useScroll()
     const { shift } = useOrgNav()
     const vibing = useVibing()
+    const messaging = useMessagingAvailable()
+    const unreadMessages = useUnreadMessages()
+
+    /* Registers this install's E2EE keys the moment an adult viewer is in — see the
+     * hook: being reachable must not wait for the inbox to be opened. */
+    useMessagingBoot()
+
+    /* Whether the page takes the whole area beside the rail instead of the reading
+     * column — see `FULL_BLEED_ROUTES`. It only ever drops the `md:` half of the
+     * column's classes, so a phone is untouched. */
+    const bleed = isFullBleed(route)
+
+    const nav = messaging ? NAV : NAV.filter((item) => !item.adultOnly)
+    const countFor = (item) => (item.href === ROUTES.INBOX ? unreadMessages : 0)
 
     return (
         <>
@@ -183,8 +239,14 @@ const ProtectedShell = ({ children }) => {
                 </Link>
 
                 <div className="flex flex-1 flex-col justify-center gap-2 px-2">
-                    {NAV.map((item, idx) => (
-                        <NavItem key={idx} item={item} route={route} onNavigate={() => setNavOpen(false)} />
+                    {nav.map((item) => (
+                        <NavItem
+                            key={item.href}
+                            item={item}
+                            route={route}
+                            count={countFor(item)}
+                            onNavigate={() => setNavOpen(false)}
+                        />
                     ))}
                     {/* Below the destinations, because it is not one: composing opens a
                         surface over wherever the reader already is rather than routing
@@ -238,13 +300,22 @@ const ProtectedShell = ({ children }) => {
                     to carry `layout` too: that is the only thing that creates the projection
                     node `layoutRoot` configures. <SlideBase/> cannot host either, because
                     `layout` on an element that also animates `x` is a conflict. */}
-                <motion.div layout layoutRoot className="w-full px-4 md:px-8 lg:px-18">
+                <motion.div layout layoutRoot className="w-full">
                     {/* A plain gutter on mobile: nothing floats over the content any more, so
                         there is nothing here to dodge — the feed's group trigger is a row of
                         the feed itself and reserves its own space. Desktop's inset is doing
                         real work, clearing the fixed switcher top-right by enough that the
-                        pill reads as occupying a header row of its own. */}
-                    <main className="flex flex-col w-full mx-auto max-w-8xl pt-4 md:pt-24 pb-6 md:pb-0">
+                        pill reads as occupying a header row of its own.
+
+                        **The column lives inside the transition, not around it**, and that is
+                        load-bearing rather than tidy: `bleed` changes the instant the route
+                        does, while the outgoing page is still on screen fading out. Applied
+                        out here it would re-introduce the gutter under a page that is still
+                        visible, which reads as the whole surface snapping sideways before it
+                        leaves. Inside, <AnimatePresence/> retains the exiting element with the
+                        props it had, so each page fades out in the layout it was drawn in —
+                        the same reason <FrozenRouter/> pins its router context. */}
+                    <main className="flex w-full flex-col">
                         {/* Which routes are exempt from this cross-fade is decided by
                             pageTransitionKey off the route registries — nested trees fade
                             their own sub-routes. It is keyed on the shell's route rather
@@ -252,18 +323,26 @@ const ProtectedShell = ({ children }) => {
                             that is what holds the key still while a slide route is open, so
                             the page underneath is never faded or scrolled out from under
                             the overlay. */}
-                        {/* <RuntimeRoute/> renders an ordinary (`slide: false`) runtime route
-                            here in place of whatever the router resolved. Those routes change
-                            the URL with `pushRoute` and never touch the segment tree, so
-                            `children` is still the page they were opened from; substituting
-                            inside <PageTransition/> is what makes the swap a normal cross-fade
-                            rather than an overlay. None is registered yet — anything else
-                            falls straight through, which is every route today. */}
                         <PageTransition
                             getKey={() => pageTransitionKey(route)}
                             onExitComplete={scrollToTop}
                         >
-                            <RuntimeRoute>{children}</RuntimeRoute>
+                            {/* <RuntimeRoute/> renders an ordinary (`slide: false`) runtime
+                                route here in place of whatever the router resolved. Those
+                                routes change the URL with `pushRoute` and never touch the
+                                segment tree, so `children` is still the page they were opened
+                                from; substituting inside <PageTransition/> is what makes the
+                                swap a normal cross-fade rather than an overlay. */}
+                            <div
+                                className={cn(
+                                    "mx-auto flex w-full flex-col px-4 pt-4 pb-6 md:pb-0",
+                                    bleed
+                                        ? "md:px-0 md:pt-0"
+                                        : "max-w-8xl md:px-8 md:pt-24 lg:px-18",
+                                )}
+                            >
+                                <RuntimeRoute>{children}</RuntimeRoute>
+                            </div>
                         </PageTransition>
                     </main>
                 </motion.div>
@@ -298,12 +377,12 @@ const ProtectedShell = ({ children }) => {
                     wherever the reader is — and on a phone the trigger belongs at the top
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
-                {NAV.slice(0, COMPOSE_SLOT).map((item) => (
-                    <NavItem key={item.href} item={item} route={route} />
+                {nav.slice(0, COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
                 ))}
                 <Compose />
-                {NAV.slice(COMPOSE_SLOT).map((item) => (
-                    <NavItem key={item.href} item={item} route={route} />
+                {nav.slice(COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
                 ))}
                 <ProfileTrigger route={route} />
             </motion.nav>

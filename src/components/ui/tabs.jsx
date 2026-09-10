@@ -124,6 +124,14 @@ function TabsContent({
 	 * inactive ones out of the sizing; they keep `col-start`/`row-start` so each resolves
 	 * against its own grid area, which is what the `relative` on the root is for.
 	 *
+	 * **The end lines are spelled out because an `auto` one is not the grid area.** An
+	 * absolutely positioned grid child has its containing block *expanded into the grid
+	 * container's padding* on every side its placement leaves `auto` (CSS Grid §9.2), so a
+	 * `<Tabs/>` with padding gave the inactive panels a box wider and taller than the active
+	 * one. The outgoing panel then jumped that far the instant it went inactive and shifted
+	 * its contents sideways for the length of the fade. `span 1` pins all four edges to the
+	 * cell, and costs the in-flow panel nothing — it already spans one.
+	 *
 	 * `overflow-hidden` on them is load-bearing rather than cosmetic: content overflowing an
 	 * absolutely positioned box still counts toward an ancestor scroller's scrollable
 	 * overflow. The cost is that a taller outgoing panel is clipped to the incoming one's
@@ -141,6 +149,7 @@ function TabsContent({
 				"text-sm outline-none transition-opacity duration-200",
 				"group-data-horizontal/tabs:col-start-1 group-data-horizontal/tabs:row-start-2",
 				"group-data-vertical/tabs:col-start-2 group-data-vertical/tabs:row-start-1",
+				"col-end-[span_1] row-end-[span_1]",
 				"data-[state=active]:opacity-100",
 				"data-[state=inactive]:pointer-events-none data-[state=inactive]:opacity-0",
 				"data-[state=inactive]:absolute data-[state=inactive]:inset-0 data-[state=inactive]:overflow-hidden",

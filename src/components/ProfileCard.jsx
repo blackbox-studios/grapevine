@@ -7,6 +7,7 @@ import { AnimatePresence } from "motion/react"
 import Ripple from "@/assets/svg/ripple.svg"
 import Badge from "@/components/Badge"
 import { PeopleSkeleton, ProfileCardSkeleton } from "@/components/Skeleton"
+import { MessageButton } from "@/components/Messages"
 import { Avatar, Close, FollowButton, Overlay } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import Transition from "@/components/Transition"
@@ -215,7 +216,7 @@ const FollowsTab = ({ list, kind, skeleton, loadingMore, onLoadMore, onOpen }) =
  * **One button, two meanings, in the same place.** Your own card offers the way to the form
  * that edits it; everybody else's offers the follow. Which it is follows from who they are, so
  * there is never a moment where both are on screen competing. */
-const CardHeader = ({ profile, onEdit }) => (
+const CardHeader = ({ profile, onEdit, onMessage }) => (
     <div className="flex flex-col items-center gap-3 px-4 pb-10 pt-6 text-center">
         <Avatar person={profile} className="size-20 text-2xl" />
 
@@ -228,9 +229,14 @@ const CardHeader = ({ profile, onEdit }) => (
             <p className="text-sm text-muted-foreground">@{profile.handle}</p>
         </div>
 
-        {/* One control, two meanings, in the same place: your own card offers the way to the
-            form that edits it, everybody else's offers the follow. Which it is follows from who
-            they are, so the two are never on screen competing. */}
+        {/* Your own card offers the way to the form that edits it; everybody else's offers
+            the two things you can do about a person — follow them, and write to them. Which
+            set it is follows from who they are, so they are never on screen competing.
+
+            Message sits beside Follow rather than replacing it because they are unrelated:
+            following is a list you keep, and writing is a thing you do now. It draws itself
+            only where messaging is available, so on a minor's viewer the row is the follow
+            alone and nothing explains an absence. */}
         {profile.isSelf ? (
             <Button
                 type="button"
@@ -242,14 +248,22 @@ const CardHeader = ({ profile, onEdit }) => (
                 Edit profile
             </Button>
         ) : (
-            <FollowButton person={profile} size="lg" className="mt-1 w-full max-w-64" />
+            <div className="mt-1 flex w-full max-w-80 gap-2">
+                <FollowButton person={profile} size="lg" className="flex-1" />
+                <MessageButton
+                    person={profile}
+                    size="lg"
+                    className="flex-1"
+                    onOpened={onMessage}
+                />
+            </div>
         )}
     </div>
 )
 
 /* Everything inside the sheet or the dialog. Both presentations render exactly this, which is
  * what keeps a person from meaning something slightly different on a phone. */
-const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit }) => {
+const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit, onMessage }) => {
     const [tab, setTab] = useState(openTab)
     /* Both lists, loaded the moment the card opens rather than on the tab that shows them —
      * see `lib/store/follows/store.js`. Mounted here, once, so the panels below are pure.
@@ -350,9 +364,9 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit 
                             direction it was loading. */}
                         <TabsContent
                             value="info"
-                            className="overflow-y-auto overscroll-contain py-2"
+                            className="overflow-y-auto overscroll-contain py-2 scrollbar-gutter-stable"
                         >
-                            <CardHeader profile={profile} onEdit={onEdit} />
+                            <CardHeader profile={profile} onEdit={onEdit} onMessage={onMessage} />
                             <InfoTab profile={profile} />
                         </TabsContent>
 
@@ -360,7 +374,7 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit 
                             <TabsContent
                                 key={kind}
                                 value={kind}
-                                className="overflow-y-auto overscroll-contain py-2"
+                                className="overflow-y-auto overscroll-contain py-2 scrollbar-gutter-stable"
                             >
                                 <FollowsTab
                                     list={follows.lists[kind]}
@@ -415,7 +429,9 @@ const ProfileCard = () => {
 
     if (!shown.current) return null
 
-    const body = <CardBody {...shown.current} onOpen={openProfile} onEdit={edit} />
+    const body = (
+        <CardBody {...shown.current} onOpen={openProfile} onEdit={edit} onMessage={close} />
+    )
 
     if (isDesktop) {
         /* **Portalled to <body>.** The shell mounts this inside its scroll container, which is

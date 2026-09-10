@@ -563,6 +563,13 @@ every `dvh` in the app relayouts in that single frame. `keyboardWillShow` fires 
 animation begins and already carries the final height, so setting a custom property there
 lets a CSS transition move with the keyboard rather than after it.
 
+**A collapse is written the frame it arrives, like a raise**, so both directions ride the
+keyboard's own animation. The single exception is opt-in and lives behind `useKeyboardSettle`
+— a surface that swaps a focused field out for another one asks for the collapse to be held
+until it is certain (`KEYBOARD_SETTLE_MS`, and the reasoning, in `useNative.hook.js`). Do not
+make that global: the wait is by construction longer than the keyboard's dismiss animation,
+so every ordinary surface would sit still until the keyboard had entirely gone.
+
 Three tokens come out of it (all defined and documented in `globals.css`):
 
 | Token | Use |

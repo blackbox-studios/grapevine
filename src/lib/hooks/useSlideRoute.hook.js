@@ -147,9 +147,15 @@ export const openSlide = (path) => {
 
 /* The **page**-presentation runtime route the shell should draw right now, or null.
  *
- * Read by <RuntimeRoute/> in the page slot. Deliberately resolves only `slide: false`
- * entries: a slide route is drawn by <SlideRouter/> as an overlay and must not also appear
- * in the page slot underneath it.
+ * Read by <RuntimeRoute/> in the page slot. A route presents as a page here in two cases,
+ * and they are the same case: `slide: false`, which is always a page, and an `inline` route
+ * above the breakpoint, which is a page at that size. An overlay must never resolve here as
+ * well, or it appears twice — once portalled over the shell and once inside it.
+ *
+ * The `inline` arm is what makes `pushRoute` enough for those routes. `pushRoute` changes
+ * the URL without touching the segment tree, so the router keeps whatever page it already
+ * had as `children`; without a resolver that claims the pathname, opening a conversation
+ * from anywhere but the inbox would change the URL and draw nothing.
  *
  * A page runtime route is never recorded in `openedStack`, and that is load-bearing rather
  * than an omission — the stack is what `useActiveSlide` reports as `open`, which pushes the
@@ -157,8 +163,9 @@ export const openSlide = (path) => {
  * shell sideways on the way in. */
 export const useRuntimePage = () => {
     const pathname = usePathname()
+    const overlaying = useOverlaying(pathname)
     const route = runtimeRouteFor(pathname)
-    return route && !route.slide ? route : null
+    return route && !overlaying ? route : null
 }
 
 /* Dismisses the topmost slide route by unwinding the entry `openSlide` pushed, so the
@@ -173,12 +180,33 @@ export const closeSlide = () => {
     return true
 }
 
+/* **Is the pathname presenting as an overlay right now?** The one question three separate
+ * pieces of the shell have to agree on, which is why it is one function rather than three
+ * copies of the same conjunction.
+ *
+ * A `slide: true` route is normally an overlay. An `inline` one above the `md` breakpoint is
+ * not: it is a selection inside a page that has room to hold it, so it navigates, draws in
+ * the page slot, and lets the shell follow it like any other route. Answering this question
+ * differently in any one of the three places is the shape of the bug — a URL that changes
+ * with nothing rendered behind it, a nav rail lit on the wrong tab, or a page frozen under a
+ * surface that was never drawn over it. */
+const useOverlaying = (pathname) => {
+    const isDesktop = useIsDesktop()
+    const route = slideRouteFor(pathname)
+    return Boolean(route) && !(isDesktop && route.inline)
+}
+
 /* Opens a runtime route the way *that* route presents, which is not always the same way.
  *
  * A slide route is normally `openSlide`: it records the path on the overlay stack, which is
  * what draws the surface and pushes the base aside. An `inline` route above the breakpoint
- * is not an overlay at all — it is a selection inside a page that is already on screen — so
- * it takes `pushRoute` and changes nothing but the URL.
+ * is not an overlay at all — it is a selection inside a page — so it takes `pushRoute`, and
+ * `useRuntimePage` claims the pathname for the shell's page slot.
+ *
+ * **Every entrance to such a route goes through here**, including the ones that arrive from
+ * outside the surface: a tapped push banner and the Message button on a profile card can
+ * both fire from anywhere in the app, where the base page is not on screen to be selected
+ * inside.
  *
  * **Using `openSlide` for one anyway is not merely redundant.** The stack would gain an entry
  * per tap for a surface that draws nothing, so switching between two conversations pushes the
@@ -192,7 +220,7 @@ export const useRouteOpener = () => {
     return useCallback(
         (path) => {
             const route = runtimeRouteFor(path)
-            const overlay = route?.slide && !(isDesktop && route.inline)
+            const overlay = Boolean(route?.slide) && !(isDesktop && route.inline)
             return overlay ? openSlide(path) : pushRoute(path)
         },
         [isDesktop],
@@ -244,9 +272,10 @@ export const useActiveSlide = () => {
  * cold deep link resolve to the registry base with no branch of its own. */
 export const useShellRoute = () => {
     const pathname = usePathname()
+    const overlaying = useOverlaying(pathname)
     const [route, setRoute] = useState(() => baseRouteFor(pathname))
 
-    if (!slideRouteFor(pathname) && route !== pathname) setRoute(pathname)
+    if (!overlaying && route !== pathname) setRoute(pathname)
 
     return route
 }

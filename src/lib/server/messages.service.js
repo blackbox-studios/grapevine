@@ -24,10 +24,11 @@ import { projectPerson } from "@/lib/server/projections"
  * rule of it is enforced in this file, not in the client:
  *
  *  - **Who may message whom.** One shared APPROVED group — the `visibleProfile`
- *    boundary again — re-checked on every send, so a revoked membership bites here
- *    exactly as it does on the feed. Both parties 18 or older (`requireAdult`; a
- *    minor neither appears in the contact list nor can be opened a thread to, and
- *    every endpoint refuses them as a caller). No `MessageBlock` between the pair.
+ *    boundary again — re-checked on every read and every send (`sharesGroup`), so a
+ *    revoked membership bites here exactly as it does on the feed. Both parties 18 or
+ *    older (`requireAdult`; a minor neither appears in the contact list nor can be
+ *    opened a thread to, and every endpoint refuses them as a caller). No
+ *    `MessageBlock` between the pair.
  *  - **The request gate.** A recipient who does not follow the opener starts
  *    unaccepted (`ConversationParticipant.acceptedAt` null): they can read what
  *    arrived, but cannot reply until they accept, and the opener is never told
@@ -241,14 +242,6 @@ export const bundlesFor = async (viewer, profileId, { exclude, only } = {}) => {
     return { devices: bundles }
 }
 
-/* How many one-time prekeys the caller's device still has parked here — the number
- * the client tops the pool up against. */
-export const preKeyCount = async (viewer, deviceId) => {
-    const device = await prisma.cryptoDevice.findUnique({ where: { id: deviceId } })
-    if (!device || device.profileId !== viewer.id) return { count: 0 }
-    return { count: await prisma.oneTimePreKey.count({ where: { deviceId } }) }
-}
-
 /* ---------------------------------------------------------------------------
  * Conversations
  * ------------------------------------------------------------------------- */
@@ -345,7 +338,9 @@ export const listConversations = async (viewer, { deviceId }) => {
     })
 
     return {
-        items: conversations.map((c) => projectConversation(c, viewer)),
+        items: conversations
+            .filter((conversation) => sharesGroup(viewer, conversation))
+            .map((conversation) => projectConversation(conversation, viewer)),
         nextCursor: null,
     }
 }
@@ -394,6 +389,27 @@ export const openConversation = async (viewer, { profileId }) => {
     return projectConversation(conversation, viewer)
 }
 
+/* Whether the viewer still shares an APPROVED group with everyone else in a thread —
+ * `messageableProfile`'s boundary, asked of a conversation that already exists.
+ *
+ * **Every path asks it, not just `sendMessage`.** Membership is re-read from the database
+ * on every authorization decision everywhere else in this app precisely so that a
+ * revocation bites on the next request; a thread that went on serving its history to
+ * somebody who has left the parish would be the one place in the app where it did not.
+ * Reading is the half that matters most here, because it is the half that keeps working
+ * when the sending half has already started refusing.
+ *
+ * Costs nothing to ask: `participantInclude` already carries each participant's APPROVED
+ * `orgId`s, which is the only reason that relation is selected at all. */
+const sharesGroup = (viewer, conversation) => {
+    const mine = new Set(readableOrgIds(viewer))
+    return conversation.participants
+        .filter((participant) => participant.profileId !== viewer.id)
+        .every((participant) =>
+            participant.profile.memberships.some((membership) => mine.has(membership.orgId)),
+        )
+}
+
 /* The viewer's own participant row, or 404 — a conversation someone is not in must
  * be indistinguishable from one that does not exist. */
 const requireParticipant = async (viewer, conversationId) => {
@@ -429,6 +445,11 @@ export const getConversation = async (viewer, conversationId, { deviceId, cursor
             take: pageSize + 1,
         }),
     ])
+
+    /* Gone between the participant check and this read, which is a 404 rather than the
+     * crash that projecting a null row would be. */
+    if (!conversation) throw notFound("Conversation not found.")
+    if (!sharesGroup(viewer, conversation)) throw notFound("Conversation not found.")
 
     return {
         conversation: projectConversation({ ...conversation, messages: [] }, viewer),
@@ -481,13 +502,11 @@ export const sendMessage = async (viewer, conversationId, { senderDeviceId, enve
 
     const others = conversation.participants.filter((p) => p.profileId !== viewer.id)
 
-    /* Re-checked per send, not grandfathered at creation: revocation is carried by
-     * the database on every request everywhere else in this app, and a thread is
-     * not the place to make the one exception. */
-    const orgIds = new Set(readableOrgIds(viewer))
-    for (const other of others) {
-        const shared = other.profile.memberships.some((m) => orgIds.has(m.orgId))
-        if (!shared) throw forbidden("This conversation isn't available right now.")
+    /* Re-checked per send, not grandfathered at creation. `forbidden` rather than the
+     * `notFound` the read paths give: the sender is looking at a thread they were in a
+     * moment ago, so pretending it never existed would be the more confusing answer. */
+    if (!sharesGroup(viewer, conversation)) {
+        throw forbidden("This conversation isn't available right now.")
     }
 
     const otherIds = others.map((p) => p.profileId)
@@ -502,11 +521,12 @@ export const sendMessage = async (viewer, conversationId, { senderDeviceId, enve
     })
     if (block) throw forbidden("This conversation isn't available right now.")
 
-    /* Addressing: every device of every participant, minus the sender's own. */
-    const viewerDevices = await prisma.cryptoDevice.findMany({
-        where: { profileId: viewer.id },
-        select: { id: true },
-    })
+    /* Addressing: every device of every participant, minus the sender's own. The viewer
+     * is a participant, so their own devices came back with everybody else's — asking
+     * for them again would be a round trip for a row already in hand. */
+    const viewerDevices =
+        conversation.participants.find((p) => p.profileId === viewer.id)?.profile.cryptoDevices ??
+        []
     if (!viewerDevices.some((d) => d.id === senderDeviceId)) {
         throw invalid("That sending device is not registered.", { senderDeviceId: "Unknown" })
     }
@@ -581,6 +601,7 @@ export const sendMessage = async (viewer, conversationId, { senderDeviceId, enve
  * ------------------------------------------------------------------------- */
 
 export const markConversationRead = async (viewer, conversationId) => {
+    requireAdult(viewer)
     await requireParticipant(viewer, conversationId)
     await prisma.conversationParticipant.update({
         where: { conversationId_profileId: { conversationId, profileId: viewer.id } },
@@ -589,6 +610,7 @@ export const markConversationRead = async (viewer, conversationId) => {
 }
 
 export const acceptConversation = async (viewer, conversationId) => {
+    requireAdult(viewer)
     const mine = await requireParticipant(viewer, conversationId)
     if (mine.acceptedAt) return
     await prisma.conversationParticipant.update({
@@ -601,6 +623,7 @@ export const acceptConversation = async (viewer, conversationId) => {
  * been invested. Either participant may do it; ciphertext nobody wanted is not worth
  * a tombstone. */
 export const deleteConversation = async (viewer, conversationId) => {
+    requireAdult(viewer)
     await requireParticipant(viewer, conversationId)
     await prisma.conversation.delete({ where: { id: conversationId } })
 }
@@ -608,6 +631,7 @@ export const deleteConversation = async (viewer, conversationId) => {
 /* Block, from a request's Block action: refuses the other participant for good and
  * removes the thread in the same breath. */
 export const blockConversation = async (viewer, conversationId) => {
+    requireAdult(viewer)
     await requireParticipant(viewer, conversationId)
     const other = await prisma.conversationParticipant.findFirst({
         where: { conversationId, profileId: { not: viewer.id } },

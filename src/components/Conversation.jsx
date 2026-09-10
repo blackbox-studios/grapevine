@@ -53,8 +53,6 @@ import { cn } from "@/lib/utils"
  * promise kept by the server: nothing tells the sender the request was even seen
  * until Accept, because accepting is what writes the first observable fact. */
 
-const IMESSAGE_BLUE = "bg-[#0a84ff]"
-
 /* "Today 1:43 AM" / "Yesterday 11:34 PM" / "Mon, Sep 7 at 9:12 AM" — the centered
  * stamp iMessage drops wherever the conversation paused. */
 const stamp = (iso) => {
@@ -228,7 +226,7 @@ const Bubble = ({ item, mine, tail, entering }) => (
                    pane is wide enough that 78% of it is a paragraph running the width
                    of the screen, which is unreadable and stops looking like a message. */
                 "max-w-[78%] md:max-w-[min(65%,32rem)] rounded-[18px] px-4 py-2 text-[15px] leading-snug break-words whitespace-pre-wrap",
-                mine ? `${IMESSAGE_BLUE} text-white` : "bg-muted text-foreground",
+                mine ? "bg-secondary text-secondary-foreground" : "bg-muted text-foreground",
                 tail && (mine ? "bubble-tail-out" : "bubble-tail-in"),
                 item.failed && "opacity-60",
             )}
@@ -251,7 +249,7 @@ const Bubble = ({ item, mine, tail, entering }) => (
 const Withheld = () => (
     <div className="flex items-center justify-center gap-1.5 px-8 py-1 text-center">
         <Icon size="xs" className="shrink-0 text-muted-foreground">lock</Icon>
-        <span className="text-xs leading-relaxed text-muted-foreground">
+        <span className="text-xs leading-snug text-muted-foreground">
             For your privacy, messages sent before you signed in on this device can&apos;t be
             shown here.
         </span>
@@ -294,12 +292,8 @@ const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder, topInset, 
      * Inverted, the rail leads the scroll instead of trailing it, which does not read
      * as wrong so much as read as nothing.
      *
-     * It measures the **content's rendered position, not `scrollTop`**, and that is what
-     * makes overscroll work: at either end the browser rubber-bands, visibly sliding the
-     * content while `scrollTop` sits pinned at its bound reporting no movement at all.
-     * A rendered box sees the rubber band exactly as it sees an ordinary scroll, so the
-     * bubbles keep their weight at the ends of a conversation instead of going rigid
-     * there — which is precisely where the effect is most visible.
+     * It measures the content's rendered position rather than `scrollTop`, for the
+     * reason in the header.
      *
      * ── Why every row is driven from here ────────────────────────────────────
      *
@@ -773,10 +767,7 @@ const Composer = ({ ref, onSend, sending }) => {
                     aria-hidden={!showSend}
                     animate={{ scale: showSend ? 1 : 0.4, opacity: showSend ? 1 : 0 }}
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                    className={cn(
-                        "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-white",
-                        IMESSAGE_BLUE,
-                    )}
+                    className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-secondary text-secondary-foreground"
                 >
                     <Icon size="md">arrow_upward</Icon>
                 </motion.button>
@@ -797,9 +788,10 @@ const RequestGate = ({ other, onBlock, onRemove, onAccept, dismiss }) => (
                 type="button"
                 variant="secondary"
                 className="flex-1 text-destructive"
+                /* Dismissed only on success: a gate that closes on a failed block says
+                   the opposite of what happened. */
                 onClick={async () => {
-                    await onBlock()
-                    dismiss()
+                    if (await onBlock()) dismiss()
                 }}
             >
                 Block
@@ -809,8 +801,7 @@ const RequestGate = ({ other, onBlock, onRemove, onAccept, dismiss }) => (
                 variant="secondary"
                 className="flex-1 text-destructive"
                 onClick={async () => {
-                    await onRemove()
-                    dismiss()
+                    if (await onRemove()) dismiss()
                 }}
             >
                 Delete

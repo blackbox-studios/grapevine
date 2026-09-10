@@ -70,7 +70,7 @@ const indexKey = (profileId) => `gvc.${profileId}.index`
 export const loadDevice = (profileId) => get(deviceKey(profileId))
 export const saveDevice = (profileId, device) => set(deviceKey(profileId), device)
 
-/* One session record per remote device: `{ active, archived, pending }`. */
+/* One session record per remote device. `engine.js` owns the shape and documents it. */
 export const loadSession = (profileId, remoteDeviceId) =>
     get(sessionKey(profileId, remoteDeviceId))
 export const saveSession = async (profileId, remoteDeviceId, session) => {

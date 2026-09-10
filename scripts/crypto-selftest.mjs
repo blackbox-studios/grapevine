@@ -1,8 +1,15 @@
-/* Exercises the protocol layer end to end, with no server and no WebView: two
- * simulated devices run X3DH off a prekey bundle and then a Double Ratchet
- * conversation through the cases that break naive implementations — direction
- * changes, out-of-order delivery across a DH ratchet step, tampering, and a
- * serialize/deserialize round trip mid-conversation.
+/* Exercises the crypto layer end to end, with no server and no WebView.
+ *
+ * Two halves. The **protocol** half runs two simulated devices through X3DH off a
+ * prekey bundle and then a Double Ratchet conversation, over the cases that break
+ * naive implementations — direction changes, out-of-order delivery across a DH
+ * ratchet step, tampering, and a serialize/deserialize round trip mid-conversation.
+ *
+ * The **session** half drives `engine.js` itself, through the device store, because
+ * that is where the risk actually sits: the protocol files are a transcription of a
+ * published spec, while the slot logic around them (which session encrypts, which one
+ * still decrypts, when a one-time prekey is spent) was written here. `crypto-testenv`
+ * is what lets it run outside a bundler.
  *
  *   node scripts/crypto-selftest.mjs
  *
@@ -130,6 +137,113 @@ const bobX2 = respond(bob.identity, bob.signedPreKey.secretKey, null, {
     ephemeralKey: aliceX2.ephemeralKey,
 })
 check("x3dh without a one-time prekey still agrees", toB64(aliceX2.sharedKey) === toB64(bobX2.sharedKey))
+
+/* ── The session layer ────────────────────────────────────────────────────
+ *
+ * Imported dynamically: the resolver has to be registered before anything under
+ * `engine.js` is loaded, and a static import would hoist above that call. */
+
+const { installResolver, installStorage } = await import("./crypto-testenv.mjs")
+installResolver()
+installStorage()
+
+const engine = await import("../src/lib/crypto/engine.js")
+
+/* Two profiles in one process are two devices: the store namespaces every key by
+ * profile id, which is the same property that keeps two accounts in one browser from
+ * reading each other's sessions. */
+const ANNA = "11111111-1111-4111-8111-111111111111"
+const PETER = "22222222-2222-4222-8222-222222222222"
+
+const annaDevice = await engine.ensureDevice(ANNA)
+const peterDevice = await engine.ensureDevice(PETER)
+
+check("ensureDevice mints a device", Boolean(annaDevice.deviceId))
+check(
+    "ensureDevice is idempotent",
+    (await engine.ensureDevice(ANNA)).deviceId === annaDevice.deviceId,
+)
+check(
+    "two profiles get two identities",
+    annaDevice.registration.identityKey !== peterDevice.registration.identityKey,
+)
+
+/* A bundle as `bundlesFor` would serve it: the registration's public material, with
+ * one one-time prekey popped off the pool. */
+const bundleFrom = (registration, index = 0) => ({
+    deviceId: registration.deviceId,
+    registrationId: registration.registrationId,
+    identityKey: registration.identityKey,
+    signedPreKeyId: registration.signedPreKeyId,
+    signedPreKey: registration.signedPreKey,
+    signedPreKeySignature: registration.signedPreKeySignature,
+    oneTimePreKeyId: registration.oneTimePreKeys[index]?.keyId ?? null,
+    oneTimePreKey: registration.oneTimePreKeys[index]?.key ?? null,
+})
+
+check(
+    "sessionlessDevices names a device with no session",
+    (await engine.sessionlessDevices(ANNA, [peterDevice.deviceId])).length === 1,
+)
+
+const [envelope] = await engine.encryptText(
+    ANNA,
+    [{ deviceId: peterDevice.deviceId, bundle: bundleFrom(peterDevice.registration) }],
+    "Christ is risen",
+)
+check("first send produces a PREKEY envelope", envelope?.type === "PREKEY")
+check(
+    "the session is remembered, so the next send needs no bundle",
+    (await engine.sessionlessDevices(ANNA, [peterDevice.deviceId])).length === 0,
+)
+
+check(
+    "the recipient decrypts it",
+    (await engine.decryptEnvelope(PETER, annaDevice.deviceId, envelope)) === "Christ is risen",
+)
+
+/* **A ratchet key works once.** Re-presenting a delivered envelope must not decrypt
+ * a second time; if it does, the skipped-key ledger is banking keys it should have
+ * burned and a replayed envelope reads as a fresh message. */
+check(
+    "a replayed envelope does not decrypt twice",
+    (await engine.decryptEnvelope(PETER, annaDevice.deviceId, envelope)) === null,
+)
+
+/* The reply rides the session Peter established while decrypting, so it needs no
+ * bundle of its own and must not be a PREKEY envelope. */
+const [reply] = await engine.encryptText(
+    PETER,
+    [{ deviceId: annaDevice.deviceId }],
+    "Truly He is risen",
+)
+check("the reply is a RATCHET envelope", reply?.type === "RATCHET")
+check(
+    "the opener decrypts the reply",
+    (await engine.decryptEnvelope(ANNA, peterDevice.deviceId, reply)) === "Truly He is risen",
+)
+
+/* A target whose bundle never arrived is skipped, not thrown on — one unreachable
+ * device must not take the whole send down with it. */
+const partial = await engine.encryptText(
+    ANNA,
+    [
+        { deviceId: peterDevice.deviceId },
+        { deviceId: "33333333-3333-4333-8333-333333333333" },
+    ],
+    "For the parish council",
+)
+check("a device with no session and no bundle is skipped", partial.length === 1)
+
+/* Garbage from the wire is a null, not an exception: the store renders an
+ * undecryptable row rather than failing the whole page of messages. */
+check(
+    "a corrupt envelope decrypts to null",
+    (await engine.decryptEnvelope(PETER, annaDevice.deviceId, { type: "RATCHET", body: "bm90LWpzb24=" })) === null,
+)
+
+check("topUpPreKeys does nothing while the pool is deep", (await engine.topUpPreKeys(ANNA, 100)) === null)
+check("topUpPreKeys refills a drained pool", Boolean(await engine.topUpPreKeys(ANNA, 0)))
 
 if (failures > 0) {
     console.error(`\n${failures} check(s) failed`)

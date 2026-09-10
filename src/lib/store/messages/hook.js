@@ -5,7 +5,6 @@ import { useShallow } from "zustand/react/shallow"
 
 import { MESSAGES_POLL_MS, ROUTES } from "@/lib/constants"
 import { useRouteOpener } from "@/lib/hooks/useSlideRoute.hook"
-import { isAdult } from "@/lib/utils"
 import { useUser } from "@/lib/store/auth/hook"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import useMessagesStore from "./store"
@@ -27,11 +26,12 @@ export const useMessagingBoot = () => {
 }
 
 /* Whether the viewer may see messaging at all — the nav entries render off this, so
- * a minor never sees the entrance. The server refuses them regardless. */
-export const useMessagingAvailable = () => {
-    const user = useUser()
-    return Boolean(user && isAdult(user.birthday))
-}
+ * a minor never sees the entrance. The server refuses them regardless.
+ *
+ * **Read off the store rather than recomputed from the viewer.** `boot` applies `isAdult`
+ * and parks the answer in `available`; a second copy of the test here answers differently
+ * for the width of the boot, offering a door to a surface whose own hooks still refuse. */
+export const useMessagingAvailable = () => useMessagesStore((state) => state.available)
 
 /* The badge on the send icon: how many conversations hold something unread. Lives in
  * the notifications store because it arrives on that store's poll. */

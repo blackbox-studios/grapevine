@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { ROUTES } from "@/lib/constants"
 import { signupPath } from "@/lib/utils"
-import { openSlide, pushRoute } from "@/lib/hooks/useSlideRoute.hook"
+import { useRouteOpener } from "@/lib/hooks/useSlideRoute.hook"
 import { onAppState } from "@/lib/native"
 import {
     onPushReceived,
@@ -39,6 +39,7 @@ export const usePushListeners = (ready) => {
     )
     const { openProfile } = useOpenProfile()
     const { setTab } = useEventsView()
+    const openRoute = useRouteOpener()
 
     /* A tap, from a banner or from a cold launch. Records the destination only. */
     useEffect(() => {
@@ -48,26 +49,28 @@ export const usePushListeners = (ready) => {
 
     /* …and opens it, once there is somewhere to open it.
      *
-     * `openSlide` rather than `router.push`, because a post has no route: its id was unknown
-     * at build time and `output: "export"` demands `generateStaticParams` for every dynamic
-     * segment. This is the same shallow-history navigation the feed uses — see the Slide
-     * routes section of frontend-architecture.md. A follow points at a person instead, and a
-     * card is not a route at all — it is the profile store's `openHandle`. A sign-up is the
-     * third shape: a rota *is* a route (`/events/s/:id`), just a page one rather than an
-     * overlay, so it is reached with `pushRoute` instead. The tab is set alongside it so backing
-     * out of the rota lands on the sign-ups half rather than the calendar. */
+     * `openRoute` rather than `router.push`, because none of these destinations has a route
+     * file: their ids were unknown at build time and `output: "export"` demands
+     * `generateStaticParams` for every dynamic segment. This is the same shallow-history
+     * navigation the feed uses — see the Slide routes section of frontend-architecture.md.
+     * It is `useRouteOpener` rather than `openSlide` directly because how a runtime route
+     * opens is the route's own business and varies with the breakpoint; a banner tap is the
+     * entrance least able to know which, since it can land from a cold launch with nothing
+     * mounted. A follow is the exception that is not a route at all — a profile card is the
+     * profile store's `openHandle`. The rota's tab is set alongside the navigation so backing
+     * out of it lands on the sign-ups half rather than the calendar. */
     useEffect(() => {
         if (!ready || !pending) return
 
         const { postId, handle, sheetId, conversationId } = takePending() ?? {}
-        if (postId) openSlide(`${ROUTES.POST}/${postId}`)
-        else if (conversationId) openSlide(`${ROUTES.CONVERSATION}/${conversationId}`)
+        if (postId) openRoute(`${ROUTES.POST}/${postId}`)
+        else if (conversationId) openRoute(`${ROUTES.CONVERSATION}/${conversationId}`)
         else if (handle) openProfile(handle)
         else if (sheetId) {
             setTab("signups")
-            pushRoute(signupPath(sheetId))
+            openRoute(signupPath(sheetId))
         }
-    }, [ready, pending, takePending, openProfile, setTab])
+    }, [ready, pending, takePending, openRoute, openProfile, setTab])
 
     /* A push that landed with the app already open. No banner is drawn — the reader is looking
      * at the app — so all it means is that the panel is behind, possibly while on screen. A

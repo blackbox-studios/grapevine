@@ -52,6 +52,11 @@ const ERROR_INIT = {
     thread: false,
     send: false,
     contacts: false,
+    boot: false,
+    /* Accept / Delete / Block. Separate from `thread`, which is about *reading* one: a
+     * refusal to block somebody has to be able to say so while the thread it refused to
+     * block is still on screen and perfectly readable. */
+    action: false,
 }
 
 const LOADING_INIT = {
@@ -61,12 +66,18 @@ const LOADING_INIT = {
     send: false,
     contacts: false,
     open: false,
+    action: false,
 }
 
 const INIT = {
     /* Adult viewer with a registered device — the gate every surface checks. */
     available: false,
     booting: false,
+    /* Whether the automatic attempt has been spent, win or lose. Distinct from
+     * `available`, which says whether it *worked* — collapsing the two is what makes a
+     * single failed registration permanent, since the boot effect fires on a stable
+     * `user` reference and would never run again. */
+    booted: false,
     deviceId: null,
     profileId: null,
 
@@ -152,16 +163,21 @@ const useStore = create(
         ...INIT,
 
         /* Once per sign-in: create-or-load this install's device, register its public
-         * bundle, and top the one-time pool up against the server's count. Silent and
-         * unawaited by anything — a viewer who never opens the surface still becomes
-         * reachable, which is what makes the *other* side's first send deliverable. */
-        boot: async (user) => {
+         * bundle, and top the one-time pool up against the server's count. Unawaited by
+         * anything — a viewer who never opens the surface still becomes reachable, which
+         * is what makes the *other* side's first send deliverable. */
+        boot: async (user, { retry = false } = {}) => {
             if (!user?.id || get().booting) return
             if (get().profileId === user.id && get().available) return
+            /* One failed attempt must not be the end of it, but neither may a re-render
+             * become a retry loop against a server that is refusing. `booted` records that
+             * the automatic attempt has been spent; only an explicit `retry` gets past it. */
+            if (get().booted && !retry) return
 
             if (!isAdult(user.birthday)) {
                 set((state) => {
                     state.available = false
+                    state.booted = true
                     state.profileId = user.id
                 })
                 return
@@ -186,11 +202,18 @@ const useStore = create(
                     state.deviceId = deviceId
                     state.available = true
                 })
-            } catch {
-                /* Off is a state the whole surface handles; the next boot retries. */
+            } catch (error) {
+                /* **Not silent.** A failure here leaves the install unreachable over
+                 * E2EE with nothing on screen saying so, and mail sent meanwhile is
+                 * encrypted for devices this one is not among — unreadable even once it
+                 * recovers. */
+                set((state) => {
+                    state.error.boot = toErrorList(error, "Messaging couldn't start on this device.")
+                })
             } finally {
                 set((state) => {
                     state.booting = false
+                    state.booted = true
                 })
             }
         },
@@ -480,20 +503,31 @@ const useStore = create(
                 }
 
                 /* Into the cache before the state swap, so a thread reopened a moment
-                 * later reads its own send back. */
-                const cached = await loadMessages(profileId, conversationId)
-                if (!cached.some((item) => item.id === record.id)) {
-                    cached.push(record)
-                    await saveMessages(profileId, conversationId, cached)
-                }
-                const snippets = await loadSnippets(profileId)
-                snippets[conversationId] = {
+                 * later reads its own send back.
+                 *
+                 * **Its own catch: the message is already sent by this point.** Falling
+                 * through to the outer handler would mark a bubble the recipient has
+                 * *received* as failed, and the retry that invites sends it twice. Losing
+                 * the local copy costs this device the plaintext — a hole in one thread's
+                 * history rather than a duplicate in somebody else's. */
+                const snippet = {
                     messageId: record.id,
                     senderId: profileId,
                     text: body,
                     at: record.at,
                 }
-                await saveSnippets(profileId, snippets)
+                try {
+                    const cached = await loadMessages(profileId, conversationId)
+                    if (!cached.some((item) => item.id === record.id)) {
+                        cached.push(record)
+                        await saveMessages(profileId, conversationId, cached)
+                    }
+                    const snippets = await loadSnippets(profileId)
+                    snippets[conversationId] = snippet
+                    await saveSnippets(profileId, snippets)
+                } catch {
+                    /* Nothing to do about it here; the bubble is on screen either way. */
+                }
 
                 set((state) => {
                     if (state.thread?.id === conversationId) {
@@ -503,7 +537,7 @@ const useStore = create(
                     const row = state.conversations.find((c) => c.id === conversationId)
                     if (row) {
                         row.lastMessageAt = record.at
-                        row.snippet = snippets[conversationId]
+                        row.snippet = snippet
                         row.unread = false
                         state.conversations.sort((a, b) =>
                             a.lastMessageAt < b.lastMessageAt ? 1 : -1,
@@ -530,15 +564,23 @@ const useStore = create(
             }
         },
 
-        /* A failed bubble's retry: take it off the rail and run the send again. */
+        /* A failed bubble's retry: take it off the rail and run the send again.
+         *
+         * **`send`'s own guards are tested before the row is removed.** It bails silently
+         * when the thread has gone or another send is in flight, and a retry that had
+         * already swallowed the row would delete the message in response to being asked to
+         * send it. Restoring it afterwards would not do — by then a genuine failure has
+         * pushed a second failed bubble of its own. */
         retry: async (itemId) => {
-            const { thread } = get()
+            const { thread, loading } = get()
             const item = thread?.items.find((entry) => entry.id === itemId)
-            if (!item?.failed) return
+            if (!item?.failed) return false
+            if (!thread.conversation || loading.send) return false
+
             set((state) => {
                 state.thread.items = state.thread.items.filter((entry) => entry.id !== itemId)
             })
-            await get().send(item.text)
+            return get().send(item.text)
         },
 
         /* Marks the open thread read — server cursor, inbox row, and the badge the
@@ -551,51 +593,98 @@ const useStore = create(
                 const held = state.conversations.find((c) => c.id === conversationId)
                 if (held) held.unread = false
             })
+            get().settleTally()
+            api.post(API_ENDPOINTS.CONVERSATION_READ(conversationId)).catch(() => {})
+        },
+
+        /* Re-counts the badge from the rows in hand, so opening a thread settles it now
+         * rather than a poll interval later.
+         *
+         * **Only once the inbox has actually answered.** A cold launch straight into a
+         * thread — a tapped banner, which is the common way this surface is reached — has
+         * never listed the conversations, so the count would be taken over an empty array
+         * and clear a badge that other unread threads are still owed. Deferring to the
+         * poll costs one interval of staleness; counting nothing costs the badge. */
+        settleTally: () => {
+            if (!get().ready) return
             useNotificationsStore
                 .getState()
                 .setMessagesTally(get().conversations.filter((c) => c.unread).length)
-            api.post(API_ENDPOINTS.CONVERSATION_READ(conversationId)).catch(() => {})
+        },
+
+        /* Accept / Delete / Block, the three verbs of the request gate.
+         *
+         * **All three report failure rather than throwing it.** Each is a control whose
+         * only feedback is the surface changing underneath it, so a rejected promise reads
+         * as the button doing nothing — and for Block, the reasonable reading of that
+         * silence is that it worked. The boolean lets the caller dismiss only on success;
+         * `error.action` carries the reason to the toast. */
+        runAction: async (label, work) => {
+            if (get().loading.action) return false
+            set((state) => {
+                state.loading.action = true
+                state.error.action = false
+            })
+            try {
+                await work()
+                return true
+            } catch (error) {
+                set((state) => {
+                    state.error.action = toErrorList(error, label)
+                })
+                return false
+            } finally {
+                set((state) => {
+                    state.loading.action = false
+                })
+            }
         },
 
         /* The request gate's Accept: the composer unlocks and the blur lifts. */
         accept: async () => {
             const { thread } = get()
-            if (!thread) return
-            await api.post(API_ENDPOINTS.CONVERSATION_ACCEPT(thread.id))
-            set((state) => {
-                if (state.thread?.conversation) {
-                    state.thread.conversation.accepted = true
-                    state.thread.conversation.isRequest = false
-                }
-                const row = state.conversations.find((c) => c.id === thread.id)
-                if (row) {
-                    row.accepted = true
-                    row.isRequest = false
-                }
+            if (!thread) return false
+            return get().runAction("Couldn't accept that conversation.", async () => {
+                await api.post(API_ENDPOINTS.CONVERSATION_ACCEPT(thread.id))
+                set((state) => {
+                    if (state.thread?.conversation) {
+                        state.thread.conversation.accepted = true
+                        state.thread.conversation.isRequest = false
+                    }
+                    const row = state.conversations.find((c) => c.id === thread.id)
+                    if (row) {
+                        row.accepted = true
+                        row.isRequest = false
+                    }
+                })
             })
         },
 
         /* Delete (a request, or any thread) — removes it for both sides and forgets
          * the local plaintext with it. */
-        remove: async (conversationId) => {
-            const { profileId } = get()
-            await api.delete(API_ENDPOINTS.CONVERSATION(conversationId))
-            await forgetConversation(profileId, conversationId)
-            set((state) => {
-                state.conversations = state.conversations.filter((c) => c.id !== conversationId)
-                if (state.thread?.id === conversationId) state.thread = null
-            })
-        },
+        remove: async (conversationId) =>
+            get().runAction("Couldn't delete that conversation.", async () => {
+                await api.delete(API_ENDPOINTS.CONVERSATION(conversationId))
+                await get().dropConversation(conversationId)
+            }),
 
         /* Block, from a request: refuse the sender for good. */
-        block: async (conversationId) => {
-            const { profileId } = get()
-            await api.post(API_ENDPOINTS.CONVERSATION_BLOCK(conversationId))
-            await forgetConversation(profileId, conversationId)
+        block: async (conversationId) =>
+            get().runAction("Couldn't block that person.", async () => {
+                await api.post(API_ENDPOINTS.CONVERSATION_BLOCK(conversationId))
+                await get().dropConversation(conversationId)
+            }),
+
+        /* Takes a thread off every surface at once, local plaintext included. Shared by
+         * Delete and Block because the two differ only in what the server does about the
+         * *person*; what happens to the conversation here is identical. */
+        dropConversation: async (conversationId) => {
+            await forgetConversation(get().profileId, conversationId)
             set((state) => {
                 state.conversations = state.conversations.filter((c) => c.id !== conversationId)
                 if (state.thread?.id === conversationId) state.thread = null
             })
+            get().settleTally()
         },
 
         /* New Message → a person picked → their thread, existing or fresh. Returns

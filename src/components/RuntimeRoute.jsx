@@ -27,6 +27,7 @@ import { useRuntimePage } from "@/lib/hooks/useSlideRoute.hook"
  *
  *   "modal"  in-app slide overlay, drawn by <SlideRouter/>
  *   "page"   a full surface — a cold-loaded slide route, or an ordinary page route
+ *   "inline" an `inline` route above the breakpoint, drawn in the shell's page slot
  *
  * Slide surfaces own their own enter/exit animation (so it can differ by breakpoint) and
  * animate horizontally on SLIDE_TRANSITION to stay locked to the pushed base. A `slide: false`
@@ -67,9 +68,12 @@ export const RUNTIME_SURFACES = {
  * a cold load of the same URL render identically, because both are just "the pathname names a
  * runtime route".
  *
- * Slide routes are deliberately untouched: they are drawn over the page slot by
- * <SlideRouter/>, and a cold load of one is handled by <SlidePage/> from the catch-all. If
- * this rendered them too they would appear twice, once in each place. */
+ * Slide routes are deliberately untouched *while they present as overlays*: they are drawn
+ * over the page slot by <SlideRouter/>, and a cold load of one is handled by <SlidePage/>
+ * from the catch-all. If this rendered them too they would appear twice, once in each place.
+ * An `inline` route above the breakpoint is not presenting as an overlay — `<SlideRouter/>`
+ * has no entry for it and its surface draws nothing at that size — so it resolves here
+ * instead, which is the one case where a `slide: true` route reaches this slot. */
 export const RuntimeRoute = ({ children }) => {
     /* **Resolved once, on mount, and deliberately never re-read.**
      *
@@ -99,7 +103,9 @@ export const RuntimeRoute = ({ children }) => {
      * to the router's own answer means the catch-all's 404, which is the honest result. */
     if (!surface) return children
 
-    return surface(route.param, "page")
+    /* `useRuntimePage` hands back an `inline` route only above the breakpoint, so the flag
+     * being here is already the answer to "which size is this". */
+    return surface(route.param, route.inline ? "inline" : "page")
 }
 
 export default RuntimeRoute

@@ -125,17 +125,15 @@ const ConversationRow = ({ conversation, active, onOpen }) => {
                 )}
             />
             {/* **The dot hangs in the margin rather than holding a column of its own.**
-                A reserved gutter is only honest if something is usually in it; here most
-                rows are read, so every one of them paid an indent for a mark it did not
-                have and the avatars sat visibly off to the right of everything else in
-                the list. Positioned absolutely into the surrounding padding instead: the
+                A reserved gutter is only honest if something is usually in it, and here
+                most rows are read. Positioned absolutely into the surrounding padding: the
                 avatar keeps the place it would have had with no dot at all, and an unread
                 row grows a mark beside it without moving anything. */}
             {unread && (
                 <>
                     <span
                         aria-hidden="true"
-                        className="absolute -left-3 top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-[#0a84ff]"
+                        className="absolute -left-3 top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-secondary"
                     />
                     {/* The dot and the bolder name are the only marks of an unread row, and
                         both are visual. This is what the button says out loud. */}

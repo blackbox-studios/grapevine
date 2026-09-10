@@ -579,9 +579,9 @@ const owesLetter = (profile) => !profile.lastSeenAt
 /* The audit row, and — when one is owed — the letter's place in the queue.
  *
  * `nextAttemptAt` is the whole of that queue: a date means a letter is owed from then, and null
- * means none is, so an admission announced by push leaves a row the sweep cannot see. Both are
- * reset on re-admission, because somebody let back into a parish is owed the same letter again
- * and the row from last time has already been marked sent.
+ * means none is, so an admission announced by push writes a row the sweep cannot see. They are
+ * reset when a letter is owed, because somebody let back into a parish is owed the same letter
+ * again and the row from last time has already been marked sent.
  *
  * Returned as arguments rather than written here, so the caller can put it in the transaction
  * that admits the person. That placement is the point: when a letter is owed, this row is the
@@ -589,11 +589,17 @@ const owesLetter = (profile) => !profile.lastSeenAt
  * told. */
 const inviteWrite = ({ email, orgId, role, vocation, viewerId, letter, now }) => {
     const queue = { sentAt: null, attempts: 0, nextAttemptAt: letter ? now : null }
+    const audit = { role, vocation, invitedById: viewerId }
 
     return {
         where: { email_orgId: { email, orgId } },
-        update: { role, vocation, invitedById: viewerId, ...queue },
-        create: { email, orgId, role, vocation, invitedById: viewerId, ...queue },
+        /* An admission that owes no letter touches the audit half and nothing else. Writing the
+         * queue columns anyway would clear a letter still waiting to go out, and the admin who
+         * corrects somebody's role a minute after adding them takes exactly this branch: the
+         * person would be admitted, the queue emptied, and nobody ever told. A row left owing a
+         * letter that is no longer wanted is `sendOwedInvites`'s to retire. */
+        update: letter ? { ...audit, ...queue } : audit,
+        create: { email, orgId, ...audit, ...queue },
     }
 }
 

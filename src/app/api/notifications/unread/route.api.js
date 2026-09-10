@@ -1,3 +1,5 @@
+import { after } from "next/server"
+
 import { requireViewer } from "@/lib/server/auth"
 import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
@@ -33,14 +35,18 @@ export const GET = route(async (request) => {
 
     /* **The app's closest thing to a clock, borrowed** — this is the endpoint every client asks
      * on boot, on every foreground, and on a thirty-second poll, which is what makes it the one
-     * worth hanging a sweep off. Neither is awaited and neither can fail this request; see
+     * worth hanging a sweep off. Neither can fail this request or slow its tallies; see
      * `sweepDueReminders` for why that is safe.
      *
-     * Two of them now, and they are throttled independently rather than merged: a reminder is
-     * punctual and sweeps every five minutes, while a letter nobody is waiting on sweeps every
-     * two. Both are a timestamp comparison and nothing else on almost every call. */
+     * Two of them, throttled independently rather than merged: a reminder is punctual and
+     * sweeps every five minutes, while a letter nobody is waiting on sweeps every two. Both are
+     * a timestamp comparison and nothing else on almost every call.
+     *
+     * The letters go through `after`, which is what keeps a serverless instance alive long
+     * enough to send them: a batch is seconds of paced HTTP with the response already gone, and
+     * a detached promise is dropped when the instance freezes on its way out. */
     sweepDueReminders()
-    sweepOwedInvites()
+    after(sweepOwedInvites)
 
     /* The message badge rides on the same tick rather than costing a poll of its own —
      * the count is per-viewer like the bell's, and this is already the request every

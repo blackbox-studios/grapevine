@@ -290,11 +290,15 @@ const emailWelcome = ({ to, group, by }) =>
  * ------------------------------------------------------------------------- */
 
 /* How many letters one run will send. A ceiling rather than a page: a run that finds more than
- * this has a backlog, and the next sweep a few minutes later takes the rest. It is small
- * because the queue below paces itself at roughly two a second, and a run that would take a
- * minute is a run a serverless instance may not survive — twenty is a few seconds of work,
- * which is the point of a bounded batch here rather than a large one. */
-const INVITE_BATCH = 20
+ * this has a backlog, and the next sweep a few minutes later takes the rest.
+ *
+ * Sized against a serverless function's wall clock, not against the size of a roster. The
+ * queue paces itself at roughly two a second and every one of those seconds is spent after the
+ * response has gone, so a batch has to fit inside the platform's own timeout with room for the
+ * round trips either side of it: eight is about five seconds of sending, under the ten a
+ * function is given by default. A larger one is not lost, it is killed at the limit and swept
+ * again, which is throughput spent on nothing. */
+const INVITE_BATCH = 8
 
 /* How often a lazy sweep will actually do anything, per process. Nobody is waiting on a
  * letter, so this is deliberately slower than the reminders' sweep: a minute or two late is
@@ -313,6 +317,12 @@ const INVITE_BACKOFF_MS = [2, 4, 8, 16, 32, 64, 128, 180].map((m) => m * 60 * 10
  * roster is not fixed by trying it a thousand more times. */
 const INVITE_MAX_ATTEMPTS = 10
 
+/* How long a claimed row is held before another sweep may take it. It has to outlast a whole
+ * batch, since the last letter in one is sent `INVITE_BATCH` gaps after the claim, and it is
+ * otherwise deliberately short: this is the delay on a run that died halfway through, and
+ * nobody is served by that row sitting untouchable for an hour. */
+const INVITE_LEASE_MS = 2 * 60 * 1000
+
 const backoffFrom = (attempts) =>
     INVITE_BACKOFF_MS[Math.min(attempts, INVITE_BACKOFF_MS.length - 1)]
 
@@ -326,25 +336,33 @@ const owedInclude = {
 
 /* Sends every letter that is owed and due, and records only the ones that went.
  *
- * ── Claimed before it is used ────────────────────────────────────────────────
+ * ── Leased before it is used ─────────────────────────────────────────────────
  *
  * Two sweeps can run at once — several instances, a hand-run script, a retry — so each row is
  * claimed by pushing `nextAttemptAt` forward *before* the send, conditionally on it still being
  * due. The loser's update matches nothing and it sends nothing, rather than both of them
  * mailing the same person twice.
  *
- * One `updateMany` per row rather than one for the batch, because the new wait depends on that
- * row's own attempt count. They go in a single `$transaction([...])`, so it is still one round
- * trip.
+ * One `updateMany` per row rather than one over every id, because a single count cannot say
+ * *which* rows this run won and an `updateMany` returns nothing else. They go in one
+ * `$transaction([...])`, so it is still one round trip.
  *
- * ── The claim is also the backoff ────────────────────────────────────────────
+ * ── A lease is not an attempt ────────────────────────────────────────────────
  *
- * The value written is the wait for the attempt about to happen, which means a send that
- * *fails* needs no write at all: the row is already scheduled for its next try. Only success is
- * recorded afterwards. This is the opposite direction from `sendDueReminders`, which stamps
- * `sentAt` up front and so loses a nudge on a crash rather than repeating it — right for a
- * reminder, wrong here, because a lost letter is somebody who never learns the account exists
- * while a duplicate is one redundant email. */
+ * What the claim writes is a short lease; `attempts` moves only once a send has been tried and
+ * refused. The two are separate because all of this happens after the response has gone. A
+ * serverless instance frozen on its way out drops the rest of a batch having sent nothing, and
+ * if the claim spent an attempt, a roster long enough to span several sweeps would walk its
+ * rows up to `INVITE_MAX_ATTEMPTS` and abandon them unsent without one message having been
+ * refused by anybody. A dropped lease costs `INVITE_LEASE_MS` instead and the next sweep picks
+ * the row up.
+ *
+ * A refusal is therefore a write of its own, one per row because the wait depends on that
+ * row's own attempt count, in a transaction that is empty on almost every run. What it buys is
+ * that an interrupted batch is re-sent rather than lost, which is the direction this letter
+ * wants: losing one is somebody who never learns the account exists, while repeating one is a
+ * redundant email. `sendDueReminders` stamps `sentAt` up front and leans the other way, which
+ * is right for a nudge about a shift and wrong here. */
 export const sendOwedInvites = async ({ now = new Date() } = {}) => {
     const due = await prisma.invite.findMany({
         where: {
@@ -364,10 +382,7 @@ export const sendOwedInvites = async ({ now = new Date() } = {}) => {
         due.map((invite) =>
             prisma.invite.updateMany({
                 where: { id: invite.id, sentAt: null, nextAttemptAt: { lte: now } },
-                data: {
-                    attempts: { increment: 1 },
-                    nextAttemptAt: new Date(now.getTime() + backoffFrom(invite.attempts)),
-                },
+                data: { nextAttemptAt: new Date(now.getTime() + INVITE_LEASE_MS) },
             }),
         ),
     )
@@ -391,6 +406,7 @@ export const sendOwedInvites = async ({ now = new Date() } = {}) => {
 
     const sent = []
     const stale = []
+    const refused = []
 
     for (const invite of mine) {
         const person = byEmail.get(invite.email)
@@ -414,26 +430,45 @@ export const sendOwedInvites = async ({ now = new Date() } = {}) => {
             by: displayName(invite.invitedBy),
         })
 
-        /* A refusal needs no write: the claim above already scheduled the next attempt. */
         if (went) sent.push(invite.id)
+        else refused.push(invite)
     }
 
-    /* `nextAttemptAt` back to null alongside it, so the column keeps meaning exactly one thing:
-     * non-null is a letter still owed. Leaving the claim's backoff on a row that has been
-     * delivered would make it read as owed again at a date that has already passed. */
+    const writes = []
+
+    /* `nextAttemptAt` back to null alongside `sentAt`, so the column keeps meaning exactly one
+     * thing: non-null is a letter still owed. Leaving a lease on a row that has been delivered
+     * would make it read as owed again at a date that has already passed. */
     if (sent.length > 0 || stale.length > 0) {
-        await prisma.invite.updateMany({
-            where: { id: { in: [...sent, ...stale] } },
-            data: { sentAt: now, nextAttemptAt: null },
-        })
+        writes.push(
+            prisma.invite.updateMany({
+                where: { id: { in: [...sent, ...stale] } },
+                data: { sentAt: now, nextAttemptAt: null },
+            }),
+        )
     }
 
-    return { sent: sent.length, owed: mine.length - sent.length - stale.length }
+    /* The lease becomes the backoff, and the attempt is spent on a refusal. */
+    for (const invite of refused) {
+        writes.push(
+            prisma.invite.updateMany({
+                where: { id: invite.id },
+                data: {
+                    attempts: { increment: 1 },
+                    nextAttemptAt: new Date(now.getTime() + backoffFrom(invite.attempts)),
+                },
+            }),
+        )
+    }
+
+    if (writes.length > 0) await prisma.$transaction(writes)
+
+    return { sent: sent.length, owed: refused.length }
 }
 
 let lastSweep = 0
 
-/* Sends whatever is owed, at most once every `INVITE_SWEEP_MS`, without blocking the caller.
+/* Sends whatever is owed, at most once every `INVITE_SWEEP_MS`.
  *
  * Hung off `GET /api/notifications/unread` for the reason `sweepDueReminders` is: it is the
  * request every client makes on boot, on every foreground, and on a thirty-second poll where
@@ -442,20 +477,23 @@ let lastSweep = 0
  * somebody happens to open the roster.
  *
  * The throttle is per process, so several instances sweep independently. That is harmless:
- * `sendOwedInvites` claims each row before it uses it, and two sweeps racing cannot mail
+ * `sendOwedInvites` leases each row before it uses it, and two sweeps racing cannot mail
  * anybody twice.
  *
- * **Never awaited, and it swallows everything.** The bell's tally must not get slower, or
- * fail, because a letter could not be delivered. */
+ * **It swallows everything, and the promise is for `after` rather than for the caller.** The
+ * bell's tally must not get slower, or fail, because a letter could not be delivered — but a
+ * batch is seconds of paced sending with the response already gone, so the platform has to be
+ * told to keep the instance alive for it. Handed to `after` at the call site; nothing about the
+ * request may wait on it. */
 export const sweepOwedInvites = () => {
     const now = Date.now()
-    if (now - lastSweep < INVITE_SWEEP_MS) return
+    if (now - lastSweep < INVITE_SWEEP_MS) return Promise.resolve()
 
     /* Stamped before the work rather than after it, so a slow sweep does not let the next
      * request start a second one alongside it. */
     lastSweep = now
 
-    sendOwedInvites().catch((error) => {
+    return sendOwedInvites().catch((error) => {
         console.error("[invites] sweep failed", error)
     })
 }

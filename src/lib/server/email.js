@@ -16,11 +16,10 @@ import "server-only"
  *
  * ── Sends are queued, one at a time ────────────────────────────────────────
  *
- * Resend rate-limits on requests per second, and the caller admits people in a batch: a priest
- * pasting in forty addresses fires forty detached sends within a few milliseconds, and most of
- * them come back 429. So they go through a single-file queue with a gap between them, which
- * costs nothing that matters — nobody is waiting on this, and every entry point is
- * fire-and-forget after a committed write. */
+ * Resend rate-limits on requests per second, and its caller works through a batch. So sends go
+ * through a single-file queue with a gap between them, which costs nothing that matters:
+ * nobody is waiting on a letter, and the sweep that drives this is already detached from the
+ * request it rode in on. */
 
 const API_KEY = process.env.RESEND_API_KEY
 /* Must be an address on a domain verified in Resend, or every send is rejected. */
@@ -55,23 +54,33 @@ const post = async ({ to, subject, text, html }) => {
     }
 }
 
-/* Queues one message. Resolves when it has been sent, or when it has failed and been logged.
+/* Queues one message and resolves with **whether it went**.
  *
- * **Never rejects.** Every caller is a fire-and-forget after a committed write, so there is
- * nothing for them to catch and nothing they could do about a mail provider having a bad
- * minute. A swallowed failure also has to stay out of the chain below, or one refused address
- * would take the rest of the batch with it. */
+ * **Never rejects**, and the two halves of that are deliberate. A refusal must not take the
+ * rest of the batch down with it, which is why the failure is caught inside the chain rather
+ * than propagated along it. And it must not be *silent* either, which is why the answer comes
+ * back as a boolean: the caller records a send only when one happened, so a letter Resend
+ * refused stays owed and is tried again rather than being marked delivered and forgotten.
+ *
+ * `false` is also what an unconfigured deploy gets, which is the honest answer — no letter
+ * went — and it leaves the row queued for whenever a key is set. */
 export const sendEmail = ({ to, subject, text, html }) => {
-    if (!emailConfigured()) return Promise.resolve()
+    if (!emailConfigured()) return Promise.resolve(false)
 
-    tail = tail.then(async () => {
+    const queued = tail.then(async () => {
+        let sent = false
         try {
             await post({ to, subject, text, html })
+            sent = true
         } catch (error) {
             console.error(`[email] could not send to ${to}`, error)
         }
         await new Promise((resolve) => setTimeout(resolve, GAP_MS))
+        return sent
     })
 
-    return tail
+    /* The chain carries the *gap*, not the verdict, so a caller awaiting its own send does not
+     * hold up the queue behind it and cannot see somebody else's result. */
+    tail = queued.then(() => {})
+    return queued
 }

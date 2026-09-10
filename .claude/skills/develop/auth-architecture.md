@@ -150,8 +150,14 @@ instead, because they have no device registered and, more to the point, nothing 
 from: that letter carries the download links and tells them to sign in with the address it
 arrived at, which is the only way somebody the gate has just admitted can learn the account
 exists. It goes out over the Resend HTTP API (`RESEND_API_KEY`) and is inert without it, so an
-unconfigured deploy admits people exactly as before and only the letter is missing. See
-`emailWelcome` in `src/lib/server/invites.js`.
+unconfigured deploy admits people exactly as before and only the letter is missing.
+
+**The letter is queued rather than sent during the request.** Admission writes the `Invite` row
+owing one and returns; `sendOwedInvites` delivers it afterwards, and `sweepOwedInvites` runs
+that off the back of `GET /api/notifications/unread` — the same shape as the sign-up reminders,
+and for the same reason. A send the provider refuses stays owed and is retried on a backoff, so
+a daily quota reached halfway through a roster costs a few hours rather than the letter. See
+the header of `src/lib/server/invites.js`.
 
 That mail is **our** letter and not Supabase's, so it does not touch the hourly auth-email
 limit. Nothing about it lets anybody in: there is no token in it and no accept route, and the

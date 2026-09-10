@@ -11,10 +11,8 @@ import {
     UPLOAD_PURPOSES,
 } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { displayName } from "@/lib/name"
 import { requireMembership } from "@/lib/server/auth"
 import { AppError, invalid, notFound } from "@/lib/server/errors"
-import { emailWelcome } from "@/lib/server/invites"
 import { notifyAddedToGroup, pushAddedToGroup } from "@/lib/server/notifications.service"
 import { projectViewer } from "@/lib/server/projections"
 import { isOwnedUrl } from "@/lib/server/storage"
@@ -570,29 +568,47 @@ const deriveHandle = async (email) => {
     return `${base}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-/* Delivers the admission that has just been committed, and never makes the caller wait.
- *
- * Detached like every push in the app, and for the same two reasons: it follows the commit,
- * because there is no unsending a message about a write that then rolled back, and it is not
- * awaited, because a mail provider or Google having a bad minute must not fail a roster of
- * thirty. Both entry points swallow their own failures.
+/* Does this admission owe a letter?
  *
  * A **null `lastSeenAt` is not a device with push turned off, it is nobody**: the account
  * exists because an admin typed an address, and until somebody signs in there is no
- * installation to reach. So it takes the email, which is the delivery that can say where to
- * get the app. See the note in `admitOne`. */
-const announce = (viewer, org, profile) => {
-    if (profile.lastSeenAt) {
-        pushAddedToGroup({
-            recipientId: profile.id,
-            actor: viewer,
-            orgName: org.name,
-            orgId: org.id,
-        })
-        return
-    }
+ * installation to reach and no reason to think they know Grapevine exists. So they are written
+ * to. Anybody else is told by push, which is instant and costs no quota. */
+const owesLetter = (profile) => !profile.lastSeenAt
 
-    emailWelcome({ to: profile.email, group: org.name, by: displayName(viewer) })
+/* The audit row, and — when one is owed — the letter's place in the queue.
+ *
+ * `nextAttemptAt` is the whole of that queue: a date means a letter is owed from then, and null
+ * means none is, so an admission announced by push leaves a row the sweep cannot see. Both are
+ * reset on re-admission, because somebody let back into a parish is owed the same letter again
+ * and the row from last time has already been marked sent.
+ *
+ * Returned as arguments rather than written here, so the caller can put it in the transaction
+ * that admits the person. That placement is the point: when a letter is owed, this row is the
+ * only record that anybody is owed one, so a swallowed failure is somebody admitted and never
+ * told. */
+const inviteWrite = ({ email, orgId, role, vocation, viewerId, letter, now }) => {
+    const queue = { sentAt: null, attempts: 0, nextAttemptAt: letter ? now : null }
+
+    return {
+        where: { email_orgId: { email, orgId } },
+        update: { role, vocation, invitedById: viewerId, ...queue },
+        create: { email, orgId, role, vocation, invitedById: viewerId, ...queue },
+    }
+}
+
+/* Tells somebody who is already here, which is the delivery that is not a row.
+ *
+ * Detached like every push in the app: it follows the commit, because there is no unsending a
+ * message about a write that then rolled back, and it is not awaited, because Google having a
+ * bad minute must not fail a roster of thirty. */
+const announce = (viewer, org, profile) => {
+    pushAddedToGroup({
+        recipientId: profile.id,
+        actor: viewer,
+        orgName: org.name,
+        orgId: org.id,
+    })
 }
 
 /* Admits one person to a group.
@@ -603,9 +619,9 @@ const announce = (viewer, org, profile) => {
  * fight both the invite-only gate and the static export, and because a redemption link is
  * exactly the thing that cannot work inside the native WebView.
  *
- * The `Invite` row is kept purely as the audit trail: who admitted whom, to what role and
- * vocation, and when. It carries no token and no expiry, because there is nothing to
- * redeem — and nobody can ask to join in the first place, so it is never a request either.
+ * The `Invite` row carries no token and no expiry, because there is nothing to redeem — and
+ * nobody can ask to join in the first place, so it is never a request either. It is the audit
+ * trail of who admitted whom, and it is where a letter that is owed waits to be sent.
  *
  * ── Telling them, and why the channel is decided by `lastSeenAt` ─────────────
  *
@@ -616,10 +632,16 @@ const announce = (viewer, org, profile) => {
  *
  * So the delivery is chosen on whether they have ever signed in. Somebody who has gets a
  * **push**, which is enough — they know what Grapevine is and their groups are one tap apart.
- * Somebody who has not gets the **invitation email**, because they have no device registered
- * and nothing to install from: a push to them is delivered to nobody, and the invite-only gate
- * means they cannot even be sent a sign-in code until they ask for one. That email is the only
- * thing in the app that carries a download link. See `emailWelcome`.
+ * Somebody who has not is owed the **invitation email**, because they have no device
+ * registered and nothing to install from: a push to them is delivered to nobody, and the
+ * invite-only gate means they cannot even be sent a sign-in code until they ask for one. That
+ * email is the only thing in the app that carries a download link.
+ *
+ * **The letter is queued here, not sent here.** All this does is write the `Invite` row owing
+ * one; `sendOwedInvites` delivers it afterwards. That is what makes a provider refusing the
+ * day's hundredth message, or a serverless instance freezing on the way out of the request, a
+ * few minutes of delay rather than a person admitted and never told. See the header of
+ * `lib/server/invites.js`.
  *
  * A person already APPROVED in this group is told nothing, because nothing happened: a
  * re-invite of an existing member is how an admin changes somebody's role, and a notification
@@ -645,6 +667,8 @@ const admitOne = async (viewer, org, { email, role, vocation }) => {
 
     if (existingProfile) {
         const admitting = existingProfile.memberships[0]?.status !== "APPROVED"
+        const letter = admitting && owesLetter(existingProfile)
+        const now = new Date()
 
         const [membership] = await prisma.$transaction([
             prisma.membership.upsert({
@@ -676,6 +700,19 @@ const admitOne = async (viewer, org, { email, role, vocation }) => {
                       }),
                   ]
                 : []),
+            /* In the transaction rather than after it: when a letter is owed, this row is the
+             * only record that it is. */
+            prisma.invite.upsert(
+                inviteWrite({
+                    email: address,
+                    orgId,
+                    role,
+                    vocation,
+                    viewerId: viewer.id,
+                    letter,
+                    now,
+                }),
+            ),
         ])
 
         /* Vocation is the admin's to set, here and later. */
@@ -687,7 +724,7 @@ const admitOne = async (viewer, org, { email, role, vocation }) => {
             membership.profile.vocation = vocation
         }
 
-        if (admitting) announce(viewer, org, existingProfile)
+        if (admitting && !letter) announce(viewer, org, existingProfile)
 
         return projectMember(membership)
     }
@@ -757,19 +794,23 @@ const admitOne = async (viewer, org, { email, role, vocation }) => {
             orgId,
         })
 
+        /* Always a letter here: the profile was created a statement ago, so nobody has ever
+         * signed in on it. In the transaction with the admission it records, because it is
+         * the only record that anybody is owed one. */
+        await tx.invite.upsert(
+            inviteWrite({
+                email: address,
+                orgId,
+                role,
+                vocation,
+                viewerId: viewer.id,
+                letter: true,
+                now: new Date(),
+            }),
+        )
+
         return created
     })
-
-    announce(viewer, org, membership.profile)
-
-    await prisma.invite
-        .upsert({
-            where: { email_orgId: { email: address, orgId } },
-            update: { role, vocation, invitedById: viewer.id },
-            create: { email: address, orgId, role, vocation, invitedById: viewer.id },
-        })
-        /* The audit row is not worth failing an admission over. */
-        .catch(() => {})
 
     return projectMember(membership)
 }

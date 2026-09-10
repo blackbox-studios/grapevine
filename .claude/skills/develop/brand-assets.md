@@ -1,7 +1,7 @@
 # Brand Assets — what changing the icon actually costs
 
 > **Purpose.** The blast radius of "let's change the app icon". Read this *before* starting,
-> because the expensive part is not the drawing — it is the six places the mark exists that
+> because the expensive part is not the drawing — it is the ten places the mark exists that
 > `npm run icons` does not own, and which fail quietly and separately when they drift.
 >
 > Companion: `scripts/generate-icons.mjs`, whose header explains *how* the generator works
@@ -11,7 +11,7 @@
 
 ## TL;DR
 
-`npm run icons` regenerates **52 files** from one outline. It does not touch **nine other
+`npm run icons` regenerates **52 files** from one outline. It does not touch **ten other
 places** the mark, its colour, or its silhouette also live. A change that only runs the
 script ships an app whose launcher icon, browser tab, and notification tray disagree.
 
@@ -20,7 +20,7 @@ script ships an app whose launcher icon, browser tab, and notification tray disa
 | Generated | 52 files — 45 Android, 7 iOS |
 | Hand-maintained | `favicon.svg`, `ic_notification.xml`, `colors.xml`, `capacitor.config.json` |
 | Second implementations of the same art | 3 (canvas, SVG, favicon) |
-| Uploaded outside the repo | 2 store listings |
+| Uploaded outside the repo | 2 store listings, 1 hosted email PNG |
 | Decoy files that look generated and are not | 2 (see below) |
 
 ---
@@ -137,6 +137,30 @@ lazy value here is a WCAG failure on the sign-in screen.
 There is **no** `apple-touch-icon` and **no** PWA manifest. If either is ever added it
 becomes another surface on this list.
 
+### 9. The mark in outgoing email — a PNG that is not in this repo at all
+
+Both pieces of mail the app sends put the mark at the top: the sign-in code
+(`supabase/templates/magic-link.html`) and the invitation
+(`LOGO_URL` in `src/lib/server/invites.js`). Both point at the **same hosted PNG**, in
+Supabase Storage rather than on throughgrapevine.com so it cannot 404 during a deploy:
+
+```
+media/brand/email-mark.png
+```
+
+`node scripts/generate-email-logo.mjs` regenerates and re-uploads it. **Run it, or the new
+brand ships everywhere except the two emails a parishioner receives in their first minute**,
+which are the first thing a new person ever sees of the app.
+
+It is a raster and it is remote for the same reason: Gmail strips `<svg>` and blocks `data:`
+URIs in `src`, so neither the generator's output nor `markSvg` can be inlined. That makes this
+the one surface on this list that a `git grep` for the new colour will not find, and the one
+that keeps serving the old mark to real people after every other copy has been updated —
+including to anybody who opens an email sent months ago.
+
+Both files hard-code the URL rather than importing a constant, so if the object is ever
+renamed, both need editing.
+
 ---
 
 ## The order to do it in
@@ -149,8 +173,9 @@ becomes another surface on this list.
 6. Hand-edit `values/colors.xml` if the brand green moved.
 7. Reconcile the four `capacitor.config.json` background colours with `SPLASH_DARK_BG`.
 8. Decide whether `ic_notification.xml` needs anything (usually: no).
-9. `npm run sync`, then build both platforms.
-10. Export a 512x512 for Play Console.
+9. `node scripts/generate-email-logo.mjs` — re-upload the mark the two emails point at.
+10. `npm run sync`, then build both platforms.
+11. Export a 512x512 for Play Console.
 
 **Check the result on a device, not in the file browser.** Android caches launcher icons
 aggressively — a reinstall, or a different launcher, is often the only way to see a change.
@@ -163,5 +188,5 @@ Worth stating so nobody "fixes" it into something worse. The duplication is real
 copy exists for a reason: Node cannot run a canvas, a favicon cannot read a custom property,
 and a status-bar icon cannot be the mark. What *could* reasonably be automated is the
 favicon and `colors.xml` — both are pure functions of `mark.js` — and doing so would take
-this list from nine items to seven. That is the one improvement here worth making, and it
+this list from ten items to eight. That is the one improvement here worth making, and it
 belongs in `scripts/generate-icons.mjs` rather than in a new script.

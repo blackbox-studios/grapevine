@@ -1,6 +1,7 @@
 import { requireViewer } from "@/lib/server/auth"
 import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
+import { sweepOwedInvites } from "@/lib/server/invites"
 import { unreadConversations } from "@/lib/server/messages.service"
 import { sendResource } from "@/lib/server/respond"
 import { unreadCount } from "@/lib/server/notifications.service"
@@ -32,9 +33,14 @@ export const GET = route(async (request) => {
 
     /* **The app's closest thing to a clock, borrowed** — this is the endpoint every client asks
      * on boot, on every foreground, and on a thirty-second poll, which is what makes it the one
-     * worth hanging a sweep off. Not awaited, and it cannot fail this request; see
-     * `sweepDueReminders` for why that is safe. */
+     * worth hanging a sweep off. Neither is awaited and neither can fail this request; see
+     * `sweepDueReminders` for why that is safe.
+     *
+     * Two of them now, and they are throttled independently rather than merged: a reminder is
+     * punctual and sweeps every five minutes, while a letter nobody is waiting on sweeps every
+     * two. Both are a timestamp comparison and nothing else on almost every call. */
     sweepDueReminders()
+    sweepOwedInvites()
 
     /* The message badge rides on the same tick rather than costing a poll of its own —
      * the count is per-viewer like the bell's, and this is already the request every

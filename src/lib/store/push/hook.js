@@ -14,6 +14,7 @@ import {
     openPushSettings,
     pushSupported,
 } from "@/lib/push"
+import useMessagesStore from "@/lib/store/messages/store"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import { useOpenProfile } from "@/lib/store/profile/hook"
 import { useEventsView } from "@/lib/store/signups/hook"
@@ -58,8 +59,9 @@ export const usePushListeners = (ready) => {
     useEffect(() => {
         if (!ready || !pending) return
 
-        const { postId, handle, sheetId } = takePending() ?? {}
+        const { postId, handle, sheetId, conversationId } = takePending() ?? {}
         if (postId) openSlide(`${ROUTES.POST}/${postId}`)
+        else if (conversationId) openSlide(`${ROUTES.CONVERSATION}/${conversationId}`)
         else if (handle) openProfile(handle)
         else if (sheetId) {
             setTab("signups")
@@ -68,10 +70,20 @@ export const usePushListeners = (ready) => {
     }, [ready, pending, takePending, openProfile, setTab])
 
     /* A push that landed with the app already open. No banner is drawn — the reader is looking
-     * at the app — so all it means is that the panel is behind, possibly while on screen. */
+     * at the app — so all it means is that the panel is behind, possibly while on screen. A
+     * message push additionally lands in whatever messaging surface is up: the open thread
+     * refreshes — that is the receiving half of a live conversation — and otherwise the
+     * inbox re-lists so the row moves and the snippet updates. */
     useEffect(() => {
         if (!pushSupported()) return
-        return onPushReceived(() => useNotificationsStore.getState().sync())
+        return onPushReceived((data) => {
+            useNotificationsStore.getState().sync()
+            if (data?.conversationId) {
+                const messages = useMessagesStore.getState()
+                if (messages.thread?.id === data.conversationId) messages.refreshThread()
+                else messages.refreshInbox({ silent: true })
+            }
+        })
     }, [])
 
     /* The SDK rotating this installation's token. Re-registering is the only thing standing

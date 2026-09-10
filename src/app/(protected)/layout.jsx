@@ -10,6 +10,8 @@ import MugIcon from "@/assets/svg/icons/mug.svg"
 import MugOutlineIcon from "@/assets/svg/icons/mug-outline.svg"
 import CalendarIcon from "@/assets/svg/icons/calendar.svg"
 import CalendarOutlineIcon from "@/assets/svg/icons/calendar-outline.svg"
+import SendIcon from "@/assets/svg/icons/send.svg"
+import SendOutlineIcon from "@/assets/svg/icons/send-outline.svg"
 import { ROUTES } from "@/lib/constants";
 import { SLIDE_TRANSITION, cn, isRouteActive, pageTransitionKey } from "@/lib/utils";
 import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook";
@@ -26,6 +28,11 @@ import ProfileCard from "@/components/ProfileCard";
 import RuntimeRoute from "@/components/RuntimeRoute";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
+import {
+    useMessagingAvailable,
+    useMessagingBoot,
+    useUnreadMessages,
+} from "@/lib/store/messages/hook";
 import { useOrgNav } from "@/lib/store/org/hook";
 import { useScroll } from "@/lib/providers/Scroll";
 import Grain from "@/components/Grain";
@@ -49,6 +56,16 @@ const NAV = [
         Outline: MugOutlineIcon,
         Filled: MugIcon,
     },
+    /* The only entry drawn for some viewers and not others: messaging is 18+, so a
+     * minor never sees the door. It is also the only one carrying a count — every
+     * other glyph here names a place rather than a number of things waiting in it. */
+    {
+        title: "Messages",
+        href: ROUTES.INBOX,
+        Outline: SendOutlineIcon,
+        Filled: SendIcon,
+        adultOnly: true,
+    },
     {
         title: "Events",
         href: ROUTES.EVENTS,
@@ -57,18 +74,21 @@ const NAV = [
     },
 ]
 
-/* Where the composer sits among the mobile bar's entries, counting itself and the profile
- * trigger: the middle. The plus is the only thing on that bar that acts rather than
- * navigates, and the centre is both where a thumb rests and where every phone app a
- * parishioner already uses puts it. Derived rather than written down, so a fourth
- * destination re-centres the plus instead of shunting it off-centre. The desktop rail is a
- * column with no equivalent position, and keeps the plus below the destinations. */
-const COMPOSE_SLOT = Math.floor((NAV.length + 2) / 2)
+/* Where the composer sits among the mobile bar's entries: after the two you read (Home,
+ * Daily Read) and before the two you act in (Messages, Events). The plus is the only
+ * thing on that bar that does something rather than going somewhere, so it sits on that
+ * seam rather than at an arithmetic middle — which is also what puts Messages directly
+ * to its right for an admin, and dead centre for everyone else, whose bar has no plus in
+ * it at all. Events is last either way, at the far edge.
+ *
+ * The desktop rail is a column with no equivalent position, and keeps the plus below the
+ * destinations. */
+const COMPOSE_SLOT = 2
 
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
  * the label fades in only while the rail (the `group`) is hovered. */
-const NavItem = ({ item, route, onNavigate }) => {
+const NavItem = ({ item, route, onNavigate, count = 0 }) => {
     const { title, href, Outline, Filled } = item
     /* `route` is the shell's, not the URL's, so a post opened over the daily reading keeps the
      * daily reading lit rather than moving the highlight to whatever the overlay sits on. */
@@ -77,7 +97,7 @@ const NavItem = ({ item, route, onNavigate }) => {
     return (
         <Link
             href={href}
-            aria-label={title}
+            aria-label={count > 0 ? `${title} (${count} unread)` : title}
             data-current={active}
             onClick={onNavigate}
             /* The layout scrolls to top itself once the cross-fade has played out;
@@ -85,8 +105,13 @@ const NavItem = ({ item, route, onNavigate }) => {
             scroll={false}
             className="flex items-center justify-center md:justify-start select-none cursor-pointer md:h-12 md:rounded-md md:transition-colors md:hover:bg-accent"
         >
-            <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
+            <span className="relative flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
                 <NavIcon Outline={Outline} Filled={Filled} active={active} />
+                {/* Positioned against the icon's own box rather than the row's, so the dot
+                    stays on the glyph as the desktop rail expands and the row grows a label. */}
+                {count > 0 && (
+                    <span className="absolute -top-0.5 right-1 size-2.5 rounded-full bg-brand ring-2 ring-background" />
+                )}
             </span>
             <span
                 className={cn(
@@ -135,6 +160,15 @@ const ProtectedShell = ({ children }) => {
     const { scrollRef, scrollToTop } = useScroll()
     const { shift } = useOrgNav()
     const vibing = useVibing()
+    const messaging = useMessagingAvailable()
+    const unreadMessages = useUnreadMessages()
+
+    /* Registers this install's E2EE keys the moment an adult viewer is in — see the
+     * hook: being reachable must not wait for the inbox to be opened. */
+    useMessagingBoot()
+
+    const nav = messaging ? NAV : NAV.filter((item) => !item.adultOnly)
+    const countFor = (item) => (item.href === ROUTES.INBOX ? unreadMessages : 0)
 
     return (
         <>
@@ -183,8 +217,14 @@ const ProtectedShell = ({ children }) => {
                 </Link>
 
                 <div className="flex flex-1 flex-col justify-center gap-2 px-2">
-                    {NAV.map((item, idx) => (
-                        <NavItem key={idx} item={item} route={route} onNavigate={() => setNavOpen(false)} />
+                    {nav.map((item) => (
+                        <NavItem
+                            key={item.href}
+                            item={item}
+                            route={route}
+                            count={countFor(item)}
+                            onNavigate={() => setNavOpen(false)}
+                        />
                     ))}
                     {/* Below the destinations, because it is not one: composing opens a
                         surface over wherever the reader already is rather than routing
@@ -298,12 +338,12 @@ const ProtectedShell = ({ children }) => {
                     wherever the reader is — and on a phone the trigger belongs at the top
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
-                {NAV.slice(0, COMPOSE_SLOT).map((item) => (
-                    <NavItem key={item.href} item={item} route={route} />
+                {nav.slice(0, COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
                 ))}
                 <Compose />
-                {NAV.slice(COMPOSE_SLOT).map((item) => (
-                    <NavItem key={item.href} item={item} route={route} />
+                {nav.slice(COMPOSE_SLOT).map((item) => (
+                    <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
                 ))}
                 <ProfileTrigger route={route} />
             </motion.nav>

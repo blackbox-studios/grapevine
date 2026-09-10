@@ -201,7 +201,7 @@ completed (offline, DNS, CORS, aborted connection).
 | `DELETE` | `/api/comments/:commentId` | its author, **or** an admin of the post's group | `204` |
 | `POST` | `/api/comments/:commentId/likes` | member of its group | `{ liked, likes }` |
 | `GET` | `/api/notifications?limit=&cursor=` | viewer | `{ items, nextCursor }` — the viewer's notifications, newest first |
-| `GET` | `/api/notifications/unread` | viewer | `{ unread }` — the number the bell's dot stands for |
+| `GET` | `/api/notifications/unread` | viewer | `{ unread, messages }` — the bell's dot and the message badge, in one request so messaging costs no poll of its own |
 | `POST` | `/api/notifications/read` | viewer | `{ unread }` — marks them all read, so this is always `0` |
 | `GET` | `/api/events?orgId=&from=&to=` | member of that group | the compiled calendar: `{ items, nextCursor, hasCalendar }` — the group's own calendar events and its sign-up slots, in one window, discriminated by `kind`, with an event and the rota of the same name folded into one entry |
 | `GET` | `/api/signups?orgId=&limit=&cursor=` | member of that group | `{ items, nextCursor }` — the group's rotas, each **with its dates**, so opening one is not a request |
@@ -217,6 +217,17 @@ completed (offline, DNS, CORS, aborted connection).
 | `POST` | `/api/signups/reminders` | **a shared secret**, not a viewer | `{ sent }` — sends every reminder that has come due. `404` unless `REMINDERS_SECRET` is set |
 | `POST` | `/api/devices` | viewer | `{ registered }` — attaches this installation's FCM token to the viewer |
 | `DELETE` | `/api/devices` | viewer | `204` — detaches it (sign-out). The token travels in the **body**, not the path |
+| `POST` | `/api/messages/keys` | **adult** viewer | `{ deviceId, preKeyCount }` — publishes this installation's identity key, signed prekey and one-time prekeys. The pool is append-only |
+| `GET` | `/api/messages/keys/:profileId?exclude=&devices=` | **adult** who shares a group with them | `{ devices }` — a prekey bundle per device, consuming one one-time prekey each |
+| `GET` | `/api/messages/conversations?deviceId=` | **adult** viewer | `{ items }` — the inbox, newest-moving first, each row carrying its newest envelope for `deviceId` |
+| `POST` | `/api/messages/conversations` | same | the 1:1 thread with `{ profileId }`, found or created. Idempotent on the pair |
+| `GET` | `/api/messages/conversations/:id?deviceId=&limit=&cursor=` | participant | `{ conversation, messages }` — meta plus a keyset page of envelopes for that device |
+| `DELETE` | `/api/messages/conversations/:id` | participant | `204` — discards the thread for both sides |
+| `POST` | `/api/messages/conversations/:id/messages` | participant, **accepted** | `201` + the message. Body is `{ senderDeviceId, envelopes }`, all ciphertext |
+| `POST` | `/api/messages/conversations/:id/read` | participant | `204` — moves the read cursor to now |
+| `POST` | `/api/messages/conversations/:id/accept` | participant | `204` — opens the message-request gate. Idempotent |
+| `POST` | `/api/messages/conversations/:id/block` | participant | `204` — refuses the other party for good and discards the thread |
+| `GET` | `/api/messages/contacts?query=` | **adult** viewer | `{ items }` — adults who share an APPROVED group with the viewer and have a registered device |
 
 **Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
 not be one — the app is invite-only and its content is a parish's private life. See
@@ -326,6 +337,19 @@ too. A post's notification is also a **fan-out**: one row per approved member of
 where a like or a comment notifies one person. See that file's header, which also carries the
 game plan for grouping ("Mat. Carly and 9 others") as a read-side change.
 
+**The messaging endpoints serve ciphertext, and the server cannot do otherwise.** `Message`
+has no body column: the content is per-device `MessageEnvelope` rows produced by the Signal
+protocol in `src/lib/crypto`, so there is no snippet to index, no text to moderate, and no
+plaintext to subpoena. What the server *does* enforce is the social layer, in
+`messages.service.js` and nowhere else: one shared APPROVED group (`visibleProfile`'s rule
+again, re-checked on every send), both parties 18 or older, no `MessageBlock`, and the
+message-request gate that refuses a reply until `acceptedAt` is set. Envelope *addressing* is
+validated even though the bytes cannot be — only devices belonging to the conversation's
+participants are accepted — so the relay cannot be used to spray ciphertext at arbitrary
+installs, and a send whose envelopes reach none of the other party's devices is a `409`
+rather than a message into the void. One-time prekeys are consumed under `FOR UPDATE SKIP
+LOCKED`, so two concurrent senders are never handed the same one.
+
 **A `POST_COMMENT`'s subject is the comment, not the post**, which is what lets
 `unnotifyComment` retract it — along with that comment's `COMMENT_LIKE` rows — when the
 comment is soft-deleted and no cascade can reach them.
@@ -348,6 +372,7 @@ put photos back inside the membership gate.
 src/lib/server/            # all server-only, all behind `import "server-only"`
   errors.js                # ERROR_CODES + ERROR_STATUS registry, AppError, notFound(), invalid()
   handler.js               # route() wrapper (request id, CORS, error serialization), pageParams()
+  messages.service.js      # E2EE relay: key directory, conversations, envelopes, the request gate
   respond.js               # success responders (§2)
   cursor.js                # opaque cursors + the keyset helpers, by time and by rank (§6.1)
   auth.js                  # requireViewer / requireMembership / requirePlatformOwner

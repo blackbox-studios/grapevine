@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react"
 
+import { Overlay } from "@/components/Widgets"
 import { cn, slideSurfaceAnim } from "@/lib/utils"
 
 /* The full-screen sheet a slide route takes on a phone: the box, the safe-area inset, the
@@ -40,3 +41,36 @@ export const SlideSurface = ({ ref, variant, className, children }) => (
 )
 
 export default SlideSurface
+
+/* The same slide route on a wide screen: a centred dialog over a dimmed backdrop.
+ *
+ * **A slide route has two presentations, not two implementations.** The mechanism is
+ * one URL resolved out of `RUNTIME_ROUTES`; what changes with the breakpoint is only
+ * how it is put on screen — a full-height sheet that pushes the page aside on a phone
+ * (<SlideSurface/> above), a dialog on a desktop, where a full-screen takeover would
+ * read as the app having navigated somewhere. Every surface that answers a slide route
+ * needs both halves, so both live here rather than being rebuilt per surface.
+ *
+ * It is <Overlay/> underneath, which is what carries the **fade in and out** — the same
+ * one the open post uses. That matters more than it looks: these are rendered inside
+ * <SlideRouter/>'s <AnimatePresence>, so a surface that skips it does not merely lack a
+ * flourish, it appears and disappears in a single frame while every sibling surface
+ * eases, and the inconsistency is the thing a reader notices.
+ *
+ * `close={false}`: the screen-corner Close belongs to a surface that fills the screen,
+ * and each dialog here has its own header to hang a close or a back arrow off.
+ *
+ * `className` is the panel's size, which is the one thing that genuinely differs — a
+ * notification list and a conversation want different heights. */
+export const SlideDialog = ({ dismiss, label, className, children }) => (
+    <Overlay dismiss={dismiss} label={label} close={false}>
+        <div
+            className={cn(
+                "relative z-10 flex w-full flex-col overflow-hidden rounded-2xl border bg-background shadow-lg",
+                className,
+            )}
+        >
+            {children}
+        </div>
+    </Overlay>
+)

@@ -1,6 +1,7 @@
 import { requireViewer } from "@/lib/server/auth"
 import { sweepDueReminders } from "@/lib/server/signups.service"
 import { preflight, route } from "@/lib/server/handler"
+import { unreadConversations } from "@/lib/server/messages.service"
 import { sendResource } from "@/lib/server/respond"
 import { unreadCount } from "@/lib/server/notifications.service"
 
@@ -32,7 +33,15 @@ export const GET = route(async (request) => {
      * worth hanging a sweep off. Not awaited, and it cannot fail this request; see
      * `sweepDueReminders` for why that is safe. */
     sweepDueReminders()
-    return sendResource({ unread: await unreadCount(viewer) })
+
+    /* The message badge rides on the same tick rather than costing a poll of its own —
+     * the count is per-viewer like the bell's, and this is already the request every
+     * client makes at every interval. In parallel: the two counts share nothing. */
+    const [unread, messages] = await Promise.all([
+        unreadCount(viewer),
+        unreadConversations(viewer),
+    ])
+    return sendResource({ unread, messages })
 })
 
 export const OPTIONS = preflight

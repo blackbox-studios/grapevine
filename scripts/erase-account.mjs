@@ -26,9 +26,17 @@
  *
  * `Profile` is the root of every cascade in the schema, so removing that row removes the
  * memberships, posts, comments, likes, follows, notifications, device tokens, conversation
- * participations and messages with it. The Supabase credential is deleted *after*, because
- * `requireViewer` refuses a token with no profile behind it — so a failure between the two
- * leaves someone who cannot use the app rather than someone still posting to a parish feed.
+ * participations and messages with it — and, through `CryptoDevice`, the person's published
+ * key bundles and every message envelope addressed to them. The Supabase credential is
+ * deleted *after*, because `requireViewer` refuses a token with no profile behind it — so a
+ * failure between the two leaves someone who cannot use the app rather than someone still
+ * posting to a parish feed.
+ *
+ * **The plaintext of their conversations is not here to delete**, and that is the design
+ * rather than a gap: messages are end-to-end encrypted, so the only readable copies are on
+ * the devices of the people who were in the conversation. Erasing this account destroys its
+ * own keys and its own envelopes; the other party's phone keeps what it already decrypted,
+ * exactly as it would keep a letter.
  *
  * Writes to whatever DATABASE_URL points at, which for this script is normally production. It
  * prints the target and refuses to do anything without --confirm.

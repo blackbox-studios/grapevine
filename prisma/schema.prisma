@@ -267,23 +267,27 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  memberships      Membership[]
-  orgsCreated      Organization[]            @relation("OrgCreator")
-  posts            Post[]
-  comments         Comment[]
-  postLikes        PostLike[]
-  commentLikes     CommentLike[]
-  notifications    Notification[]            @relation("NotificationRecipient")
-  notified         Notification[]            @relation("NotificationActor")
-  devices          DeviceToken[]
-  invitesSent      Invite[]                  @relation("InviteInviter")
-  membershipsRuled Membership[]              @relation("MembershipDecider")
-  following        Follow[]                  @relation("FollowFollower")
-  followers        Follow[]                  @relation("FollowFollowing")
-  participations   ConversationParticipant[]
-  messages         Message[]
-  sheetsCreated    SignupSheet[]             @relation("SheetCreator")
-  claims           SignupClaim[]
+  memberships         Membership[]
+  orgsCreated         Organization[]            @relation("OrgCreator")
+  posts               Post[]
+  comments            Comment[]
+  postLikes           PostLike[]
+  commentLikes        CommentLike[]
+  notifications       Notification[]            @relation("NotificationRecipient")
+  notified            Notification[]            @relation("NotificationActor")
+  devices             DeviceToken[]
+  invitesSent         Invite[]                  @relation("InviteInviter")
+  membershipsRuled    Membership[]              @relation("MembershipDecider")
+  following           Follow[]                  @relation("FollowFollower")
+  followers           Follow[]                  @relation("FollowFollowing")
+  participations      ConversationParticipant[]
+  messages            Message[]
+  conversationsOpened Conversation[]            @relation("ConversationCreator")
+  cryptoDevices       CryptoDevice[]
+  blocksMade          MessageBlock[]            @relation("BlockMade")
+  blocksReceived      MessageBlock[]            @relation("BlockReceived")
+  sheetsCreated       SignupSheet[]             @relation("SheetCreator")
+  claims              SignupClaim[]
 
   /// Serves the name-day digest — "whose feast falls in this window" — which is the only
   /// reason the two name-day columns are split the way they are. Nothing else reads them.
@@ -1012,7 +1016,7 @@ model SignupSheet {
   /// Topped up to `SIGNUP_HORIZON_DAYS` by `topUpRecurring` when the rota is read. See that
   /// function for why a read writes, and for the ceiling: `MAX_SHEET_SLOTS` is about ten years
   /// of a weekly rota, after which it stops extending and wants a prune rather than a raise.
-  repeats     Boolean @default(false)
+  repeats Boolean @default(false)
 
   /// Whether taking a date on this rota shows what the Church keeps that day.
   ///
@@ -1028,7 +1032,7 @@ model SignupSheet {
   /// default: off, which is what every rota that predates the column means.
   showFasting Boolean @default(false) @map("show_fasting")
 
-  createdById String  @map("created_by_id") @db.Uuid
+  createdById String @map("created_by_id") @db.Uuid
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -1181,12 +1185,24 @@ model SignupReminder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Modeled now, no endpoints yet
+// Direct messages — end-to-end encrypted
 //
-// The following tables have no service or route behind them. They are here because the
-// feature was specified up front, and settling its shape now is what keeps the tables
-// above honest: the conversation/participant split is the reason messaging will not need
-// a schema rewrite to go from 1:1 to group.
+// The server relays and stores ciphertext; it can never read a message. Every
+// installation of the app is a `CryptoDevice` running the Signal protocol
+// (X3DH + Double Ratchet, implemented in `src/lib/crypto` from signal.org's
+// published specifications), and a message is encrypted once per recipient
+// device — so `Message` carries no body at all, only `MessageEnvelope` rows.
+// Plaintext exists only on devices: each client caches what it has decrypted,
+// and a reinstalled app is a new device that can read everything from then on
+// and nothing from before. That is Signal's own trade and it is deliberate —
+// there is no key escrow, no backup, and nothing here worth subpoenaing.
+//
+// Who may message whom is the membership graph again: one shared APPROVED group
+// (the same `visibleProfile` rule the profile card answers to), both parties 18
+// or older by `Profile.birthday`, and no `MessageBlock` between them. A first
+// message from someone the recipient does not follow arrives as a *request* —
+// `ConversationParticipant.acceptedAt` — and stays blurred and unanswerable
+// until accepted, per Signal's message-request pattern.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A message thread. Participants live in a join table rather than as `userAId` /
@@ -1195,13 +1211,19 @@ model SignupReminder {
 model Conversation {
   id            String   @id @default(cuid())
   /// Optional organization scope, so a parish can host a group thread. Deliberately
-  /// not a foreign key yet — the messaging feature will decide whether a deleted
-  /// group takes its threads with it.
+  /// not a foreign key yet — group threads will decide whether a deleted group takes
+  /// its threads with it.
   orgId         String?  @map("org_id")
+  /// Who opened the thread. What makes the *other* participant's row a request —
+  /// their `acceptedAt` starts null unless they already followed the opener. SetNull
+  /// rather than Cascade, because the conversation is as much the recipient's as the
+  /// sender's and an erased account must not take someone else's half with it.
+  createdById   String?  @map("created_by_id") @db.Uuid
   /// Denormalized so an inbox list can sort without touching the messages table.
   lastMessageAt DateTime @default(now()) @map("last_message_at")
   createdAt     DateTime @default(now()) @map("created_at")
 
+  createdBy    Profile?                  @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
   participants ConversationParticipant[]
   messages     Message[]
 
@@ -1214,6 +1236,12 @@ model ConversationParticipant {
   profileId      String    @map("profile_id") @db.Uuid
   /// Drives the unread badge: messages newer than this are unread.
   lastReadAt     DateTime? @map("last_read_at")
+  /// Null is a pending message request: the thread renders blurred, with
+  /// Accept/Delete/Block in place of a composer, and the sender is not told the
+  /// request was seen. Set at admission for the opener and for a recipient who
+  /// already follows them — following someone is standing permission to be written
+  /// to, which is the one thing `Follow` grants anywhere in the app.
+  acceptedAt     DateTime? @map("accepted_at")
   joinedAt       DateTime  @default(now()) @map("joined_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -1225,19 +1253,135 @@ model ConversationParticipant {
   @@map("conversation_participant")
 }
 
+/// One message event. **No body column** — the content is the per-device
+/// `MessageEnvelope` rows, and a message with no envelope for your device is one
+/// you can never read (a device registered after it was sent, which is the
+/// no-backup trade described in the section header).
 model Message {
   id             String    @id @default(cuid())
   conversationId String    @map("conversation_id")
   senderId       String    @map("sender_id") @db.Uuid
-  body           String
+  /// Which installation encrypted this — the recipient's session is keyed by the
+  /// sender's *device*, not the sender. A plain string rather than a foreign key,
+  /// because a sender wiping their install must not take delivered mail with it:
+  /// the recipient's session under this id keeps decrypting what it already holds.
+  senderDeviceId String    @map("sender_device_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   deletedAt      DateTime? @map("deleted_at")
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       Profile      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       Profile           @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  envelopes    MessageEnvelope[]
 
   /// Matches the thread's keyset pagination order.
   @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([senderId])
   @@map("message")
+}
+
+/// How a ciphertext is framed, mirroring the Signal wire's two message types. A
+/// PREKEY envelope carries the X3DH handshake (the sender's identity and ephemeral
+/// keys and which prekeys were used) alongside the first ciphertext, so a session
+/// begins with no round trip to the other device; RATCHET is every message once a
+/// session exists.
+enum EnvelopeType {
+  PREKEY
+  RATCHET
+
+  @@map("envelope_type")
+}
+
+/// One message, encrypted for one device. The sender writes one of these per
+/// recipient device *and* per other device of their own (so their own phone and
+/// laptop both read what either sent); each device fetches only rows addressed
+/// to it. Ciphertext is base64, opaque to the server by construction.
+model MessageEnvelope {
+  messageId String       @map("message_id")
+  deviceId  String       @map("device_id")
+  type      EnvelopeType
+  body      String
+
+  message Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  device  CryptoDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, deviceId])
+  /// A device paging a thread asks "envelopes for me" — the message side is the
+  /// primary key's leading column, so only this direction needs an index.
+  @@index([deviceId])
+  @@map("message_envelope")
+}
+
+/// One installation's public half of the Signal protocol: the identity key and the
+/// signed prekey that let a stranger start an encrypted session without the device
+/// being online. The private halves never leave the device.
+///
+/// The id is minted by the client (a uuid, generated once per install) rather than
+/// by the database, because sessions on *other* devices are keyed by it — a
+/// server-assigned id would mean a device does not know its own name until it has
+/// registered, and re-registering (refreshing prekeys) must not change it.
+model CryptoDevice {
+  id        String @id
+  profileId String @map("profile_id") @db.Uuid
+
+  /// Ed25519 public key, base64. Doubles as the DH identity via the birational map
+  /// to X25519 — see `src/lib/crypto/primitives.js` for why the master key is
+  /// Edwards rather than Montgomery.
+  identityKey String @map("identity_key")
+
+  /// The medium-term X25519 prekey X3DH falls back to when the one-time pool is
+  /// empty, signed by the identity key so a malicious server cannot substitute its
+  /// own. Rotated by the client; `keyId` is how a sender names which one it used.
+  signedPreKeyId        Int    @map("signed_pre_key_id")
+  signedPreKey          String @map("signed_pre_key")
+  signedPreKeySignature String @map("signed_pre_key_signature")
+
+  /// Random per-install tag from the Signal wire format, carried in envelope
+  /// headers so a device can cheaply reject traffic for a stale install of itself.
+  registrationId Int @map("registration_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  profile   Profile           @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  preKeys   OneTimePreKey[]
+  envelopes MessageEnvelope[]
+
+  /// Serves "every device this message must be encrypted for".
+  @@index([profileId])
+  @@map("crypto_device")
+}
+
+/// A single-use X25519 prekey. X3DH consumes one per new session — the fetch that
+/// hands it to a sender deletes it in the same transaction, which is what gives the
+/// first message forward secrecy against a later identity-key compromise. The
+/// client tops the pool up when registration reports it low.
+model OneTimePreKey {
+  deviceId String @map("device_id")
+  keyId    Int    @map("key_id")
+  key      String
+
+  device CryptoDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([deviceId, keyId])
+  @@map("one_time_pre_key")
+}
+
+/// One person refusing another's messages, written from a request's Block action.
+/// A block freezes the pair in both directions — checked at conversation creation
+/// and on every send, so it bites on existing threads too — but the row records
+/// who did it, because only they may undo it. Deliberately not surfaced to the
+/// blocked party: their attempt fails as if the person had simply never replied.
+model MessageBlock {
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker Profile @relation("BlockMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked Profile @relation("BlockReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  /// The send-time check asks "has my recipient blocked me", which enters by the
+  /// blocked side.
+  @@index([blockedId])
+  @@map("message_block")
 }

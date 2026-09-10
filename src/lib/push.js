@@ -202,14 +202,18 @@ export const onPushTokenChange = (handler) => {
 /* A push that arrived while the app was open and on screen.
  *
  * The OS does not draw a banner in this case, and it should not — the reader is already
- * looking at the app. What it means for us is only that the panel behind the bell is now out
- * of date, which is why the handler takes no payload: the row is the notification, and
- * re-reading the tally is more honest than splicing a payload into a list the server owns.
- * See the header of `lib/store/notifications/store.js`. */
+ * looking at the app. What it means for us is that the panel behind the bell is out of
+ * date, and — when the payload names a conversation — that a messaging surface may be
+ * showing a thread that just moved. The handler gets the payload's `data` so it can tell
+ * those apart; nothing is ever spliced into a list from it, because the row is the
+ * notification and re-reading is more honest than trusting a payload. See the header of
+ * `lib/store/notifications/store.js`. */
 export const onPushReceived = (handler) => {
     if (!pushSupported()) return () => {}
 
-    const listener = FirebaseMessaging.addListener("notificationReceived", () => handler())
+    const listener = FirebaseMessaging.addListener("notificationReceived", (event) =>
+        handler(event?.notification?.data ?? {}),
+    )
 
     return () => {
         listener.then((handle) => handle.remove()).catch(() => {})

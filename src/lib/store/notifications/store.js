@@ -75,6 +75,12 @@ const INIT = {
      * this page holds — the panel can be showing fifteen rows while forty are unread. */
     unread: 0,
 
+    /* How many conversations hold something unread — the messages badge. Held here rather
+     * than in the messages store because it arrives on this store's tick: the unread
+     * endpoint answers both tallies in one request, so messaging adds no poll of its own.
+     * The messages surface reads it through `useUnreadMessages`; nothing here acts on it. */
+    messages: 0,
+
     /* Rows the server has marked read whose tint is still on screen, because the panel that
      * did the reading has not closed. See `markRead`. */
     settling: [],
@@ -120,7 +126,7 @@ const useStore = create(immer((set, get) => ({
     refresh: async ({ silent = false } = {}) => {
         set(state => { state.loading.list = true })
         try {
-            const [{ items, nextCursor }, { unread }] = await Promise.all([
+            const [{ items, nextCursor }, { unread, messages }] = await Promise.all([
                 api.get(API_ENDPOINTS.NOTIFICATIONS, {
                     params: { limit: PAGE_SIZE.NOTIFICATIONS },
                 }),
@@ -131,6 +137,7 @@ const useStore = create(immer((set, get) => ({
                 state.cursor = nextCursor
                 state.hasMore = nextCursor !== null
                 state.unread = unread
+                state.messages = messages ?? 0
                 state.ready = true
             })
         } catch (error) {
@@ -177,13 +184,14 @@ const useStore = create(immer((set, get) => ({
         if (!get().ready) return
 
         try {
-            const [{ items, nextCursor }, { unread }] = await Promise.all([
+            const [{ items, nextCursor }, { unread, messages }] = await Promise.all([
                 api.get(API_ENDPOINTS.NOTIFICATIONS, {
                     params: { limit: PAGE_SIZE.NOTIFICATIONS },
                 }),
                 api.get(API_ENDPOINTS.NOTIFICATIONS_UNREAD),
             ])
             set(state => {
+                state.messages = messages ?? 0
                 const seen = new Set(state.items.map(item => item.id))
                 const fresh = items.filter(item => !seen.has(item.id))
 
@@ -220,7 +228,8 @@ const useStore = create(immer((set, get) => ({
      * allowed to be briefly wrong. */
     pollUnread: async () => {
         try {
-            const { unread } = await api.get(API_ENDPOINTS.NOTIFICATIONS_UNREAD)
+            const { unread, messages } = await api.get(API_ENDPOINTS.NOTIFICATIONS_UNREAD)
+            set(state => { state.messages = messages ?? 0 })
             if (unread === get().unread) return
 
             set(state => { state.unread = unread })
@@ -229,6 +238,11 @@ const useStore = create(immer((set, get) => ({
             /* Silent, like `sync` — nobody asked for this one either. */
         }
     },
+
+    /* The messages store's one write into this store: opening a thread settles the
+     * badge now rather than a poll-interval later. See that store's header for the
+     * dependency direction. */
+    setMessagesTally: (count) => set(state => { state.messages = Math.max(0, count) }),
 
     /* Appends the next page. `nextCursor === null` is the only end-of-collection signal. */
     loadMore: async () => {

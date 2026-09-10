@@ -1,7 +1,7 @@
 "use client"
 
 import { MessagesList } from "@/components/Messages"
-import { useMessagingAvailable } from "@/lib/store/messages/hook"
+import { useMessagingPermitted } from "@/lib/store/messages/hook"
 
 /* Direct messages. The list is this page; a conversation is the `/inbox/c/:id` slide
  * route that pushes in over it. The surface itself is <MessagesList/> — this file is
@@ -16,9 +16,9 @@ import { useMessagingAvailable } from "@/lib/store/messages/hook"
  * confirms less than a refusal would. The server refuses every messaging request
  * regardless — this is presentation, `requireAdult` is the control. */
 const InboxPage = () => {
-    const available = useMessagingAvailable()
+    const permitted = useMessagingPermitted()
 
-    return available ? <MessagesList /> : null
+    return permitted ? <MessagesList /> : null
 }
 
 export default InboxPage

@@ -18,8 +18,15 @@ export const SUPPORT_EMAIL = "support@blackboxstudios.com"
  * rather than sending a parishioner to a 404. */
 export const APP_STORES = {
     /* Keyed by the `appId` in capacitor.config.json, which is what Play indexes the listing
-     * under. */
+     * under.
+     *
+     * TODO: confirm this resolves once the listing is public. It is only reachable while the
+     * app is on a closed or internal track if the reader is on the tester list, so until
+     * production rollout an invited parishioner may land on "item not found". */
     android: "https://play.google.com/store/apps/details?id=com.throughgrapevine.app",
+    /* TODO: set this to `https://apps.apple.com/app/id<APPLE_ID>` once the app is accepted.
+     * The email already renders the row and its button off this value, so filling it in is
+     * the whole of shipping the iOS link. */
     ios: null,
 }
 

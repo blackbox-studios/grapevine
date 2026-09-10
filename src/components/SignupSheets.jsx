@@ -799,7 +799,7 @@ const RotaRow = ({ row, onOpen }) => {
         >
             <SheetIcon
                 aria-hidden="true"
-                className={cn("size-7 shrink-0", dormant ? "text-muted-foreground" : "text-brand")}
+                className={cn("size-7 shrink-0", dormant ? "text-muted-foreground" : "text-foreground")}
             />
 
             <span className="flex min-w-0 flex-1 flex-col">

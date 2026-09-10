@@ -29,7 +29,7 @@ import RuntimeRoute from "@/components/RuntimeRoute";
 import { SlideBase, SlideRouter } from "@/components/SlideRouter";
 import { useVibing } from "@/lib/hooks/useScroll.hook";
 import {
-    useMessagingAvailable,
+    useMessagingPermitted,
     useMessagingBoot,
     useUnreadMessages,
 } from "@/lib/store/messages/hook";
@@ -177,7 +177,7 @@ const ProtectedShell = ({ children }) => {
     const { scrollRef, scrollToTop } = useScroll()
     const { shift } = useOrgNav()
     const vibing = useVibing()
-    const messaging = useMessagingAvailable()
+    const messaging = useMessagingPermitted()
     const unreadMessages = useUnreadMessages()
 
     /* Registers this install's E2EE keys the moment an adult viewer is in — see the

@@ -203,12 +203,16 @@ export const projectNotification = (notification) => ({
     id: notification.id,
     type: notification.type,
     actor: {
-        ...projectAuthor(notification.actor, notification.post?.orgId ?? null),
+        ...projectAuthor(notification.actor, notification.post?.orgId ?? notification.orgId ?? null),
         id: notification.actorId,
         following: notification.actor.followers.length > 0,
     },
     postId: notification.postId,
-    orgName: notification.post?.org?.name ?? null,
+    /* The group a row is about, from whichever side names one: a post's group for everything
+     * that happened inside one, and the group itself for an admission. `orgId` goes over
+     * because an admission's tap selects that group rather than opening a URL. */
+    orgId: notification.orgId ?? null,
+    orgName: notification.post?.org?.name ?? notification.org?.name ?? null,
     /* Where a SIGNUP_REMINDER or SIGNUP_CANCELED points, and absent on every other kind — the
      * "not applicable to this representation" rule rather than a null. It carries the sheet's
      * title and the slot's start because that is the whole of what the line says ("Coffee hour

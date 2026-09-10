@@ -241,7 +241,7 @@ const PostCard = ({ post }) => {
                                check is squeezed away before the name ever ellipses. */
                             <Icon
                                 size="xs"
-                                className="shrink-0 text-brand [font-variation-settings:'FILL'_1]"
+                                className="shrink-0 text-secondary [font-variation-settings:'FILL'_1]"
                             >
                                 verified
                             </Icon>

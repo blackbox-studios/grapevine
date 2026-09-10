@@ -215,7 +215,7 @@ const PostSlide = ({ variant, post, skeleton, dismiss }) => {
                                 <Avatar person={post.author} className="size-8" />
                                 <span className="text-sm font-semibold">{post.author.handle}</span>
                                 {post.author.verified && (
-                                    <Icon size="xs" className="text-brand [font-variation-settings:'FILL'_1]">
+                                    <Icon size="xs" className="text-secondary [font-variation-settings:'FILL'_1]">
                                         verified
                                     </Icon>
                                 )}

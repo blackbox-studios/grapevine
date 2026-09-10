@@ -723,7 +723,11 @@ const Composer = ({ ref, onSend, sending }) => {
                 carries the treatment, which is why the space either side of it stays clear. */
             className="absolute inset-x-0 bottom-0 z-10 flex items-end px-3 pt-2 pb-[max(0.5rem,calc(var(--bottom-inset)-var(--keyboard-inset)))] md:px-6 md:pt-3 md:pb-4"
         >
-            <div className="flex min-w-0 flex-1 items-end rounded-full border border-border bg-background/70 px-4 py-3 backdrop-blur-md supports-backdrop-filter:bg-background/55">
+            {/* `rounded-3xl` is half the pill's one-line height, not a softer corner than
+                `rounded-full`: CSS clamps a radius to half the box, so at one line this *is*
+                a pill, and a box grown to five lines keeps those same corners instead of
+                becoming a stadium around a paragraph. */}
+            <div className="flex min-w-0 flex-1 items-end rounded-3xl border border-border bg-background/70 px-4 py-3 backdrop-blur-md supports-backdrop-filter:bg-background/55">
                 <textarea
                     ref={areaRef}
                     rows={1}
@@ -739,7 +743,7 @@ const Composer = ({ ref, onSend, sending }) => {
                         }
                     }}
                     style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
-                    className="w-full resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
+                    className="w-full resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
                 />
             </div>
             {/* **The slot itself opens; the field gives up the width to it.** An empty

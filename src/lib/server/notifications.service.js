@@ -132,6 +132,10 @@ const notificationInclude = (viewerId) => ({
     /* The rota a publication is about. A reminder reaches its sheet through the slot above; a
      * publication has no slot, because it is about the rota rather than about a date on it. */
     signupSheet: { select: { id: true, title: true } },
+    /* The group an admission is about. It carries the name the row prints and the id the tap
+     * selects, and it is the group the actor's check is resolved against — an admin who added
+     * you wears it here for the same reason they wear it over a post in that group. */
+    org: { select: { id: true, name: true } },
 })
 
 /* The rows a panel and a bell may count: everything except an event inside a post that has
@@ -365,6 +369,40 @@ export const notifyNewPost = (tx, { recipients, actorId, postId }) => {
     })
 }
 
+/* "Fr. Alexander added you to Holy Trinity Cathedral."
+ *
+ * **The subject is the group**, which is the only thing the event is about — there is no post
+ * and no comment to point at. Under the unique key that means one row per admin per group, so
+ * an admin who revokes somebody and later re-admits them settles at a single row rather than
+ * accumulating one per change of mind. An upsert for the reason a like is one: the second
+ * admission genuinely happened, so refreshing `createdAt` and `readAt` returns the row to the
+ * top of the panel and lights the bell again.
+ *
+ * Takes the client because both callers need a different one. Admitting somebody already known
+ * to the app splices this into the array form beside the membership upsert; admitting a new
+ * person has to pass the transaction client, because the `Profile` this row points at is
+ * created in that same transaction and the foreign key would otherwise have nothing to hold.
+ *
+ * `orgId` is written twice on purpose — as the subject, which is what makes the unique key
+ * mean what it says, and as the foreign key, which is what names the group at read time and
+ * what takes the row with the group if it is ever deleted. Same shape as `signupSheetId`. */
+export const notifyAddedToGroup = (client, { recipientId, actorId, orgId }) => {
+    const now = new Date()
+
+    return client.notification.upsert({
+        where: key({ recipientId, actorId, type: "ADDED_TO_GROUP", subjectId: orgId }),
+        create: {
+            recipientId,
+            actorId,
+            type: "ADDED_TO_GROUP",
+            subjectId: orgId,
+            orgId,
+            createdAt: now,
+        },
+        update: { createdAt: now, readAt: null },
+    })
+}
+
 /* ---------------------------------------------------------------------------
  * Sign-ups
  *
@@ -538,6 +576,7 @@ const message = ({
     handle = null,
     sheetId = null,
     conversationId = null,
+    orgId = null,
     image = null,
     type,
 }) => ({
@@ -552,6 +591,9 @@ const message = ({
          * a list of them. */
         ...(sheetId ? { sheetId } : {}),
         ...(conversationId ? { conversationId } : {}),
+        /* A group's destination is the feed, which is a static route: the id selects which
+         * group the app is looking at rather than naming anything in the path. */
+        ...(orgId ? { orgId } : {}),
     },
     android: {
         /* `high` is what wakes a dozing device; the default is `normal`, which Android is
@@ -559,7 +601,10 @@ const message = ({
         priority: "high",
         /* The tag collapses repeats about the same subject into one banner, so it follows
          * whichever destination this message carries. */
-        notification: { sound: "default", tag: postId ?? handle ?? sheetId ?? conversationId },
+        notification: {
+            sound: "default",
+            tag: postId ?? handle ?? sheetId ?? conversationId ?? orgId,
+        },
     },
     apns: {
         payload: { aps: { sound: "default", ...(image ? { "mutable-content": 1 } : {}) } },
@@ -690,6 +735,29 @@ export const pushNewPost = ({ recipients, actor, orgName, postId }) => {
                 body: `${displayName(actor)} posted`,
                 postId,
                 type: "NEW_POST",
+            }),
+        ),
+    )
+}
+
+/* "Holy Trinity Cathedral — Fr. Alexander added you."
+ *
+ * Titled with the group, like `pushNewPost`: the news is which parish somebody now belongs to,
+ * and who did the admitting is the second question.
+ *
+ * **Only ever sent to somebody who has signed in before.** A person provisioned a moment ago
+ * has no device registered and no app installed, so `admitOne` sends them the invitation email
+ * instead — which is the delivery that can carry a download link. This is the same row either
+ * way. */
+export const pushAddedToGroup = ({ recipientId, actor, orgName, orgId }) => {
+    detach(
+        deliver(
+            [recipientId],
+            message({
+                title: orgName || "New group",
+                body: `${displayName(actor)} added you`,
+                orgId,
+                type: "ADDED_TO_GROUP",
             }),
         ),
     )

@@ -16,6 +16,7 @@ import {
 } from "@/lib/push"
 import useMessagesStore from "@/lib/store/messages/store"
 import useNotificationsStore from "@/lib/store/notifications/store"
+import { useOpenOrg } from "@/lib/store/org/hook"
 import { useOpenProfile } from "@/lib/store/profile/hook"
 import { useEventsView } from "@/lib/store/signups/hook"
 import usePushStore from "./store"
@@ -38,6 +39,7 @@ export const usePushListeners = (ready) => {
         useShallow(state => ([state.pending, state.openFromPush, state.takePending])),
     )
     const { openProfile } = useOpenProfile()
+    const { openOrg } = useOpenOrg()
     const { setTab } = useEventsView()
     const openRoute = useRouteOpener()
 
@@ -56,21 +58,22 @@ export const usePushListeners = (ready) => {
      * It is `useRouteOpener` rather than `openSlide` directly because how a runtime route
      * opens is the route's own business and varies with the breakpoint; a banner tap is the
      * entrance least able to know which, since it can land from a cold launch with nothing
-     * mounted. A follow is the exception that is not a route at all — a profile card is the
-     * profile store's `openHandle`. The rota's tab is set alongside the navigation so backing
-     * out of it lands on the sign-ups half rather than the calendar. */
+     * mounted. Two destinations are not routes at all: a follow opens a profile card, which
+     * is the profile store's `openHandle`, and a group is a *selection* with the feed already
+     * at a static path — see `useOpenOrg`. The rota's tab is set alongside the navigation so
+     * backing out of it lands on the sign-ups half rather than the calendar. */
     useEffect(() => {
         if (!ready || !pending) return
 
-        const { postId, handle, sheetId, conversationId } = takePending() ?? {}
+        const { postId, handle, sheetId, conversationId, orgId } = takePending() ?? {}
         if (postId) openRoute(`${ROUTES.POST}/${postId}`)
         else if (conversationId) openRoute(`${ROUTES.CONVERSATION}/${conversationId}`)
         else if (handle) openProfile(handle)
         else if (sheetId) {
             setTab("signups")
             openRoute(signupPath(sheetId))
-        }
-    }, [ready, pending, takePending, openRoute, openProfile, setTab])
+        } else if (orgId) openOrg(orgId)
+    }, [ready, pending, takePending, openRoute, openProfile, openOrg, setTab])
 
     /* A push that landed with the app already open. No banner is drawn — the reader is looking
      * at the app — so all it means is that the panel is behind, possibly while on screen. A

@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { useRouter } from "next/navigation"
 
-import { ROLES } from "@/lib/constants"
+import { ROLES, ROUTES } from "@/lib/constants"
 import {
     useCreateOrg,
     useDeleteOrg,
@@ -107,6 +107,32 @@ export const useEditOrg = () => {
     )
 
     return useMemo(() => ({ editOrg }), [editOrg])
+}
+
+/* Going to a group, which is what a notification saying somebody added you to one opens.
+ *
+ * **Selecting it is the substantive half**, exactly as it is for the gear in the switcher: the
+ * feed is scoped to the selection rather than to an id in the URL, so switching *is* the
+ * navigation and the route is only where the reader has to be standing to see it.
+ *
+ * `router.push` rather than a slide dismissal, and it covers both entrances without knowing
+ * which it is: moving the URL off a slide route is what closes one (see `activeSlides`), so
+ * the notifications panel a group was tapped in comes down on the way to the feed, and a
+ * tapped push banner on a cold launch lands there with nothing to unwind. */
+export const useOpenOrg = () => {
+    const select = useOrgStore(state => state.select)
+    const router = useRouter()
+
+    const openOrg = useCallback(
+        (orgId) => {
+            if (!orgId) return
+            select(orgId)
+            router.push(ROUTES.DEFAULT, { scroll: false })
+        },
+        [select, router],
+    )
+
+    return useMemo(() => ({ openOrg }), [openOrg])
 }
 
 /* The selected group, and everything the group-settings pages need to act on it.

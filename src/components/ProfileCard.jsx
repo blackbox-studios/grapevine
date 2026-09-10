@@ -364,7 +364,7 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit,
                             direction it was loading. */}
                         <TabsContent
                             value="info"
-                            className="overflow-y-auto overscroll-contain py-2"
+                            className="overflow-y-auto overscroll-contain py-2 scrollbar-gutter-stable"
                         >
                             <CardHeader profile={profile} onEdit={onEdit} onMessage={onMessage} />
                             <InfoTab profile={profile} />
@@ -374,7 +374,7 @@ const CardBody = ({ handle, openTab, profile, skeleton, missing, onOpen, onEdit,
                             <TabsContent
                                 key={kind}
                                 value={kind}
-                                className="overflow-y-auto overscroll-contain py-2"
+                                className="overflow-y-auto overscroll-contain py-2 scrollbar-gutter-stable"
                             >
                                 <FollowsTab
                                     list={follows.lists[kind]}

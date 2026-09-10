@@ -77,8 +77,13 @@ const INIT = {
     /* The inbox: projected conversations, each carrying a decrypted `snippet`. */
     conversations: [],
 
-    /* The one open thread: `{ id, conversation, items, cursor, hasMore }`, items
-     * ascending with `{ id, senderId, text, at, sending?, failed? }`. */
+    /* The one open thread: `{ id, conversation, items, cursor, hasMore, loaded }`, items
+     * ascending with `{ id, senderId, text, at, sending?, failed? }`.
+     *
+     * **`loaded` is what separates "empty" from "not answered yet"**, and without it the
+     * two are the same state — an empty array — so a thread that is merely loading
+     * renders as one that has no messages. That is a sentence about somebody's
+     * conversation appearing for a frame before the conversation does. */
     thread: null,
 
     contacts: { query: "", items: [], loaded: false },
@@ -267,6 +272,7 @@ const useStore = create(
                     items: [],
                     cursor: null,
                     hasMore: false,
+                    loaded: false,
                 }
                 state.error.thread = false
                 state.loading.thread = true
@@ -276,6 +282,10 @@ const useStore = create(
             set((state) => {
                 if (state.thread?.id !== conversationId) return
                 state.thread.items = cached
+                /* Anything in the cache is this conversation, so the surface can stop
+                 * waiting; the wire refreshes behind it. An empty cache is not an
+                 * answer, though — it is exactly the state that has to keep waiting. */
+                if (cached.length) state.thread.loaded = true
             })
 
             try {
@@ -291,6 +301,7 @@ const useStore = create(
                     state.thread.items = merged
                     state.thread.cursor = messages.nextCursor
                     state.thread.hasMore = messages.nextCursor !== null
+                    state.thread.loaded = true
                 })
 
                 get().settleRead(conversationId)
@@ -298,6 +309,9 @@ const useStore = create(
                 set((state) => {
                     if (state.thread?.id !== conversationId) return
                     state.error.thread = toErrorList(error, "Could not load this conversation.")
+                    /* A refusal settles the surface too, or it waits forever on a
+                     * request that is not coming back. */
+                    state.thread.loaded = true
                 })
             } finally {
                 set((state) => {

@@ -27,7 +27,11 @@ import { appPath, cn, formatCompact, gradientFor, orgInitials } from "@/lib/util
  * gives "DP", which is neither of his names. The gradient is keyed on the handle rather
  * than the name for the same reason it is stable at all: a handle identifies one person,
  * where two Anna's would otherwise share a colour and one person changing their name would
- * change theirs. */
+ * change theirs.
+ *
+ * **A caller that might not have the person yet wants a skeleton, not this.** With no
+ * `person` it still draws a filled orb, hashed off an undefined handle, so a face arrives
+ * as a swap out of a colour that was never theirs. */
 export const Avatar = ({ person, className }) =>
     person?.avatar ? (
         <Img

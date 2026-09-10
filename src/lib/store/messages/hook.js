@@ -125,7 +125,12 @@ export const useConversation = (conversationId) => {
             conversation: thread?.conversation ?? null,
             items: thread?.items ?? [],
             hasOlder: Boolean(thread?.hasMore),
-            skeleton: loading.thread && (thread?.items.length ?? 0) === 0,
+            /* **Waiting, not empty.** True until the thread has actually answered, so
+             * the surface holds blank rather than asserting there are no messages —
+             * which is the flash of an empty conversation in front of one that is
+             * merely a request away. It also covers the frame before `open` runs at
+             * all, where `thread` is still null. */
+            waiting: !thread?.loaded,
             sending: loading.send,
             loadingOlder: loading.older,
             error: error.thread,
@@ -137,7 +142,7 @@ export const useConversation = (conversationId) => {
             block: blockThis,
             loadOlder,
         }),
-        [thread, loading.thread, loading.send, loading.older, error.thread, error.send,
+        [thread, loading.send, loading.older, error.thread, error.send,
          send, retry, accept, removeThis, blockThis, loadOlder],
     )
 }

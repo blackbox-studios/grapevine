@@ -3,6 +3,7 @@
 import Link from "next/link"
 
 import { Avatar } from "@/components/Widgets"
+import Skeleton from "@/components/Skeleton"
 import { ROUTES } from "@/lib/constants"
 import { useShellRoute } from "@/lib/hooks/useSlideRoute.hook"
 import { useUser } from "@/lib/store/auth/hook"
@@ -46,7 +47,11 @@ export const ProfileTrigger = ({ route: routeProp, className }) => {
                 className,
             )}
         >
-            <Avatar person={user} className="size-8" />
+            {user ? (
+                <Avatar person={user} className="size-8" />
+            ) : (
+                <Skeleton className="size-8 rounded-full" />
+            )}
         </Link>
     )
 }

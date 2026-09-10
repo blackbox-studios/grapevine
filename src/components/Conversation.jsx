@@ -5,6 +5,8 @@ import { AnimatePresence, motion, useMotionValue } from "motion/react"
 
 import Icon from "@/components/Icon"
 import Linkify from "@/components/Linkify"
+import Transition from "@/components/Transition"
+import Skeleton from "@/components/Skeleton"
 import { Avatar } from "@/components/Widgets"
 import { Button } from "@/components/ui/button"
 import { MAX_MESSAGE_LENGTH } from "@/lib/constants"
@@ -70,30 +72,52 @@ const stamp = (iso) => {
 /* A pause long enough to deserve a stamp between two messages. */
 const STAMP_GAP_MS = 60 * 60 * 1000
 
-/* How far a bubble may trail the rail, in pixels. A backstop against a fling rather
- * than a working value — everything below it is proportional, and a rail that spends
- * its time pinned here has lost the per-row spread that is the point (`LAG_DIVISOR`).
+/* How far a bubble may trail the rail, in pixels.
  *
- * **It is also the height reserved at the foot of the rail**, and the two must stay
- * equal: a transform counts toward a scroll container's scrollable overflow, so a
- * bubble trailing downward past the last row genuinely grows the content and the
- * browser clamps `scrollTop` back when it springs home. That clamp is a hard jump at
- * the exact moment a fast scroll reaches the bottom. Reserving the trail's own ceiling
- * means the rows can never translate past the content's edge, so `scrollHeight` holds
- * still and there is nothing to clamp. */
-const MAX_LAG = 32
+ * **A backstop against a fling, not a working value.** Everything below it is
+ * proportional to speed, so a rail that spends its time pinned here has stopped
+ * responding to velocity at all — which does not read as "capped", it reads as the
+ * effect being flat. Divide it by `LAG_DIVISOR` for the speed at which that happens,
+ * and keep that number above anything a hand actually produces.
+ *
+ * **It is also the height reserved at the foot of the rail**, and the two are the same
+ * constant rather than two that must agree: a transform counts toward a scroll
+ * container's scrollable overflow, so a bubble trailing past the last row genuinely
+ * grows the content, and the browser clamps `scrollTop` back when it springs home —
+ * a hard jump at the moment a fast scroll reaches the bottom. Reserving the trail's own
+ * ceiling means no row can translate past the content's edge, so `scrollHeight` holds
+ * still and there is nothing to clamp. The cost is real and is the reason this is not
+ * simply enormous: every pixel here is also empty space above the composer. */
+const MAX_LAG = 64
+
+/* Clear air between the floating header and the first thing under it, which is usually a
+ * date stamp sitting hard against the header's hairline without it. */
+const RAIL_TOP_GAP = 12
+
+/* How tall the composer grows before it scrolls instead. **One number, read by both the
+ * inline style and the resize handler**: a CSS cap below the JS one puts a scrollbar on the
+ * field for the pixels between them, while the box is still visibly growing. */
+const COMPOSER_MAX_HEIGHT = 132
+
+/* The width the send button claims from the field when it appears: the button itself plus
+ * the gap it needs from the field. The row has no `gap` of its own, so that space is inside
+ * the animated width and collapses with it. */
+const SEND_SLOT_WIDTH = 44
 
 /* Past this, in px/s, the rail did not scroll — something moved it. A hard flick on a
  * phone peaks around 6000; pinning a thread to its foot on open is ten times that. */
 const MAX_VELOCITY = 12000
 
 /* px/s of scroll per px of trail — the sensitivity dial, and the number to change if
- * the rail feels dead or overwrought. Measured against real velocities rather than set
- * by eye: an unhurried scroll runs 600-900 px/s and a normal one 1500-2500, so this
- * puts ordinary reading around 20-30px of trail and a hard flick against the clamp. Raising
- * it is what makes the effect quietly disappear — at 230 it measured 3px on a normal
- * scroll, which is present in the numbers and invisible on the screen. */
-const LAG_DIVISOR = 30
+ * the rail feels dead or overwrought.
+ *
+ * Set against measured velocities rather than by eye. An unhurried scroll runs 600-900
+ * px/s, an ordinary one 1500-2500, and a hard flick 3000-5000; this puts those at
+ * roughly 15px, 30-50px, and the clamp. **Check `MAX_LAG / LAG_DIVISOR` after changing
+ * either** — that quotient is the speed past which the rail stops answering the hand,
+ * and when it fell to 960 px/s the effect went flat above a slow scroll while every
+ * number here still looked reasonable on its own. */
+const LAG_DIVISOR = 50
 
 /* How much of the rail's lag a row actually takes, by where it sits along the
  * direction of travel. A row at the **leading** edge — the bottom while scrolling
@@ -120,20 +144,25 @@ const LAG_LEADING_EDGE = 1
 const STIFFNESS_TRAILING_EDGE = 190
 const STIFFNESS_LEADING_EDGE = 115
 
-/* Critically damped: a bubble catches up to the rail without overshooting past it.
- * Below 1 it bounces, which on a list of text reads as wobble rather than weight. */
-const DAMPING_RATIO = 1
+/* Slightly under critical. At exactly 1 a spring takes the shortest path to rest, which
+ * means it is still travelling at a good rate when it arrives and then simply stops —
+ * and that arrival is what reads as a snap, however small the rest threshold is. A
+ * little under lets it ease past and drift back over a few frames, which is what makes
+ * the settle feel like weight coming to rest instead of an animation ending. Much below
+ * this and the overshoot becomes a visible bounce, which on a column of text is wobble. */
+const DAMPING_RATIO = 0.72
 
 /* When a row counts as arrived, in px and px/s — motion's `restDelta`/`restSpeed` by
  * another name, and deliberately far below either default.
  *
  * The loop zeroes a row the moment it falls inside these, so whatever offset it still
- * held is given up in one frame. Anything a reader can see there is a snap at the end
+ * held is surrendered in one frame. Anything a reader can see there is a snap at the end
  * of the settle, which is the most visible part of the whole effect because it is the
- * part they are looking straight at. A hundredth of a pixel cannot be seen; the cost
- * of waiting for it is a few more frames of a loop that is already running. */
-const REST_DELTA = 0.01
-const REST_SPEED = 0.05
+ * part they are looking straight at. A thousandth of a pixel cannot be seen at any
+ * density; the cost of waiting for it is a few more frames of a loop that is already
+ * running, on rows that are no longer moving. */
+const REST_DELTA = 0.002
+const REST_SPEED = 0.01
 
 /* One row of the rail, and the thing the scroll engine actually moves.
  *
@@ -229,8 +258,30 @@ const Withheld = () => (
     </div>
 )
 
+/* A live height for an element that floats over the rail. Observed rather than read once,
+ * because both of them resize after their first paint. Reports 0 while unmounted, which is
+ * what a caller insetting for it wants. */
+const useMeasuredHeight = (ref) => {
+    const [height, setHeight] = useState(0)
+
+    useLayoutEffect(() => {
+        const el = ref.current
+        if (!el) {
+            setHeight(0)
+            return
+        }
+        const measure = () => setHeight(el.offsetHeight)
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(el)
+        return () => observer.disconnect()
+    }, [ref])
+
+    return height
+}
+
 /* The rail: stamps, grouped bubbles, Delivered, and the scroll-spring plumbing. */
-const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder }) => {
+const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder, topInset, bottomInset }) => {
     const railRef = useRef(null)
 
     /* Every row's offset, integrated in one loop.
@@ -525,7 +576,12 @@ const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder }) => {
     return (
         <div
             ref={railRef}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-2 md:px-6"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-6"
+            /* The header floats over this, so the rail starts below it and the content
+               scrolls up underneath. Padding on the scroller rather than on a child: it
+               is part of the scrollable box, so it scrolls away rather than pinning a
+               gap at the top. */
+            style={{ paddingTop: topInset + RAIL_TOP_GAP }}
         >
             {hasOlder && (
                 <div className="flex justify-center pb-3">
@@ -548,10 +604,17 @@ const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder }) => {
                 sit close, and a change of speaker is a turn in the conversation and gets
                 room. A single `gap` cannot say both, and set tight enough for the first
                 it makes a reply look like a continuation of what it answers. */}
-            {/* `MAX_LAG` of reserve at the foot, which is what keeps the scroll height
-                fixed while the rows trail — see that constant. It doubles as the rail's
-                bottom breathing room, so it costs no extra space. */}
-            <div ref={contentRef} className="flex flex-col pb-[32px]">
+            {/* The reserve that keeps the scroll height fixed while the rows trail, and
+                the rail's bottom breathing room — see `MAX_LAG`. Written from the
+                constant rather than as a class, because a literal here that drifts from
+                it reintroduces the scroll jump silently. */}
+            {/* MAX_LAG is the scroll trail's own ceiling (see the constant); the inset is
+                the composer floating over the foot, which the rail scrolls under. */}
+            <div
+                ref={contentRef}
+                className="flex flex-col"
+                style={{ paddingBottom: MAX_LAG + bottomInset }}
+            >
                 {rows.map((row, index) => {
                     if (row.kind === "gap") {
                         return (
@@ -622,23 +685,51 @@ const Rail = ({ items, viewerId, hasOlder, loadingOlder, onLoadOlder }) => {
 /* The composer: iMessage's pill and the blue arrow that appears the moment there is
  * something to send. A textarea that grows to five lines, because messages wrap;
  * Enter sends on a keyboard, and on a phone the button is the send. */
-const Composer = ({ onSend, sending }) => {
+const Composer = ({ ref, onSend, sending }) => {
     const [draft, setDraft] = useState("")
     const areaRef = useRef(null)
+
+    /* `overflow` is hidden below the cap because `scrollHeight` is an integer and a line box
+     * is not. A 24.375px line reports 24, so a box sized from it is a fraction of a pixel
+     * short of its own content, and the browser draws a scrollbar for that fraction on a
+     * field holding one short line. */
+    const fit = useCallback(() => {
+        const area = areaRef.current
+        if (!area) return
+        area.style.height = "auto"
+        const content = area.scrollHeight
+        area.style.height = `${Math.min(content, COMPOSER_MAX_HEIGHT)}px`
+        area.style.overflowY = content > COMPOSER_MAX_HEIGHT ? "auto" : "hidden"
+    }, [])
+
+    /* **Sized from the draft, not from the keystroke.** Every way the text can change has
+     * to resize the box, and two of them are not keystrokes: it is cleared on send, and a
+     * refusal puts the words back. It is also measured again when the send button finishes
+     * arriving, because the field is narrower by then and how the text wraps has changed:
+     * a long message pasted into an empty box is measured at a width it is about to lose. */
+    useLayoutEffect(fit, [draft, fit])
+
+    const showSend = Boolean(draft.trim())
 
     const submit = async () => {
         const text = draft.trim()
         if (!text || sending) return
         setDraft("")
-        if (areaRef.current) areaRef.current.style.height = "auto"
         const sent = await onSend(text)
         /* A refusal puts the words back rather than losing them. */
         if (!sent) setDraft(text)
     }
 
     return (
-        <div className="flex shrink-0 items-end gap-2 border-t border-border/40 px-3 pt-2 pb-[max(0.5rem,calc(var(--bottom-inset)-var(--keyboard-inset)))] md:px-6 md:pt-3 md:pb-4">
-            <div className="flex min-w-0 flex-1 items-end rounded-[20px] border border-border bg-background px-4 py-1.5">
+        <div
+            ref={ref}
+            /* **No footer plate; the field is the only thing drawn.** The row floats over the
+                rail like the header does, so a bubble scrolling out of view passes under the
+                pill and is blurred by it rather than meeting an opaque bar. Only the pill
+                carries the treatment, which is why the space either side of it stays clear. */
+            className="absolute inset-x-0 bottom-0 z-10 flex items-end px-3 pt-2 pb-[max(0.5rem,calc(var(--bottom-inset)-var(--keyboard-inset)))] md:px-6 md:pt-3 md:pb-4"
+        >
+            <div className="flex min-w-0 flex-1 items-end rounded-full border border-border bg-background/70 px-4 py-3 backdrop-blur-md supports-backdrop-filter:bg-background/55">
                 <textarea
                     ref={areaRef}
                     rows={1}
@@ -646,40 +737,50 @@ const Composer = ({ onSend, sending }) => {
                     maxLength={MAX_MESSAGE_LENGTH}
                     placeholder="Message"
                     aria-label="Message"
-                    onChange={(event) => {
-                        setDraft(event.target.value)
-                        const area = event.target
-                        area.style.height = "auto"
-                        area.style.height = `${Math.min(area.scrollHeight, 120)}px`
-                    }}
+                    onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
                             event.preventDefault()
                             submit()
                         }
                     }}
-                    className="max-h-30 w-full resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
+                    style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
+                    className="w-full resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground"
                 />
             </div>
-            <AnimatePresence initial={false}>
-                {draft.trim() && (
-                    <motion.button
-                        type="button"
-                        aria-label="Send"
-                        onClick={submit}
-                        initial={{ scale: 0.4, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.4, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                        className={cn(
-                            "mb-0.5 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-white",
-                            IMESSAGE_BLUE,
-                        )}
-                    >
-                        <Icon size="md">arrow_upward</Icon>
-                    </motion.button>
-                )}
-            </AnimatePresence>
+            {/* **The slot itself opens; the field gives up the width to it.** An empty
+                composer is the whole row, and the button costs nothing until there is
+                something to send. The width is animated rather than switched because the
+                field is `flex-1` and follows it frame by frame, so the box narrows into the
+                button instead of jumping. The one keystroke that moves it is the first, when
+                there is nothing written to re-wrap.
+
+                `mb` centres the button on the field's *last line* rather than on the field:
+                the row is bottom-aligned, so this holds as the box grows. It is the field's
+                bottom padding plus half a line, less half the button. */}
+            <motion.div
+                initial={false}
+                animate={{ width: showSend ? SEND_SLOT_WIDTH : 0 }}
+                transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                onAnimationComplete={fit}
+                className="mb-[7px] flex h-9 shrink-0 justify-end overflow-hidden"
+            >
+                <motion.button
+                    type="button"
+                    aria-label="Send"
+                    onClick={submit}
+                    tabIndex={showSend ? 0 : -1}
+                    aria-hidden={!showSend}
+                    animate={{ scale: showSend ? 1 : 0.4, opacity: showSend ? 1 : 0 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    className={cn(
+                        "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-white",
+                        IMESSAGE_BLUE,
+                    )}
+                >
+                    <Icon size="md">arrow_upward</Icon>
+                </motion.button>
+            </motion.div>
         </div>
     )
 }
@@ -740,7 +841,7 @@ export const ConversationPane = ({ conversationId, onBack, className }) => {
         conversation,
         items,
         hasOlder,
-        skeleton,
+        waiting,
         sending,
         loadingOlder,
         send,
@@ -754,17 +855,35 @@ export const ConversationPane = ({ conversationId, onBack, className }) => {
     const other = conversation?.other ?? null
     const isRequest = Boolean(conversation?.isRequest)
 
+    /* **Both ends float over the rail, so the rail has to know how tall they are.** Measured
+     * rather than assumed, and for the same reason at each end: the header is a different
+     * height in the two presentations and changes again when a name wraps, and the composer
+     * grows line by line with the draft. */
+    const headerRef = useRef(null)
+    const composerRef = useRef(null)
+    const headerHeight = useMeasuredHeight(headerRef)
+    const composerHeight = useMeasuredHeight(composerRef)
+
     return (
-        <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-            {/* **The sheet stacks its header and the pane lays it out in a row**, and
+        <div className={cn("relative flex min-h-0 flex-1 flex-col", className)}>
+            {/* **The header sits over the conversation rather than above it**, translucent
+                and blurred, so the bubbles pass under it on their way out of view — the
+                treatment iOS gives every scrolling surface. It is absolute for that reason;
+                the rail pays for the space it covers with an equal top inset.
+                `supports-backdrop-filter` keeps it legible where the blur is unavailable,
+                by falling back to a more opaque plate instead of a see-through one.
+
+                **The sheet stacks its contents and the pane lays them out in a row**, and
                 `onBack` is what tells them apart — it is present exactly when this is the
                 phone's full-screen sheet. A sheet has one job at the top and centres its
                 subject over a back arrow; a pane sits beside a list in a wide column and
                 reads left to right like every other header on a desktop. */}
             <div
+                ref={headerRef}
                 className={cn(
-                    "flex shrink-0 items-center gap-2 border-b border-border/40 px-2 pb-2",
-                    !onBack && "px-6 pb-3",
+                    "absolute inset-x-0 top-0 z-10 flex items-center gap-2 border-b border-border/40 px-2 pb-2 pt-1",
+                    "bg-background/70 backdrop-blur-md supports-backdrop-filter:bg-background/55",
+                    !onBack && "px-6 pb-4 pt-9",
                 )}
             >
                 {onBack && (
@@ -784,25 +903,40 @@ export const ConversationPane = ({ conversationId, onBack, className }) => {
                     disabled={isRequest || !other?.handle}
                     onClick={() => other?.handle && openProfile(other.handle)}
                     className={cn(
-                        "flex min-w-0 cursor-pointer items-center disabled:cursor-default",
+                        "flex min-w-0 cursor-pointer items-center disabled:cursor-default pt-2",
                         onBack ? "flex-1 flex-col gap-1 pb-1" : "gap-3",
                     )}
                 >
-                    <span className={cn("relative", isRequest && "overflow-hidden rounded-full")}>
-                        <Avatar
-                            person={other}
-                            className={cn(onBack ? "size-11" : "size-10", isRequest && "blur-[6px]")}
-                        />
-                    </span>
+                    {other ? (
+                        <span className={cn("relative", isRequest && "overflow-hidden rounded-full")}>
+                            <Avatar
+                                person={other}
+                                className={cn(onBack ? "size-11" : "size-10", isRequest && "blur-[6px]")}
+                            />
+                        </span>
+                    ) : (
+                        <Skeleton className={cn("rounded-full", onBack ? "size-11" : "size-10")} />
+                    )}
                     <span
                         className={cn(
                             "flex max-w-full items-center gap-0.5",
                             onBack ? "text-xs font-medium" : "text-base font-semibold",
                         )}
                     >
-                        <span className="truncate">{other ? displayName(other) : "…"}</span>
-                        {!isRequest && (
-                            <Icon size="xs" className="text-muted-foreground">chevron_right</Icon>
+                        {other ? (
+                            <>
+                                <span className="truncate">{displayName(other)}</span>
+                                {!isRequest && (
+                                    <Icon size="xs" className="text-muted-foreground">chevron_right</Icon>
+                                )}
+                            </>
+                        ) : (
+                            /* Holds the line box the chevron gives this row when it is
+                               drawn, so the header does not grow by the difference the
+                               moment the name lands and shove the whole rail down. */
+                            <span className={cn("flex items-center", onBack ? "h-5" : "h-6")}>
+                                <Skeleton className={cn("rounded", onBack ? "h-3 w-24" : "h-4 w-32")} />
+                            </span>
                         )}
                     </span>
                 </button>
@@ -810,21 +944,73 @@ export const ConversationPane = ({ conversationId, onBack, className }) => {
                 {onBack && <span className="size-9 shrink-0" />}
             </div>
 
-            {skeleton ? (
-                <div className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-4 pb-4">
-                    <div className="h-9 w-1/2 animate-pulse self-start rounded-[18px] bg-muted" />
-                    <div className="h-9 w-2/5 animate-pulse self-end rounded-[18px] bg-muted/70" />
-                    <div className="h-9 w-3/5 animate-pulse self-start rounded-[18px] bg-muted" />
-                </div>
-            ) : (
-                <Rail
-                    items={items}
-                    viewerId={user?.id}
-                    hasOlder={hasOlder}
-                    loadingOlder={loadingOlder}
-                    onLoadOlder={loadOlder}
-                />
-            )}
+            {/* **Nothing stands in while a thread loads.** A skeleton is worth drawing
+                where it tells the reader what is coming and roughly how much — a feed, a
+                roster. A conversation resolves in a few hundred milliseconds from a local
+                cache, and fake bubbles in the shape of a conversation that is not this one
+                read as somebody else's words for a frame. Empty space and then a fade in
+                says the same thing without inventing anything.
+
+                **The two states cross-dissolve rather than taking turns.** `mode="wait"`
+                would hold the outgoing one until it had gone and only then bring the next
+                in, which puts a fully blank pane between two conversations — the flash.
+                Overlapping them needs both on screen at once, which is why this box is
+                `relative` and both children are `absolute inset-0`: in normal flow they
+                would stack and the pane would double in height for the length of the
+                fade. Only the *body* is duplicated, never the pane, so there is still one
+                <useConversation/> and one poller.
+
+                The key carries the conversation id, so switching threads fades even when
+                both are ordinary rails; and `waiting` keeps the empty state out of the
+                key until the thread has actually answered, so "no messages" is never
+                asserted about a conversation that is still loading. */}
+            <div className="relative min-h-0 flex-1">
+                <AnimatePresence initial={false}>
+                    {waiting ? (
+                        <div key={`${conversationId}:waiting`} />
+                    ) : items.length === 0 ? (
+                        <Transition
+                            fast
+                            key={`${conversationId}:empty`}
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-10 text-center"
+                        >
+                            <Icon size="xl" className="text-muted-foreground/70">
+                                waving_hand
+                            </Icon>
+                            {/* **It says nothing about how any of this works.** The
+                                protocol underneath is the strongest thing about the
+                                feature and the last thing to advertise: telling people
+                                their messages cannot be read invites using a parish app
+                                for what a parish app should not carry. An empty thread is
+                                also not the place for a disclosure nobody asked for — the
+                                only thing missing here is a first message, so that is what
+                                it says. */}
+                            <p className="max-w-xs text-base text-muted-foreground">
+                                Start a chat with{" "}
+                                <span className="font-medium text-foreground">
+                                    {other ? displayName(other) : "them"}
+                                </span>
+                            </p>
+                        </Transition>
+                    ) : (
+                        <Transition
+                            fast
+                            key={`${conversationId}:rail`}
+                            className="absolute inset-0 flex flex-col"
+                        >
+                            <Rail
+                                items={items}
+                                viewerId={user?.id}
+                                hasOlder={hasOlder}
+                                loadingOlder={loadingOlder}
+                                onLoadOlder={loadOlder}
+                                topInset={headerHeight}
+                                bottomInset={isRequest ? 0 : composerHeight}
+                            />
+                        </Transition>
+                    )}
+                </AnimatePresence>
+            </div>
 
             {isRequest ? (
                 <RequestGate
@@ -835,7 +1021,7 @@ export const ConversationPane = ({ conversationId, onBack, className }) => {
                     dismiss={onBack ?? (() => {})}
                 />
             ) : (
-                <Composer onSend={send} sending={sending} />
+                <Composer ref={composerRef} onSend={send} sending={sending} />
             )}
         </div>
     )

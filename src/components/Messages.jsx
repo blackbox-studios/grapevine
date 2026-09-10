@@ -104,16 +104,44 @@ const ConversationRow = ({ conversation, active, onOpen }) => {
         <button
             type="button"
             onClick={() => onOpen(`${ROUTES.CONVERSATION}/${conversation.id}`)}
-            className={cn(
-                "group flex w-full cursor-pointer items-center gap-3 rounded-xl px-1 text-left transition-colors",
-                active ? "bg-accent" : "hover:bg-accent/50",
-            )}
+            className="group relative isolate flex w-full cursor-pointer items-center gap-3 pl-2 pr-1 text-left"
         >
-            {/* The unread dot sits in the gutter, as the phone's own list draws it, so
-                a read row and an unread row keep their avatars on one vertical line. */}
-            <span className="flex w-2.5 shrink-0 items-center justify-center">
-                {unread && <span className="size-2.5 rounded-full bg-[#0a84ff]" />}
-            </span>
+            {/* **The fill bleeds past the row; the row's own box does not.** Reaching the
+                container's edges by widening the row would drag the avatars and the text
+                out with it, and they are aligned to the heading and the search field above
+                them. A separate layer behind the content spreads into the surrounding
+                padding on its own and leaves the layout entirely alone.
+
+                `isolate` on the row is what makes `-z-10` mean "behind this row" rather
+                than "behind the page": an absolutely positioned child paints above its
+                non-positioned siblings, so without a stacking context of its own the fill
+                would cover the name it is meant to sit under. */}
+            <span
+                aria-hidden="true"
+                className={cn(
+                    "pointer-events-none absolute inset-y-0 -z-10 rounded-xl transition-colors",
+                    "-inset-x-3 md:-inset-x-5",
+                    active ? "bg-accent" : "group-hover:bg-accent/50",
+                )}
+            />
+            {/* **The dot hangs in the margin rather than holding a column of its own.**
+                A reserved gutter is only honest if something is usually in it; here most
+                rows are read, so every one of them paid an indent for a mark it did not
+                have and the avatars sat visibly off to the right of everything else in
+                the list. Positioned absolutely into the surrounding padding instead: the
+                avatar keeps the place it would have had with no dot at all, and an unread
+                row grows a mark beside it without moving anything. */}
+            {unread && (
+                <>
+                    <span
+                        aria-hidden="true"
+                        className="absolute -left-3 top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-[#0a84ff]"
+                    />
+                    {/* The dot and the bolder name are the only marks of an unread row, and
+                        both are visual. This is what the button says out loud. */}
+                    <span className="sr-only">Unread.</span>
+                </>
+            )}
 
             <span className={cn("relative shrink-0", isRequest && "overflow-hidden rounded-full")}>
                 <Avatar person={other} className={cn("size-12", isRequest && "blur-[6px]")} />
@@ -193,8 +221,8 @@ export const MessagesList = () => {
 
     const list = (
         <>
-            <header className="flex items-center justify-between pb-4">
-                <h1 className={cn("font-medium", isDesktop ? "text-2xl" : "text-4xl")}>
+            <header className={cn("flex items-center justify-between pb-6", isDesktop && "pb-8")}>
+                <h1 className={cn("font-medium pt-2", isDesktop ? "text-2xl" : "text-4xl")}>
                     Messages
                 </h1>
                 <Button
@@ -203,7 +231,7 @@ export const MessagesList = () => {
                     size="icon"
                     aria-label="New message"
                     onClick={() => setComposing(true)}
-                    className="rounded-full"
+                    className="rounded-full -mt-1"
                 >
                     <Icon>edit_square</Icon>
                 </Button>
@@ -282,42 +310,44 @@ export const MessagesList = () => {
         <div className="flex h-dvh w-full overflow-hidden">
             {/* Scrolls inside its own column, so the thread beside it keeps its composer
                 pinned to the foot instead of both sharing one page scroll. */}
-            <aside className="flex w-[clamp(19rem,24vw,25rem)] shrink-0 flex-col border-r border-border/60 px-5 pt-6">
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-none">
+            {/* Both panels start at the rail's own top run-in, so the list heading, the
+                thread header, the brand mark and the group switcher all sit on one line
+                across the top of the screen. */}
+            {/* **The gutter belongs to the scroller, not to the aside.** A row's hover fill
+                and its unread dot both reach outside the text column on purpose, and
+                `overflow-y-auto` computes `overflow-x` to `auto` as well — so with the
+                padding one level up, the scroller's content edge was the clip edge and
+                everything that bled past it was cut off. Inside, the same bleed lands in
+                the scroller's own padding, which is not clipped. */}
+            <aside className="flex w-[clamp(19rem,24vw,25rem)] shrink-0 flex-col border-r border-border/60 pt-9">
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 scrollbar-none">
                     {list}
                 </div>
             </aside>
 
-            {/* **Conversations cross-fade rather than cut.** Switching threads swaps the
-                entire right half, and on a desktop the list stays put while it happens —
-                so a hard cut reads as the page having been replaced under a cursor that
-                only moved a few pixels. Keyed on the id, so the fade fires on a change of
-                subject and not on a message arriving inside one.
-
-                `mode="wait"` is doing more than sequencing here: it keeps the outgoing
-                pane mounted until it has left, which means exactly one <ConversationPane/>
-                exists at any moment. Two would open and poll two threads and race over the
-                read cursor. */}
-            <section className="flex min-w-0 flex-1 flex-col pt-4">
-                <AnimatePresence mode="wait" initial={false}>
-                    {openId ? (
-                        <Transition fast key={openId} className="flex min-h-0 flex-1 flex-col">
-                            <ConversationPane conversationId={openId} />
-                        </Transition>
-                    ) : (
-                        <Transition
-                            fast
-                            key="empty"
-                            className="flex flex-1 flex-col items-center justify-center gap-2 px-8 pb-16 text-center"
-                        >
-                            <p className="font-serif text-xl italic">Your messages</p>
-                            <p className="max-w-xs text-sm text-muted-foreground">
-                                Choose a conversation, or start one with someone from a group
-                                you are in. Messages are end-to-end encrypted.
-                            </p>
-                        </Transition>
-                    )}
-                </AnimatePresence>
+            {/* **The pane is not keyed on the conversation, and that is deliberate.**
+                Keying it would tear down the header, the rail and the composer on every
+                switch and build them again — and with an <AnimatePresence mode="wait">
+                around it, leave the half blank in between, which is the flash. The pane
+                takes the id as a prop instead, so the chrome never moves and only the
+                body cross-dissolves; that fade lives inside <ConversationPane/>, where it
+                can overlap the two threads without ever mounting two pollers. */}
+            {/* No top run-in here: the pane's header carries it instead, so the blurred
+                bar reaches the top of the screen and the bubbles pass under all of it.
+                Padding on this element would end the bar at its edge, and the messages
+                would disappear at a line partway up rather than behind the header. */}
+            <section className="flex min-w-0 flex-1 flex-col">
+                {openId ? (
+                    <ConversationPane conversationId={openId} />
+                ) : (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 pb-16 text-center">
+                        <p className="font-serif text-xl italic">Your messages</p>
+                        <p className="max-w-xs text-sm text-muted-foreground">
+                            Choose a conversation, or start one with someone from a group
+                            you are in.
+                        </p>
+                    </div>
+                )}
             </section>
 
             <NewMessage open={composing} onOpenChange={setComposing} />
@@ -403,7 +433,7 @@ const NewMessage = ({ open, onOpenChange }) => {
                     <DialogHeader>
                         <DialogTitle>New message</DialogTitle>
                         <DialogDescription>
-                            Messages are end-to-end encrypted.
+                            Only the two of you will see it.
                         </DialogDescription>
                     </DialogHeader>
                     {body}
@@ -417,7 +447,7 @@ const NewMessage = ({ open, onOpenChange }) => {
             <DrawerContent className="h-[85dvh] px-4 pb-[calc(1rem+var(--safe-bottom))]">
                 <DrawerHeader className="px-0">
                     <DrawerTitle>New message</DrawerTitle>
-                    <DrawerDescription>Messages are end-to-end encrypted.</DrawerDescription>
+                    <DrawerDescription>Only the two of you will see it.</DrawerDescription>
                 </DrawerHeader>
                 {body}
             </DrawerContent>

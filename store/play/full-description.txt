@@ -5,19 +5,25 @@ It is not a social network. There is no public feed, no discovery, no advertisin
 YOUR PARISH, IN ONE PLACE
 Announcements, feasts, photographs and parish news arrive in one feed instead of being scattered across email, group chats and a website nobody checks. Your priest or another administrator publishes, and everybody else reads, likes and comments. Tap a photograph to open the post, read the thread, and add your own reply.
 
+THE PARISH CALENDAR
+The month at a glance, and a day you can read hour by hour. Grapevine does not ask your parish to keep its calendar twice: point it at the public calendar the office already maintains and the services appear here, so a correction is still made in one place. Sign up sheets share the same grid, which is what lets you see the whole of a Sunday at once.
+
+SIGN UP SHEETS
+Coffee hour, the soup kitchen, two hour shifts on the car park over a festival weekend. An administrator publishes a rota, the parish sees which dates are still short, and taking one is a tap. You are reminded a week before and again the day before, so it reaches you before it comes round rather than after. A date can be taken on behalf of a group, so the rota can read "the Orthodox Christian Fellowship" while somebody is still answerable for it. A rota with no end date never runs out of Sundays.
+
+DIRECT MESSAGES
+A quiet word with one person, without it having to happen under a post. Messages are end to end encrypted using the Signal protocol, so they are sealed on your device and opened on theirs, and our servers hold nothing but ciphertext we cannot read. You can only write to somebody you share a group with, so a diocese lets you reach a person in another parish and a stranger cannot reach you at all. A first message from somebody you do not follow arrives as a request, which you can accept, delete or block, and nothing tells the sender it was seen. Messaging is for adults.
+
 THE DAILY READ
 Every day carries the Prologue of Ohrid for that date, together with the day's fasting rule and the tone of the week. It is the same reading wherever it is opened, so there is something to read whether or not your parish has posted anything today.
 
 MORE THAN ONE GROUP
-Many people belong to a parish and to their diocese. Switch between them whenever you like. Each group keeps its own feed, its own members and its own announcements, and you only ever see the ones you belong to.
-
-ADDITIONAL FEATURES TO COME
-- Event reminders, so a coffee hour sign up, a volunteer rota or a parish work day reaches you before it comes round rather than after.
-- Direct messaging, so a quiet word with one person does not have to happen under a post.
+Many people belong to a parish and to their diocese. Switch between them whenever you like. Each group keeps its own feed, its own calendar, its own members and its own announcements, and you only ever see the ones you belong to.
 
 PRIVATE BY CONSTRUCTION
 - Invite only. An administrator of your group creates your account, so nobody signs themselves up and no stranger can find you.
 - Nothing is public. What you write is readable only by people who hold an approved membership in the same group.
+- Direct messages are end to end encrypted. The keys never leave your device, and we could not read a message if we were asked for it.
 - No advertising, no third party analytics, no tracking.
 - We do not collect your location, your contacts or your payment details.
 - Access is checked on every request, so removing somebody takes effect immediately rather than whenever their session happens to expire.

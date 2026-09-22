@@ -49,9 +49,13 @@ function DrawerOverlay({
   );
 }
 
+/* `handle` draws the grab bar a bottom sheet is dragged by. Turn it off for a sheet that
+ * cannot be dismissed: the bar is the affordance that says "swipe me away", and drawing one
+ * over a drawer nothing can close is an invitation the sheet then refuses. */
 function DrawerContent({
   className,
   children,
+  handle = true,
   ...props
 }) {
   return (
@@ -64,8 +68,10 @@ function DrawerContent({
           className
         )}
         {...props}>
-        <div
-          className="mx-auto mt-3 hidden h-0.5 w-10 shrink-0 rounded-full bg-foreground/80 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        {handle && (
+          <div
+            className="mx-auto mt-3 hidden h-0.5 w-10 shrink-0 rounded-full bg-foreground/80 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        )}
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>

@@ -35,7 +35,13 @@ export const APP_STORES = {
  *
  * `APP_BUILD` is YYMMDDHHMM in UTC, which is a stamp rather than a number to compare: it
  * answers "which bundle is this" when two devices claim the same version, and it sorts. */
-export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"
+/* The fallback is deliberately **not a version**. `next.config.mjs` always inlines this, so
+ * reaching it means a bundle built some other way — and the update floor compares against it:
+ * "0.0.0" is the oldest version expressible, so it would read as behind every floor and raise
+ * the one wall in the app that nobody can dismiss. `olderThan` refuses anything that is not
+ * three dotted numbers, so a word here fails open the way the rest of that feature does, and
+ * /settings/about prints something true rather than a version nothing was built at. */
+export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "unknown"
 export const APP_BUILD = new Date(process.env.NEXT_PUBLIC_BUILT_AT ?? Date.now())
     .toISOString()
     .replace(/\D/g, "")
@@ -230,6 +236,11 @@ export const API_BASE =
 export const API_ENDPOINTS = {
     /* The session probe: who the viewer is and which groups they belong to. */
     ME: "/me",
+    /* The app's feature flags, read from Firebase Remote Config. The one endpoint that asks
+     * for no session, because one of the things it carries is the version floor — a kill
+     * switch only a client healthy enough to authenticate could read would be unreachable in
+     * exactly the case it exists for. Nothing viewer-scoped may ride here. */
+    CONFIG: "/config",
     /* The store reviewer's fixed-code sign-in. 404s unless REVIEW_EMAIL/REVIEW_OTP are set
      * on the server, which is the normal state — see src/app/api/auth/review/route.api.js. */
     AUTH_REVIEW: "/auth/review",
@@ -364,6 +375,35 @@ export const NOTIFICATIONS_POLL_MS = 30_000
  * while the surface is mounted; the background cost of messaging stays zero, since the
  * badge rides the notifications tick. */
 export const MESSAGES_POLL_MS = 10_000
+
+/* ---------------------------------------------------------------------------
+ * The Daily Read
+ * ------------------------------------------------------------------------- */
+
+/* Which English the day's appointed scripture is printed in.
+ *
+ * **The list is orthocal.info's, not ours.** Its API accepts exactly these three values and
+ * rejects anything else with a 422, so this is a mirror of somebody else's enum rather than a
+ * menu we composed — adding a fourth here would produce a setting that cannot be served. The
+ * `value` is sent verbatim as the `translation` query parameter.
+ *
+ * The labels are what a parishioner would call each one. The Septuagint reading is the
+ * LXX2012 / World English Bible text, which is the Old Testament the Orthodox Church actually
+ * appoints; upstream names the parameter after the edition, and nobody choosing a Bible thinks
+ * of it as "lxx2012-web". */
+export const READING_TRANSLATIONS = [
+    { value: "lxx2012-web", label: "Septuagint" },
+    { value: "kjv", label: "King James" },
+    { value: "douay-rheims", label: "Douay-Rheims" },
+]
+
+/* What a reader who has never opened the setting sees. The Septuagint is the Old Testament the
+ * Church appoints, which makes it the right thing to print without being asked.
+ *
+ * `prologue.service.js` falls back to this same value for a request that names no translation,
+ * so a client that has not sent one and the server agree on what it is reading. Change one,
+ * change the other in the same sitting. */
+export const DEFAULT_TRANSLATION = READING_TRANSLATIONS[0].value
 
 /* ---------------------------------------------------------------------------
  * Uploads
@@ -869,5 +909,16 @@ export const ERROR_CODES = {
     RATE_LIMITED: "RATE_LIMITED",
     INTERNAL: "INTERNAL",
     UNAVAILABLE: "UNAVAILABLE",
+    /* A feature switched off for this deployment. Never shown to anybody — see
+     * `SILENT_ERROR_CODES` below. */
+    FEATURE_DISABLED: "FEATURE_DISABLED",
     NETWORK: "NETWORK",
 }
+
+/* Codes `toErrorList` refuses to turn into anything a reader sees.
+ *
+ * A toast answers a question somebody asked. Nobody asked for a feature to be switched off:
+ * the flag takes the entrance and the surface with it, so the only requests that can be
+ * refused this way are the one that raced the flag on boot and a crafted one. Both should
+ * leave the app looking exactly as it does when the feature was never there. */
+export const SILENT_ERROR_CODES = new Set([ERROR_CODES.FEATURE_DISABLED])

@@ -296,6 +296,33 @@ npm run release:android -- --skip-build      # re-upload the bundle already buil
 Promotion between tracks (internal → closed → production) stays in the console, deliberately:
 promoting is a judgement call, not a build step.
 
+### Forcing everyone onto a release
+
+```bash
+npm run release:android -- --force-user-update
+```
+
+The release goes out as usual, and then `minimum_version` in Firebase Remote Config is set to
+the version just published. Every phone still on an older build opens on a drawer it cannot
+dismiss, offering the Play listing (see `<UpdateRequired/>`). An ordinary release never touches
+that value, because being one patch behind is not a reason to stand between a parishioner and
+their parish.
+
+Three things to know before using it:
+
+1. **It needs the Firebase service account, not the Play one** — `FCM_PROJECT_ID`,
+   `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY`. The generated `firebase-adminsdk-*` account already has
+   the role that covers publishing a Remote Config template; a hand-made one would need
+   "Firebase Remote Config Admin" granted under Google Cloud → IAM.
+2. **The floor applies before Play finishes rolling out.** A phone reads the flags on its next
+   launch or foreground, which can easily be before the new build is downloadable, and on the
+   internal track it is downloadable only by testers. Watch the rollout, and lower the value in
+   the Firebase console if it went up too early.
+3. **It is refused with `--dry`**, which would raise a floor for a bundle nobody can install.
+
+Lowering or clearing the floor is a console edit; there is no flag for it, because retreating
+from a wall is not something to do from a build script.
+
 > `build:native` overwrites `.next` with the static export, so run `npm run build` again before
 > `npm run start`. The script says so when it finishes.
 

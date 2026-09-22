@@ -56,9 +56,10 @@ const NAV = [
         Outline: MugOutlineIcon,
         Filled: MugIcon,
     },
-    /* The only entry drawn for some viewers and not others: messaging is 18+, so a
-     * minor never sees the door. It is also the only one carrying a count — every
-     * other glyph here names a place rather than a number of things waiting in it. */
+    /* The only entry drawn for some viewers and not others: messaging is 18+ and can be
+     * switched off for the whole deployment, so a minor never sees the door and neither
+     * does anybody when the flag is down. It is also the only one carrying a count —
+     * every other glyph here names a place rather than a number of things waiting in it. */
     {
         title: "Messages",
         href: ROUTES.INBOX,
@@ -73,17 +74,6 @@ const NAV = [
         Filled: CalendarIcon,
     },
 ]
-
-/* Where the composer sits among the mobile bar's entries: after the two you read (Home,
- * Daily Read) and before the two you act in (Messages, Events). The plus is the only
- * thing on that bar that does something rather than going somewhere, so it sits on that
- * seam rather than at an arithmetic middle — which is also what puts Messages directly
- * to its right for an admin, and dead centre for everyone else, whose bar has no plus in
- * it at all. Events is last either way, at the far edge.
- *
- * The desktop rail is a column with no equivalent position, and keeps the plus below the
- * destinations. */
-const COMPOSE_SLOT = 2
 
 /* Renders a routed icon link with an outline↔filled crossfade for the active page.
  * The icon sits in a fixed --nav-width box so it never moves as the rail expands;
@@ -253,7 +243,7 @@ const ProtectedShell = ({ children }) => {
                         anywhere, and it is the only entry here that renders for some
                         viewers and not others. Hidden entirely from anyone who administers
                         no group — see <Compose/>. */}
-                    <Compose />
+                    <Compose rail />
                 </div>
                 <div className="pb-8 pt-6 px-2 flex flex-col gap-2">
                     <NavSlot><NotificationsMenu /></NavSlot>
@@ -362,9 +352,9 @@ const ProtectedShell = ({ children }) => {
                 — and an inset on top of it is an edge inset charged twice, pulling the outer two
                 in from where a thumb reaching for a corner expects them.
 
-                It has to stay `justify-around` rather than fixed slots: <Compose/> is the middle
-                entry and renders nothing at all for a viewer who administers no group, so this
-                re-spreads the remaining four instead of leaving a hole where the plus would be. */}
+                It has to stay `justify-around` rather than fixed slots: Messages is drawn only
+                for an adult viewer, so this re-spreads the remaining entries instead of leaving a
+                hole where it would be. */}
             <motion.nav
                 animate={{ x: shift }}
                 transition={SLIDE_TRANSITION}
@@ -377,11 +367,7 @@ const ProtectedShell = ({ children }) => {
                     wherever the reader is — and on a phone the trigger belongs at the top
                     right of the feed, which is where a thumb looks for it. See
                     (protected)/page.jsx. */}
-                {nav.slice(0, COMPOSE_SLOT).map((item) => (
-                    <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
-                ))}
-                <Compose />
-                {nav.slice(COMPOSE_SLOT).map((item) => (
+                {nav.map((item) => (
                     <NavItem key={item.href} item={item} route={route} count={countFor(item)} />
                 ))}
                 <ProfileTrigger route={route} />

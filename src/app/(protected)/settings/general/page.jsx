@@ -1,10 +1,21 @@
 "use client"
 
 import { BackHeader } from "@/components/BackHeader"
-import { ROUTES } from "@/lib/constants"
+import WheelSelect from "@/components/WheelSelect"
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { READING_TRANSLATIONS, ROUTES } from "@/lib/constants"
 import { useTheme } from "@/lib/providers/Theme"
+import { useIsDesktop } from "@/lib/hooks/useIsDesktop.hook"
 import { useMounted } from "@/lib/hooks/useMounted.hook"
 import PushOffer from "@/components/PushOffer"
+import { useReadingTranslation } from "@/lib/store/prefs/hook"
 import { usePushPermission } from "@/lib/store/push/hook"
 import { appPath, cn } from "@/lib/utils"
 
@@ -75,9 +86,65 @@ const SettingsGeneralPage = () => {
                     })}
                 </div>
 
+                <ReadingSection />
+
                 <PushSection />
             </section>
         </>
+    )
+}
+
+/* Which English the Daily Read prints the day's appointed scripture in.
+ *
+ * A plain control rather than a form, like the theme switcher above it: there is nothing to
+ * submit and nothing that can be refused, so a Save button would be a step between a choice and
+ * its effect. The list is upstream's three and the labels are the names a parishioner would use
+ * — see `READING_TRANSLATIONS`.
+ *
+ * The description names the epistle and the gospel rather than the screen, because the
+ * Prologue's own entry is one translation and is not ours to choose.
+ *
+ * **A listbox on a pointer, a drum on a phone**, which is the split the composer's group picker
+ * makes and for the reasons in `<WheelSelect/>`'s header: a Radix listbox is the right control
+ * for a mouse and is not one iOS delivers the events for. */
+const ReadingSection = () => {
+    const { translation, setTranslation } = useReadingTranslation()
+    const isDesktop = useIsDesktop()
+
+    return (
+        <div className="flex flex-col items-start gap-3">
+            <h3 className="text-lg font-medium text-foreground">Daily Read</h3>
+
+            <p className="text-sm text-muted-foreground">
+                Which translation the day's epistle and gospel are printed in.
+            </p>
+
+            {isDesktop ? (
+                <Select value={translation} onValueChange={setTranslation}>
+                    <SelectTrigger className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    {/* Anchored under the trigger rather than item-aligned, for the reason the
+                        composer's group picker gives. */}
+                    <SelectContent position="popper">
+                        <SelectGroup>
+                            {READING_TRANSLATIONS.map(({ value, label }) => (
+                                <SelectItem key={value} value={value}>
+                                    {label}
+                                </SelectItem>
+                            ))}
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+            ) : (
+                <WheelSelect
+                    label="Translation"
+                    value={translation}
+                    onChange={setTranslation}
+                    options={READING_TRANSLATIONS}
+                />
+            )}
+        </div>
     )
 }
 

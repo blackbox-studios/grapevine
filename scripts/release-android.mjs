@@ -5,6 +5,7 @@
  *   npm run release:android -- --track alpha
  *   npm run release:android -- --draft --notes "Fixes the comment ordering"
  *   npm run release:android -- --no-bump        # release the version already in package.json
+ *   npm run release:android -- --force-user-update   # ...and make this the oldest version allowed
  *
  * The version lives in package.json, and android/app/build.gradle derives versionName and
  * versionCode by *reading* that file — so this script passes Gradle no version properties, and
@@ -26,6 +27,19 @@
  * Play models a release as an "edit": insert one, mutate it, commit it. Nothing is visible
  * until the commit, and an abandoned edit expires on its own but clutters the console until it
  * does — so every failure below deletes the edit on the way out.
+ *
+ * ── The update floor ────────────────────────────────────────────────────────
+ *
+ * `--force-user-update` writes `minimum_version` into Firebase Remote Config, which is what
+ * puts <UpdateRequired/> in front of every phone still on an older build. It is a flag rather
+ * than something a release does on its own, because most releases are not worth standing
+ * between a parishioner and their parish over.
+ *
+ * It runs after the commit, and it uses the FIREBASE service account rather than the Play one
+ * — two credentials for two APIs, which is why both are read below. The JWT dance is the same
+ * either way and is duplicated from src/lib/server/google.js, because everything under
+ * src/lib/server/** begins with `import "server-only"`, a specifier a plain Node process
+ * cannot resolve.
  */
 
 import { execFileSync } from "node:child_process"
@@ -65,6 +79,7 @@ const DRY = flag("dry")
 const SKIP_BUILD = flag("skip-build")
 const SKIP_PROBE = flag("skip-probe")
 const NO_BUMP = flag("no-bump")
+const FORCE_UPDATE = flag("force-user-update")
 const TRACK = option("track", "internal")
 const NOTES = option("notes", null)
 /* A completed release goes live on the track; a draft waits in the console. Internal testing
@@ -146,6 +161,7 @@ if (!signingReady) {
 }
 
 const credentials = playCredentials()
+const firebase = FORCE_UPDATE ? firebaseCredentials() : null
 
 function playCredentials() {
     if (DRY) return null
@@ -174,9 +190,32 @@ function playCredentials() {
     return { clientEmail, privateKey }
 }
 
+/* The floor is a promise that a newer build is installable, so raising it for a bundle nobody
+ * uploaded would wall every phone off from an app with nothing to update to. */
+if (FORCE_UPDATE && DRY) {
+    die("--force-user-update needs a real upload, so it cannot be combined with --dry.")
+}
+
+function firebaseCredentials() {
+    const projectId = process.env.FCM_PROJECT_ID
+    const clientEmail = process.env.FCM_CLIENT_EMAIL
+    const privateKey = process.env.FCM_PRIVATE_KEY?.replace(/\\n/g, "\n")
+
+    if (!projectId || !clientEmail || !privateKey) {
+        die(
+            "--force-user-update writes the version floor into Firebase Remote Config, which\n" +
+                "  needs the Firebase service account: FCM_PROJECT_ID, FCM_CLIENT_EMAIL and\n" +
+                "  FCM_PRIVATE_KEY. See .env.example.",
+        )
+    }
+    return { projectId, clientEmail, privateKey }
+}
+
 console.log(`\n  Grapevine ${versionName}  (versionCode ${versionCode})`)
 console.log(`  API:    ${describeApiTarget()}`)
-console.log(`  Target: ${DRY ? "build only, no upload" : `${TRACK} track, ${STATUS}`}\n`)
+console.log(`  Target: ${DRY ? "build only, no upload" : `${TRACK} track, ${STATUS}`}`)
+if (FORCE_UPDATE) console.log(`  Floor:  ${versionName}, so every older build is walled out`)
+console.log("")
 
 /* Asks the deployed API the question the app's first request will ask, before spending three
  * minutes building a bundle that could not talk to it. */
@@ -234,17 +273,20 @@ if (DRY) {
  * ------------------------------------------------------------------------- */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token"
-const SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+const PLAY_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
+const REMOTE_CONFIG_SCOPE = "https://www.googleapis.com/auth/firebase.remoteconfig"
 const API = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${PACKAGE_NAME}`
 const UPLOAD_API = `https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/${PACKAGE_NAME}`
 
-const accessToken = async () => {
-    const key = await importPKCS8(credentials.privateKey, "RS256")
+/* Takes the account as an argument rather than closing over one, because the floor below is
+ * written by a different service account than the release. */
+const accessToken = async (account, scope) => {
+    const key = await importPKCS8(account.privateKey, "RS256")
 
-    const assertion = await new SignJWT({ scope: SCOPE })
+    const assertion = await new SignJWT({ scope })
         .setProtectedHeader({ alg: "RS256" })
-        .setIssuer(credentials.clientEmail)
-        .setSubject(credentials.clientEmail)
+        .setIssuer(account.clientEmail)
+        .setSubject(account.clientEmail)
         .setAudience(TOKEN_URL)
         .setIssuedAt()
         .setExpirationTime("1h")
@@ -259,11 +301,50 @@ const accessToken = async () => {
         }),
     })
 
-    if (!res.ok) die(`Play auth failed (${res.status}): ${await res.text()}`)
+    if (!res.ok) die(`Google auth failed for ${scope} (${res.status}): ${await res.text()}`)
     return (await res.json()).access_token
 }
 
-const token = await accessToken()
+/* Raises `minimum_version` in Remote Config to the release just published.
+ *
+ * Read-modify-write against the whole template, because that is the only shape the API offers:
+ * there is no way to set one parameter, so the GET's ETag is sent back as `If-Match` and the
+ * write is refused if anybody edited the console in between. `version` is output-only metadata
+ * and is dropped rather than echoed.
+ *
+ * Every other parameter is carried through untouched, `messaging_enabled` included. */
+const raiseUpdateFloor = async (version) => {
+    const url = `https://firebaseremoteconfig.googleapis.com/v1/projects/${firebase.projectId}/remoteConfig`
+    const auth = await accessToken(firebase, REMOTE_CONFIG_SCOPE)
+
+    const read = await fetch(url, { headers: { Authorization: `Bearer ${auth}` } })
+    if (!read.ok) throw new Error(`GET remoteConfig → ${read.status}: ${await read.text()}`)
+
+    const etag = read.headers.get("etag")
+    if (!etag) throw new Error("Remote Config returned no ETag, so the write cannot be safe.")
+
+    const template = await read.json()
+    delete template.version
+    template.parameters ??= {}
+    template.parameters.minimum_version = {
+        ...template.parameters.minimum_version,
+        defaultValue: { value: version },
+        valueType: "STRING",
+    }
+
+    const write = await fetch(url, {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${auth}`,
+            "Content-Type": "application/json; UTF-8",
+            "If-Match": etag,
+        },
+        body: JSON.stringify(template),
+    })
+    if (!write.ok) throw new Error(`PUT remoteConfig → ${write.status}: ${await write.text()}`)
+}
+
+const token = await accessToken(credentials, PLAY_SCOPE)
 
 const call = async (url, { method = "GET", body, contentType = "application/json" } = {}) => {
     const res = await fetch(url, {
@@ -318,11 +399,38 @@ try {
     await call(`${API}/edits/${edit.id}:commit`, { method: "POST", body: {} })
 
     console.log(
-        `\n  ✓ Grapevine ${versionName} (${uploaded.versionCode}) is on the ${TRACK} track as ${STATUS}.\n` +
-            "\n  Note: build:native overwrote .next with the static export, so run\n" +
-            "  `npm run build` again before `npm run start`.\n",
+        `\n  ✓ Grapevine ${versionName} (${uploaded.versionCode}) is on the ${TRACK} track as ${STATUS}.`,
     )
 } catch (error) {
     await call(`${API}/edits/${edit.id}`, { method: "DELETE" }).catch(() => {})
     die(`${error.message}\n\n  The edit was discarded; nothing was published.`)
 }
+
+/* Outside the try above, and after the commit, because it is not part of the edit: the floor is
+ * a separate service and a failure here must not read as a release that did not happen. It has
+ * happened, and saying so is the first line of the message below. */
+if (FORCE_UPDATE) {
+    console.log(`  → raising the update floor to ${versionName}`)
+    try {
+        await raiseUpdateFloor(versionName)
+        console.log(
+            `\n  ✓ Every build below ${versionName} now opens on the update wall.\n` +
+                "\n  The floor applies the moment a phone next reads the flags, which can be before\n" +
+                `  Play finishes making ${versionName} available on the ${TRACK} track. Watch the\n` +
+                "  rollout, and lower it in the Firebase console if it went up too early.",
+        )
+    } catch (error) {
+        die(
+            `Grapevine ${versionName} WAS published to the ${TRACK} track.\n` +
+                `  Only the update floor failed to move:\n\n  ${error.message}\n\n` +
+                `  Set \`minimum_version\` to ${versionName} by hand under Firebase console →\n` +
+                "  Remote Config. Re-running this script is not the fix: Play refuses a\n" +
+                "  versionCode it has already seen.",
+        )
+    }
+}
+
+console.log(
+    "\n  Note: build:native overwrote .next with the static export, so run\n" +
+        "  `npm run build` again before `npm run start`.\n",
+)

@@ -2,6 +2,7 @@ import "@/globals.css"
 
 import Providers from "@/app/providers"
 import App from "@/app/App"
+import UpdateRequired from "@/components/UpdateRequired"
 import { APP_NAME } from "@/lib/constants"
 
 export const metadata = {
@@ -73,6 +74,10 @@ export default function RootLayout({ children }) {
                 <Providers>
                     {children}
                     <App />
+                    {/* Above both route groups and outside every gate, because a build below
+                        the version floor must be stopped on the login screen too. Renders
+                        nothing at all on the web and on any native build that is current. */}
+                    <UpdateRequired />
                 </Providers>
             </body>
         </html>

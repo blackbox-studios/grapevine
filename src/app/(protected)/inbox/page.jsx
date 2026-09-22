@@ -14,7 +14,7 @@ import { useMessagingPermitted } from "@/lib/store/messages/hook"
  * The gate renders nothing rather than an explanation: the nav entry is already hidden
  * from a viewer under 18, so the only way here is a typed URL, and a blank page
  * confirms less than a refusal would. The server refuses every messaging request
- * regardless — this is presentation, `requireAdult` is the control. */
+ * regardless — this is presentation, `requireMessaging` is the control. */
 const InboxPage = () => {
     const permitted = useMessagingPermitted()
 

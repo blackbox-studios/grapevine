@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useShallow } from "zustand/react/shallow"
 
 import { addDays } from "@/lib/utils"
+import { useReadingTranslation } from "@/lib/store/prefs/hook"
 import usePrologueStore, { DAY_REACH } from "./store"
 
 /* The reading, and the few days the stepper may reach.
@@ -16,8 +17,15 @@ import usePrologueStore, { DAY_REACH } from "./store"
  * which is the date it actually served.
  *
  * Mounting resets to today. Somebody who stepped to tomorrow, left, and came back is opening
- * the *Daily* Read again, so today is where it should start. */
+ * the *Daily* Read again, so today is where it should start.
+ *
+ * The translation is read here and handed down, which is the `useCurrentOrg` arrangement a
+ * second time: the store holds what it has fetched, the preference lives in `prefs`, and this
+ * hook is the one place the two meet. Changing it re-runs the effect, so the days printed in
+ * the old English are dropped on the way in rather than by anything having to invalidate
+ * them. */
 export const usePrologue = () => {
+    const { translation } = useReadingTranslation()
     const [days, date, today, ready, error, init, show, refresh] = usePrologueStore(
         useShallow(state => ([
             state.days,
@@ -31,7 +39,7 @@ export const usePrologue = () => {
         ])),
     )
 
-    useEffect(() => { init() }, [init])
+    useEffect(() => { init(translation) }, [init, translation])
 
     /* Every date the stepper can offer, oldest first, so the dots are drawn straight from it
      * and `index` is both the active dot and the position the arrows move from. */

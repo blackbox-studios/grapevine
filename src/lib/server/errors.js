@@ -14,6 +14,7 @@ export const ERROR_CODES = {
     RATE_LIMITED: "RATE_LIMITED",
     INTERNAL: "INTERNAL",
     UNAVAILABLE: "UNAVAILABLE",
+    FEATURE_DISABLED: "FEATURE_DISABLED",
 }
 
 export const ERROR_STATUS = {
@@ -25,6 +26,7 @@ export const ERROR_STATUS = {
     [ERROR_CODES.RATE_LIMITED]: 429,
     [ERROR_CODES.INTERNAL]: 500,
     [ERROR_CODES.UNAVAILABLE]: 503,
+    [ERROR_CODES.FEATURE_DISABLED]: 503,
 }
 
 /* The only thing a service should throw. Services never touch the response — they throw
@@ -62,6 +64,18 @@ export const conflict = (message) => new AppError(ERROR_CODES.CONFLICT, message)
  * 401, which is why the distinction is load-bearing rather than pedantic. */
 export const unavailable = (message, { retryAfter } = {}) =>
     new AppError(ERROR_CODES.UNAVAILABLE, message, { retryAfter })
+
+/* A feature this deployment has switched off. Shares 503 with `unavailable` and is a separate
+ * code for one reason: **the client must never tell anybody about it.** `toErrorList` drops it,
+ * so a request that raced the flag raises nothing at all, where a 503 that genuinely means a
+ * third party is down still toasts.
+ *
+ * The chrome for a disabled feature is already gone by the time this can be thrown — the flag
+ * takes the nav entry, the surface and the trigger with it — so anything reaching here is
+ * either that race or a crafted request, and neither deserves a sentence on a parishioner's
+ * screen. The message is for a developer reading a network tab. */
+export const featureDisabled = (message) =>
+    new AppError(ERROR_CODES.FEATURE_DISABLED, message)
 
 /* No credentials, or credentials that do not check out. Reached from `auth.js` on every
  * ordinary request and from the reminders endpoint, which authenticates a schedule rather than

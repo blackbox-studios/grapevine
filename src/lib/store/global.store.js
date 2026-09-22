@@ -15,6 +15,7 @@ import useMembersStore from '@/lib/store/members/store'
 import useMessagesStore from '@/lib/store/messages/store'
 import useNotificationsStore from '@/lib/store/notifications/store'
 import useOrgStore from '@/lib/store/org/store'
+import usePrefsStore from '@/lib/store/prefs/store'
 import usePrologueStore from '@/lib/store/prologue/store'
 import usePushStore from '@/lib/store/push/store'
 import useSheetStore from '@/lib/store/sheet/store'
@@ -64,6 +65,16 @@ import useUploadsStore from '@/lib/store/uploads/store'
  * firing it from a splash screen is how an app becomes permanently unreachable. Off-device
  * the whole thing resolves to nothing.
  *
+ * `prefs` does none of the three either, and for a related reason: it holds this device's
+ * settings rather than anything about a viewer, it fetches nothing, and it persists itself. It
+ * appears below only as an argument — the boot warm has to ask for the reading in the
+ * translation the reader chose, and `prologue` is handed that rather than reaching for it.
+ *
+ * `config` does none of the three. It holds the deployment's feature flags rather than
+ * anything about a viewer, so there is nothing to clear at sign-out — and clearing it would
+ * drop the version floor, which has to stand in front of the login screen too. It reads itself
+ * from <App/> and reports no errors, for `fasting`'s reason below.
+ *
  * `fasting` resets and nothing else: it has no boot fetch (its dates come from whichever rota is
  * on screen), and it has no errors to clear or aggregate, because a rule that could not be read
  * is a strip that is not drawn. See its header. */
@@ -71,7 +82,7 @@ const useStore = create(() => ({
     initAuthorizedStores: () => Promise.all([
         useAppStore.getState().init(),
         useNotificationsStore.getState().init(),
-        usePrologueStore.getState().init(),
+        usePrologueStore.getState().init(usePrefsStore.getState().translation),
         usePushStore.getState().init(),
     ]),
     reset: () => {

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 
 import api from '@/lib/api'
-import { API_ENDPOINTS } from '@/lib/constants'
+import { API_ENDPOINTS, DEFAULT_TRANSLATION } from '@/lib/constants'
 import { addDays, toErrorList, todayLocal } from '@/lib/utils'
 
 /* The Daily Read — a day of the Prologue, with that day's fasting rule.
@@ -15,7 +15,13 @@ import { addDays, toErrorList, todayLocal } from '@/lib/utils'
  * so a day once fetched is answered from memory forever after — which is what lets the
  * stepper move between days without a skeleton, and what makes leaving the screen and coming
  * back cost nothing. The cache cannot grow: the stepper reaches one day either side of today
- * and nothing else can ask for a date, so it holds three entries. */
+ * and nothing else can ask for a date, so it holds three entries.
+ *
+ * **The one thing that can invalidate it is the reader's translation**, since the scripture
+ * above the Prologue is printed in it. This store holds the translation its days were fetched
+ * in and drops them when `init` is handed a different one — the same shape `feed` uses for the
+ * selected group, and the reason the preference lives in `prefs` and is passed in rather than
+ * reached for. */
 
 /* How far either side of today the reader may step. The commemoration changes at vespers, so
  * somebody reading on a September evening is often looking for the 3rd rather than the 2nd —
@@ -36,6 +42,10 @@ const INIT = {
      * because the offsets the stepper is drawn from have to be measured against a fixed
      * point, and because reading the clock in render is what would hydrate the wrong day. */
     today: null,
+    /* The translation the days above were fetched in, not the one the reader prefers — that is
+     * `prefs`'. Holding what is on the shelf rather than what was asked for is what lets `init`
+     * decide whether the shelf is still good. */
+    translation: DEFAULT_TRANSLATION,
 }
 
 const useStore = create(immer((set, get) => ({
@@ -53,9 +63,18 @@ const useStore = create(immer((set, get) => ({
      * The neighbours are warmed too, and deliberately **not awaited**: they are every step
      * the stepper can take, so fetching them makes it instant, and leaving them off the
      * critical path means the day being read never waits on the two nobody has asked for. */
-    init: async () => {
+    init: async (translation = DEFAULT_TRANSLATION) => {
         const today = todayLocal()
-        set(state => { state.today = today })
+
+        set(state => {
+            state.today = today
+            /* The days in hand were printed in another English, so they are not this
+             * reader's reading any more. */
+            if (state.translation !== translation) {
+                state.translation = translation
+                state.days = {}
+            }
+        })
 
         await get().show(today)
 
@@ -71,7 +90,9 @@ const useStore = create(immer((set, get) => ({
         if (!date || get().days[date]) return true
 
         try {
-            const day = await api.get(API_ENDPOINTS.PROLOGUE, { params: { date } })
+            const day = await api.get(API_ENDPOINTS.PROLOGUE, {
+                params: { date, translation: get().translation },
+            })
             set(state => { state.days[date] = day })
             return true
         } catch (error) {

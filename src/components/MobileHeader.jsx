@@ -1,35 +1,38 @@
 "use client"
 
+import Compose from "@/components/Compose"
 import { NotificationsTrigger } from "@/components/Notifications"
 import { OrgNavTrigger } from "@/components/OrgNav"
 import { cn } from "@/lib/utils"
 
-/* The phone's header for a group-scoped surface: which group you are reading on the left, the
- * bell on the right.
+/* The phone's header for the feed: which group you are reading on the left, and on the right
+ * the two controls that act on it rather than lead anywhere.
  *
- * ── Why every such surface has one ───────────────────────────────────────────
+ * ── Why the switcher is here ────────────────────────────────────────────────
  *
  * Everything in this app is read inside a selected group, and on a desktop the rail says so
- * permanently — the switcher is pinned top right and never leaves. A phone has no rail, so
- * without this a reader looking at a rota or a feed has nothing on screen naming the parish it
- * belongs to. The switcher is not decoration here; it is the only thing carrying the scope.
+ * permanently — the switcher is pinned top right and never leaves. A phone has no rail, so this
+ * is not decoration; it is the only thing on screen naming the parish whose posts these are.
  *
- * The bell rides along because it is **not a destination** — it opens a surface over wherever
- * the reader already is, which is why it is absent from the mobile rail below. The top right of
- * whatever screen somebody is on is where a thumb looks for it.
+ * ── Why the plus and the heart sit beside it ────────────────────────────────
+ *
+ * Neither is a destination. Both open a surface over wherever the reader already is, which is
+ * why neither takes a slot on the mobile bar below, and the top right of the feed is where a
+ * thumb looks for them. The plus is drawn only for an admin of some group and renders nothing
+ * at all for anybody else — see <Compose/>.
  *
  * ── Why it lives in the page rather than in the shell ────────────────────────
  *
- * It sits in the page's own column, so it lines up with the content beneath it — the feed's
- * post cards, the calendar's grid — and scrolls away with them. A shell-level bar would be
- * pinned, a different width, and would need to know which surfaces want it.
- *
- * `className` is the spacing, because that is the one thing each page genuinely differs on: the
- * feed pays its own `pb-6`, while a page whose column already carries a `gap` needs nothing. */
+ * It sits in the page's own column, so it lines up with the post cards beneath it and scrolls
+ * away with them. A shell-level bar would be pinned and a different width. */
 const MobileHeader = ({ className }) => (
     <div className={cn("md:hidden flex items-center justify-between", className)}>
         <OrgNavTrigger />
-        <NotificationsTrigger className="-mr-1" />
+
+        <div className="flex items-center gap-5">
+            <Compose />
+            <NotificationsTrigger className="-mr-1" />
+        </div>
     </div>
 )
 

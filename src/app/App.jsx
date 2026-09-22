@@ -7,12 +7,13 @@ import useFontWarm from "@/lib/hooks/useFontWarm.hook"
 import useNative from "@/lib/hooks/useNative.hook"
 import { useAuthGate, useAuthInit } from "@/lib/store/auth/hook"
 import { useCalendarWarm } from "@/lib/store/calendar/hook"
+import { useConfigWatch } from "@/lib/store/config/hook"
 import { useNotificationsWatch, useUnreadTitle } from "@/lib/store/notifications/hook"
 import useGlobalStore from "@/lib/store/global.store"
 
 /* App-wide side effects, mounted once by the root layout. Renders nothing — the
  * stores are module-level Zustand (not React context), so this wraps nothing. It does
- * sit inside <Providers>, because the native effects read the resolved theme. Eight
+ * sit inside <Providers>, because the native effects read the resolved theme. Nine
  * effects:
  *   1. Resolve the session — reconcile the persisted guess against Supabase, and consume a
  *      magic-link callback out of the URL if there is one. This lives here, above both
@@ -27,7 +28,8 @@ import useGlobalStore from "@/lib/store/global.store"
  *      useNotificationsWatch.
  *   6. Carry the unread tally into the browser tab — "(3) Grapevine" — via useUnreadTitle.
  *   7. Pull the Daily Read's serif down on an idle moment, via useFontWarm.
- *   8. Fill the selected group's month on an idle moment, via useCalendarWarm. */
+ *   8. Fill the selected group's month on an idle moment, via useCalendarWarm.
+ *   9. Read the deployment's feature flags, via useConfigWatch. */
 export default function App() {
     const initAuthorizedStores = useGlobalStore((state) => state.initAuthorizedStores)
     /* `useGlobalStore` above is the sanctioned direct read (frontend-architecture.md →
@@ -41,6 +43,9 @@ export default function App() {
     }, [loggedIn, initAuthorizedStores])
 
     useErrorListener()
+    /* Ungated, and it has to be: the flags carry the version floor, which must be able to wall
+       off a build too old to sign in at all. See the config store. */
+    useConfigWatch()
     /* The session is handed down because the native shell now owns the push listeners, and a
      * notification tapped from a cold launch must not be routed until there is a session to
      * route it into. See usePushListeners.

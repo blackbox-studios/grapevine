@@ -4,7 +4,7 @@ import { useCallback } from "react"
 import { usePathname, useRouter } from "next/navigation"
 
 import EventsCalendar, { CalendarLegend } from "@/components/EventsCalendar"
-import MobileHeader from "@/components/MobileHeader"
+import { OrgNavTrigger } from "@/components/OrgNav"
 import SignupSheets, { ModeSwitch } from "@/components/SignupSheets"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ROUTES } from "@/lib/constants"
@@ -27,8 +27,8 @@ import { signupIdFor } from "@/lib/utils"
  * This is rendered by `/events/page.jsx` *and* by `RUNTIME_SURFACES` for `/events/s/:sheetId`,
  * and that is the whole reason it is a component rather than a page body. A rota has a real
  * URL, so it can be linked to, reminded about and cold-loaded — and every one of those
- * arrivals has to land on the *same screen*, header and tabs and all, rather than on a stripped
- * surface that happens to show the same rota. Which rota is open is read from the pathname
+ * arrivals has to land on the *same screen*, tabs and all, rather than on a stripped surface
+ * that happens to show the same rota. Which rota is open is read from the pathname
  * below rather than passed in, so the two entrances cannot drift.
  *
  * ── Why arriving at a rota does not fade the page ────────────────────────────
@@ -76,14 +76,7 @@ const EventsView = () => {
     )
 
     return (
-        /* The same column treatment the feed uses — no top padding, and the mobile header paying
-           its own `pb-6` — so the group switcher and the bell sit in exactly the same place on
-           both screens. They are the two things a reader's eye tracks between pages, and a few
-           pixels of drift between them is the kind of thing that reads as sloppiness without
-           being nameable. */
         <div className="mx-auto w-full max-w-[640px] pb-10">
-            <MobileHeader className="pb-6" />
-
             {/* Both panels stay mounted and cross-fade, the way <ProfileCard/>'s do — the
                 primitive already handles it: `<Tabs/>` lays its list and its panels out as two
                 grid rows and both panels take the same cell, and `<TabsContent/>` force-mounts
@@ -92,24 +85,52 @@ const EventsView = () => {
                 Do **not** add `hidden` to a panel to keep it out of the way. It is `display:
                 none`, so the outgoing panel vanishes on the first frame instead of fading, and
                 the transition the primitive is built around never plays. */}
-            <Tabs value={showing} onValueChange={changeTab} className="gap-4">
-                {/* The bar is the page's whole first row: with no title above it there is
-                    nothing for it to be narrower than, and a reader with nothing to administer
-                    sees one control spanning the column. An admin's row is that row with the
-                    edit switch on the end of it rather than a different layout.
+            <Tabs value={showing} onValueChange={changeTab} className="gap-7 md:gap-4">
+                {/* The page's head, and the whole of it: the group switcher, the tabs and the
+                    edit switch on one line. The bar is the `underline` variant rather than the
+                    pill a card uses — these two words are the page's own title, and a track
+                    drawn around them would read as a widget sitting on the page rather than as
+                    the page.
 
-                    `items-start` levels the top of the bar with the top of the button and lets
-                    the switch's caption hang into the gap below, which is the edge the eye
-                    tracks across. The wrapper is an ordinary grid item in row one; the panels
-                    keep their own `row-start-2`, so they still stack and cross-fade. */}
-                <div className="flex items-start gap-3">
-                    <TabsList className="flex-1 rounded-full bg-muted/50 px-2">
+                    A phone has no rail, so the switcher belongs here: it is the only thing on
+                    screen naming the parish whose calendar this is.
+
+                    ── Two fixed things, so nothing else can move ──
+
+                    **The side columns are an equal, fixed width**, which is what centres the
+                    tabs on the *screen* rather than on whatever space is left over. Centring
+                    them between flexible neighbours would shift them every time the edit switch
+                    appeared or went away, which is exactly what happens when somebody switches
+                    between a group they administer and one they only belong to. A member sees
+                    the switcher alone, the right-hand box empty, and the tabs where they were.
+
+                    **The row is a fixed `h-10`**, the switcher's own size and the tallest thing
+                    in it, so the content below sits at the same height for everybody. The edit
+                    switch's caption hangs out of flow for the same reason; see `<ModeSwitch/>`.
+
+                    Above `md` the switcher is gone (the rail carries it there) and there is
+                    nothing to centre between, so this folds to an ordinary row: tabs at the
+                    column's left edge, lining up with the calendar and the rotas below, and the
+                    edit switch at the end.
+
+                    The wrapper is an ordinary grid item in the `<Tabs/>` root's first row; the
+                    panels keep their own `row-start-2`, so they still stack and cross-fade. */}
+                <div className="grid h-10 grid-cols-[2.5rem_1fr_2.5rem] items-center gap-3 md:flex">
+                    <div className="md:hidden">
+                        <OrgNavTrigger />
+                    </div>
+
+                    <TabsList
+                        variant="underline"
+                        className="w-full justify-center md:flex-1 md:justify-start"
+                    >
                         {TABS.map(({ id, label }) => (
                             <TabsTrigger key={id} value={id}>
                                 {label}
                             </TabsTrigger>
                         ))}
                     </TabsList>
+
                     <ModeSwitch />
                 </div>
 

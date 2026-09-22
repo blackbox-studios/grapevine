@@ -8,6 +8,7 @@ import {
     NESTED_TRANSITION_ROUTES,
     ROUTES,
     RUNTIME_ROUTES,
+    SILENT_ERROR_CODES,
 } from "@/lib/constants"
 
 /* Custom classes */
@@ -34,9 +35,18 @@ export function cn(...inputs) {
  * a bug in our own code — a TypeError, a non-Error throw — and its message is an internal
  * string, so the caller's copy is used instead.
  *
+ * **`false` for a silent code**, which is the same value every store's `ERROR_INIT` uses for
+ * "nothing is wrong" — so a refusal nobody is meant to hear about raises no toast *and* leaves
+ * no error state for a surface to render. `SILENT_ERROR_CODES` is the list, and it exists here
+ * rather than in `useErrorListener` because the rule is about what an error *is*, not about one
+ * of the ways it might be shown: a store that grew an inline error banner tomorrow would
+ * otherwise have to learn the rule again.
+ *
  * Stores should still branch on `error.code` when the *behaviour* differs — a 404 the UI
  * already renders as an empty state shouldn't also toast. This only formats the message. */
 export const toErrorList = (error, fallback) => {
+    if (SILENT_ERROR_CODES.has(error?.code)) return false
+
     const trusted = error?.name === "ApiError" && typeof error.message === "string"
     return [trusted && error.message.length > 0 ? error.message : fallback]
 }
@@ -1012,7 +1022,7 @@ export const sphereFor = (value) =>
  * calendar date (see `Profile.birthday`), so the comparison must not involve hours or
  * timezones. Null is **not** adult: messaging is gated on this, and an unknown age
  * failing open would put the one feature with an age floor in front of the one person
- * whose age nobody recorded. Shared by the server gate (`requireAdult`) and the client
+ * whose age nobody recorded. Shared by the server gate (`requireMessaging`) and the client
  * chrome that hides the entrance, so the two cannot disagree.
  *
  * Accepts a Date or an ISO string, because the server holds the column as a Date and
@@ -1028,4 +1038,35 @@ export const isAdult = (birthday) => {
     const birthMonthDay = (date.getUTCMonth() + 1) * 100 + date.getUTCDate()
     if (monthDay < birthMonthDay) age -= 1
     return age >= 18
+}
+
+/* ---------------------------------------------------------------------------
+ * Versions
+ * ------------------------------------------------------------------------- */
+
+/* Whether `version` is behind `floor`. False whenever the answer is not plainly yes.
+ *
+ * This is the whole of the force-update decision, so every uncertainty resolves to "keep
+ * going": no floor, a floor that is not three dotted numbers, a version that is not either. The
+ * value comes from a text field in a console, and the cost of reading a typo as a floor nothing
+ * satisfies is every phone in every parish walled out of the app at once, with the people it
+ * happened to unable to do anything about it.
+ *
+ * Numeric per part, not lexical: "0.2.0" is ahead of "0.10.0" as a string and behind it as a
+ * version. Prerelease and build suffixes are not understood and are not meant to be — the
+ * versions this compares are what `npm version patch` writes and what Gradle derives a
+ * versionCode from, which is three numbers and nothing else. */
+const VERSION_PARTS = /^(\d+)\.(\d+)\.(\d+)$/
+
+export const olderThan = (version, floor) => {
+    const left = VERSION_PARTS.exec(String(version ?? ""))
+    const right = VERSION_PARTS.exec(String(floor ?? ""))
+    if (!left || !right) return false
+
+    for (let i = 1; i <= 3; i += 1) {
+        const a = Number(left[i])
+        const b = Number(right[i])
+        if (a !== b) return a < b
+    }
+    return false
 }

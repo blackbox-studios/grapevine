@@ -839,17 +839,17 @@ const ComposeDrawer = ({ open, onOpenChange, onDirtyChange }) => (
 /* The entrance                                                               */
 /* -------------------------------------------------------------------------- */
 
-/* The plus in the nav, and the surface behind it.
+/* The plus, and the surface behind it.
  *
- * Rendered by the shell in both rails — the desktop column under Inbox and the mobile bar
- * beside it — with the same classes `NavItem` uses, so it sits in the same fixed icon box and
- * grows the same label when the rail expands. Only one of the two rails is ever visible, so
- * only one of these can be opened.
+ * Two placements, and `rail` picks the chrome between them: the desktop nav column draws it in
+ * the same fixed icon box `NavItem` uses, growing the same label as the rail expands, while the
+ * feed's mobile header draws a bare glyph on the tap target the heart beside it uses. Only one
+ * of the two is ever on screen, so only one of these can be opened.
  *
  * Crossing the breakpoint swaps dialog for sheet. Anything typed is lost in that moment,
  * which is a rotation mid-draft on a tablet and nothing else; holding the draft in a store to
  * survive it would be state with one purpose and a lifetime nobody could name. */
-const ComposeButton = () => {
+const ComposeButton = ({ rail }) => {
     const [open, setOpen] = useState(false)
     const [dirty, setDirty] = useState(false)
     const isDesktop = useIsDesktop()
@@ -873,17 +873,29 @@ const ComposeButton = () => {
             type="button"
             onClick={() => setOpen(true)}
             aria-label="New post"
-            className="flex cursor-pointer select-none items-center justify-center md:h-12 md:justify-start md:rounded-md md:transition-colors md:hover:bg-accent"
+            className={cn(
+                "flex cursor-pointer select-none items-center justify-center outline-hidden",
+                rail
+                    ? "md:h-12 md:justify-start md:rounded-md md:transition-colors md:hover:bg-accent"
+                    : "-m-1 rounded-full p-1",
+            )}
         >
-            <span className="flex items-center justify-center md:w-[calc(var(--nav-width)-1rem)] md:shrink-0">
+            <span
+                className={cn(
+                    "flex items-center justify-center",
+                    rail && "md:w-[calc(var(--nav-width)-1rem)] md:shrink-0",
+                )}
+            >
                 <Plus className="size-6" />
             </span>
-            <span className={cn(
-                "hidden whitespace-nowrap pr-4 text-base leading-none opacity-0 transition-opacity duration-200 ease-out md:block",
-                "group-data-[open=true]:opacity-100",
-            )}>
-                Create
-            </span>
+            {rail && (
+                <span className={cn(
+                    "hidden whitespace-nowrap pr-4 text-base leading-none opacity-0 transition-opacity duration-200 ease-out md:block",
+                    "group-data-[open=true]:opacity-100",
+                )}>
+                    Create
+                </span>
+            )}
         </button>
     )
 
@@ -906,9 +918,9 @@ const ComposeButton = () => {
 
 /* Admin-of-anywhere wrapper. A viewer who administers nothing renders nothing at all — they
  * must not see an affordance for a tier they cannot reach in any group. */
-const Compose = () => (
+const Compose = ({ rail = false }) => (
     <Privileged role={ROLES.ADMIN} anyOrg>
-        <ComposeButton />
+        <ComposeButton rail={rail} />
     </Privileged>
 )
 

@@ -388,7 +388,12 @@ try {
                     /* Play wants these as strings even though they are integers everywhere else. */
                     versionCodes: [String(uploaded.versionCode)],
                     status: STATUS,
-                    name: `${versionName} (${uploaded.versionCode})`,
+                    /* `versionCode (versionName)`, which is the order Play itself generates a
+                     * release name in. The label is console-only and never shown to a reader, so
+                     * the only thing it owes anybody is consistency with the rows either side of
+                     * it — and a list where one entry reads the other way round is one somebody
+                     * has to parse twice to check a release went out ahead of the last. */
+                    name: `${uploaded.versionCode} (${versionName})`,
                     ...(NOTES ? { releaseNotes: [{ language: "en-US", text: NOTES }] } : {}),
                 },
             ],

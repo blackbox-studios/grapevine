@@ -35,7 +35,13 @@ export const APP_STORES = {
  *
  * `APP_BUILD` is YYMMDDHHMM in UTC, which is a stamp rather than a number to compare: it
  * answers "which bundle is this" when two devices claim the same version, and it sorts. */
-export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"
+/* The fallback is deliberately **not a version**. `next.config.mjs` always inlines this, so
+ * reaching it means a bundle built some other way — and the update floor compares against it:
+ * "0.0.0" is the oldest version expressible, so it would read as behind every floor and raise
+ * the one wall in the app that nobody can dismiss. `olderThan` refuses anything that is not
+ * three dotted numbers, so a word here fails open the way the rest of that feature does, and
+ * /settings/about prints something true rather than a version nothing was built at. */
+export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "unknown"
 export const APP_BUILD = new Date(process.env.NEXT_PUBLIC_BUILT_AT ?? Date.now())
     .toISOString()
     .replace(/\D/g, "")

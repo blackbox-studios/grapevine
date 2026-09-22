@@ -82,7 +82,7 @@ const readBoolean = (raw, fallback) => {
  * **Anything unrecognised is null, deliberately.** This value is the one thing in the app that
  * can put a wall in front of every reader at once, and a typo in a console field must not be
  * able to raise it — an unparseable floor is treated as no floor rather than as a floor
- * nothing can satisfy. `compareVersions` in `lib/utils.js` reads the same three-number shape on
+ * nothing can satisfy. `olderThan` in `lib/utils.js` reads the same three-number shape on
  * the client. */
 const VERSION = /^\d+\.\d+\.\d+$/
 

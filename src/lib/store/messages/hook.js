@@ -5,6 +5,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { MESSAGES_POLL_MS, ROUTES } from "@/lib/constants"
 import { useRouteOpener } from "@/lib/hooks/useSlideRoute.hook"
+import { useConfigSettled } from "@/lib/store/config/hook"
 import { useUser } from "@/lib/store/auth/hook"
 import useNotificationsStore from "@/lib/store/notifications/store"
 import useMessagesStore from "./store"
@@ -18,18 +19,35 @@ import useMessagesStore from "./store"
  * the send icon must still be able to receive their priest's first message. */
 export const useMessagingBoot = () => {
     const user = useUser()
-    const boot = useMessagesStore((state) => state.boot)
+    const settled = useConfigSettled()
+    /* Depended on, not merely read: a deployment switched on later has to boot on that change.
+     * Without it the effect fires once against a stable `user` and this install never publishes
+     * its keys. */
+    const enabled = useMessagesStore((state) => state.enabled)
+    const [admit, boot] = useMessagesStore(
+        useShallow((state) => [state.admit, state.boot]),
+    )
 
+    /* The age gate, from the profile and nothing else, so the entrance is drawn in the frame
+     * the viewer lands rather than after any request. */
     useEffect(() => {
-        if (user?.id) boot(user)
-    }, [user, boot])
+        if (user?.id) admit(user)
+    }, [user, admit])
+
+    /* Publishing this install's keys, which waits for the flags. A boot that did not would
+     * register them into a deployment with messaging switched off, be refused, and have raced
+     * the flag for nothing. **Settled, not *on***: a client that could not reach the server
+     * proceeds on the optimistic default rather than never becoming reachable. */
+    useEffect(() => {
+        if (settled && enabled && user?.id) boot(user)
+    }, [settled, enabled, user, boot])
 }
 
 /* Whether the viewer may see messaging at all — the nav entries render off this, so
  * a minor never sees the entrance. The server refuses them regardless.
  *
  * **`permitted`, not `available`.** The entrance asks whether messaging is this person's
- * to use, which is their birthday and nothing else; `available` additionally waits for
+ * to use, which is the feature switch and their birthday; `available` additionally waits for
  * this install's keys to be registered, so a door drawn off it is missing on every
  * refresh until a round trip comes back and then appears under the reader's thumb. What
  * the wait actually protects is the paths that need `deviceId`, and those still check

@@ -70,15 +70,25 @@ const LOADING_INIT = {
 }
 
 const INIT = {
-    /* Whether messaging is this viewer's to use at all: an adult. **A fact about the
-     * person, so it is settled from the profile in the same frame the boot starts,
-     * before any request** — the nav entrance and the surfaces' gates are drawn off it,
-     * and one drawn off `available` instead is absent for the width of a round trip and
-     * then snaps in, on every refresh. */
+    /* Whether the feature is switched on for this deployment at all — `messaging_enabled` in
+     * Remote Config, pushed in by the config store. Starts true, because a client that has not
+     * heard must behave as one whose deploy has no flags; see that store's header. */
+    enabled: true,
+    /* Whether the viewer is old enough. **A fact about the person, so it is settled from the
+     * profile in the same frame the boot starts, before any request** — the entrance is drawn
+     * off `permitted` below, and one drawn off `available` instead is absent for the width of a
+     * round trip and then snaps in, on every refresh. */
+    adult: false,
+
+    /* The two gates, derived by `regate` from `enabled`, `adult` and `deviceId`. They are held
+     * in state rather than computed per read because every surface subscribes to one of them,
+     * and because `permitted` has to be true in the frame `boot` starts rather than in the
+     * frame it finishes.
+     *
+     * `permitted` is whether messaging is this viewer's to use: the entrance, the send icon and
+     * the inbox come off it. `available` adds a registered device, which is what everything
+     * that touches an envelope needs and what cannot be known without asking the server. */
     permitted: false,
-    /* Adult viewer *with a registered device* — the gate for everything that needs
-     * `deviceId`, which is everything that reads or writes an envelope. Distinct from
-     * `permitted` because it cannot be known without asking the server. */
     available: false,
     booting: false,
     /* Whether the automatic attempt has been spent, win or lose. Distinct from
@@ -106,6 +116,14 @@ const INIT = {
     thread: null,
 
     contacts: { query: "", items: [], loaded: false },
+}
+
+/* Recomputes the two gates. Every write that can move one of their inputs ends here, which is
+ * what lets the feature flag arrive at any moment — before the boot, during it, or an hour
+ * later — and still close every surface at once. */
+const regate = (state) => {
+    state.permitted = state.enabled && state.adult
+    state.available = state.permitted && Boolean(state.deviceId)
 }
 
 /* Sorts wire messages ascending, decrypts the unknown ones, merges with the cache,
@@ -170,11 +188,40 @@ const useStore = create(
     immer((set, get) => ({
         ...INIT,
 
+        /* Settles whether messaging is this person's to use, from the profile alone and
+         * without a request.
+         *
+         * Separate from `boot` because it must not wait for anything. The entrance is drawn off
+         * `permitted`, and `boot` holds back until the feature flags have been asked for — so
+         * an `adult` that only arrived with the rest of the boot would leave the Messages entry
+         * missing for the width of a round trip and then drop it in under a reader's thumb, on
+         * every launch. `boot` writes the same fact again on its own way through, so the two
+         * cannot disagree and neither depends on having run first. */
+        admit: (user) => {
+            set((state) => {
+                state.profileId = user.id
+                state.adult = isAdult(user.birthday)
+                regate(state)
+            })
+        },
+
+        /* The feature switch, from the config store. */
+        setEnabled: (enabled) => {
+            set((state) => {
+                state.enabled = Boolean(enabled)
+                regate(state)
+            })
+        },
+
         /* Once per sign-in: create-or-load this install's device, register its public
          * bundle, and top the one-time pool up against the server's count. Unawaited by
          * anything — a viewer who never opens the surface still becomes reachable, which
          * is what makes the *other* side's first send deliverable. */
         boot: async (user, { retry = false } = {}) => {
+            /* Switched off means this install does not publish keys at all. It is the one
+             * early return that is not about having already tried: `useMessagingBoot` depends
+             * on `enabled`, so flipping the flag on runs the boot that was skipped. */
+            if (!get().enabled) return
             if (!user?.id || get().booting) return
             if (get().profileId === user.id && get().available) return
             /* One failed attempt must not be the end of it, but neither may a re-render
@@ -184,8 +231,8 @@ const useStore = create(
 
             if (!isAdult(user.birthday)) {
                 set((state) => {
-                    state.permitted = false
-                    state.available = false
+                    state.adult = false
+                    regate(state)
                     state.booted = true
                     state.profileId = user.id
                 })
@@ -193,7 +240,8 @@ const useStore = create(
             }
 
             set((state) => {
-                state.permitted = true
+                state.adult = true
+                regate(state)
                 state.booting = true
                 state.profileId = user.id
             })
@@ -210,7 +258,7 @@ const useStore = create(
 
                 set((state) => {
                     state.deviceId = deviceId
-                    state.available = true
+                    regate(state)
                 })
             } catch (error) {
                 /* **Not silent.** A failure here leaves the install unreachable over
@@ -763,7 +811,10 @@ const useStore = create(
                 state.error.send = false
             }),
 
-        reset: () => set(() => ({ ...INIT })),
+        /* `enabled` survives, alone among these: it describes the deployment rather than the
+         * person signing out, and restoring it to the optimistic default here would put the
+         * send icon back in front of the next viewer until the flags were read again. */
+        reset: () => set((state) => ({ ...INIT, enabled: state.enabled })),
         clearErrors: () =>
             set((state) => {
                 state.error = ERROR_INIT

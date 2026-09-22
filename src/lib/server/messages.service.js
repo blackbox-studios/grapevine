@@ -4,8 +4,9 @@ import { prisma } from "@/lib/db"
 import { MAX_ENVELOPE_BYTES } from "@/lib/constants"
 import { isAdult } from "@/lib/utils"
 import { readableOrgIds } from "@/lib/server/auth"
+import { messagingEnabled } from "@/lib/server/config"
 import { keysetOrder, keysetPage, keysetWhere } from "@/lib/server/cursor"
-import { conflict, forbidden, invalid, notFound } from "@/lib/server/errors"
+import { conflict, featureDisabled, forbidden, invalid, notFound } from "@/lib/server/errors"
 import { pushMessage } from "@/lib/server/notifications.service"
 import { projectPerson } from "@/lib/server/projections"
 
@@ -26,9 +27,12 @@ import { projectPerson } from "@/lib/server/projections"
  *  - **Who may message whom.** One shared APPROVED group — the `visibleProfile`
  *    boundary again — re-checked on every read and every send (`sharesGroup`), so a
  *    revoked membership bites here exactly as it does on the feed. Both parties 18 or
- *    older (`requireAdult`; a minor neither appears in the contact list nor can be
- *    opened a thread to, and every endpoint refuses them as a caller). No
+ *    older (`requireMessaging`; a minor neither appears in the contact list nor can
+ *    be opened a thread to, and every endpoint refuses them as a caller). No
  *    `MessageBlock` between the pair.
+ *  - **Whether the feature is on.** `messaging_enabled` in Remote Config is read by the
+ *    same gate, so turning it off is a real control rather than chrome the client
+ *    happens to stop drawing.
  *  - **The request gate.** A recipient who does not follow the opener starts
  *    unaccepted (`ConversationParticipant.acceptedAt` null): they can read what
  *    arrived, but cannot reply until they accept, and the opener is never told
@@ -52,10 +56,21 @@ const MESSAGE_PAGE = 50
  * Gates
  * ------------------------------------------------------------------------- */
 
-/* 403 rather than 404: the feature's existence is not a secret, and the client hides
- * the entrance anyway — this is the backstop for a crafted request, not a message
- * anybody is meant to read. */
-const requireAdult = (viewer) => {
+/* The two things that must hold before any of this is reachable, checked at every entry point
+ * below. **The order is the useful part**: a deployment with messaging switched off says so and
+ * says nothing about the caller's age, so flipping the flag does not start telling a roomful of
+ * adults they are too young.
+ *
+ * `featureDisabled` for the switch, which the client says nothing at all about — see that
+ * helper. 403 for the age, rather than 404: that one the client does surface, and the feature's
+ * existence is no secret.
+ *
+ * Neither costs a round trip in the ordinary case; `appConfig` holds the flags for a minute at
+ * a time and answers from memory in between. */
+const requireMessaging = async (viewer) => {
+    if (!(await messagingEnabled())) {
+        throw featureDisabled("Messaging is switched off for this deployment.")
+    }
     if (!isAdult(viewer.birthday)) {
         throw forbidden("Messaging is available to adults only.")
     }
@@ -116,7 +131,7 @@ const isKey = (value, max = 128) =>
  * same key to a second sender, whose first message would then be unreadable once
  * the first sender's arrival burned the private half. */
 export const registerCryptoDevice = async (viewer, payload) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
 
     const {
         deviceId,
@@ -197,7 +212,7 @@ export const registerCryptoDevice = async (viewer, payload) => {
  * devices the caller actually lacks a session with — a sender must not drain a key
  * for a device it can already reach. */
 export const bundlesFor = async (viewer, profileId, { exclude, only } = {}) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
 
     if (profileId !== viewer.id) await messageableProfile(viewer, profileId)
 
@@ -320,7 +335,7 @@ const projectConversation = (conversation, viewer) => {
  * moves with every send, which is exactly the unstable ordering keyset cursors are
  * warned against in `cursor.js`. */
 export const listConversations = async (viewer, { deviceId }) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
 
     const conversations = await prisma.conversation.findMany({
         where: { participants: { some: { profileId: viewer.id } } },
@@ -348,7 +363,7 @@ export const listConversations = async (viewer, { deviceId }) => {
 /* Opens (or returns) the 1:1 thread with one person. Idempotent on the pair, so two
  * taps race to one row; the loser of the race finds the winner's conversation. */
 export const openConversation = async (viewer, { profileId }) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     const target = await messageableProfile(viewer, profileId)
 
     const existing = await prisma.conversation.findFirst({
@@ -425,7 +440,7 @@ const requireParticipant = async (viewer, conversationId) => {
 /* One thread: its meta and a page of envelopes for the asking device, in a single
  * request — the shape the thread surface paints from. */
 export const getConversation = async (viewer, conversationId, { deviceId, cursor, limit }) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     await requireParticipant(viewer, conversationId)
 
     const pageSize = limit ?? MESSAGE_PAGE
@@ -466,7 +481,7 @@ export const getConversation = async (viewer, conversationId, { deviceId, cursor
  * addressing is not: only devices belonging to this conversation's participants are
  * accepted, so the endpoint cannot be used to spray bytes at arbitrary installs. */
 export const sendMessage = async (viewer, conversationId, { senderDeviceId, envelopes }) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     const mine = await requireParticipant(viewer, conversationId)
 
     /* The request gate, sender side: an unaccepted recipient reads but cannot
@@ -601,7 +616,7 @@ export const sendMessage = async (viewer, conversationId, { senderDeviceId, enve
  * ------------------------------------------------------------------------- */
 
 export const markConversationRead = async (viewer, conversationId) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     await requireParticipant(viewer, conversationId)
     await prisma.conversationParticipant.update({
         where: { conversationId_profileId: { conversationId, profileId: viewer.id } },
@@ -610,7 +625,7 @@ export const markConversationRead = async (viewer, conversationId) => {
 }
 
 export const acceptConversation = async (viewer, conversationId) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     const mine = await requireParticipant(viewer, conversationId)
     if (mine.acceptedAt) return
     await prisma.conversationParticipant.update({
@@ -623,7 +638,7 @@ export const acceptConversation = async (viewer, conversationId) => {
  * been invested. Either participant may do it; ciphertext nobody wanted is not worth
  * a tombstone. */
 export const deleteConversation = async (viewer, conversationId) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     await requireParticipant(viewer, conversationId)
     await prisma.conversation.delete({ where: { id: conversationId } })
 }
@@ -631,7 +646,7 @@ export const deleteConversation = async (viewer, conversationId) => {
 /* Block, from a request's Block action: refuses the other participant for good and
  * removes the thread in the same breath. */
 export const blockConversation = async (viewer, conversationId) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
     await requireParticipant(viewer, conversationId)
     const other = await prisma.conversationParticipant.findFirst({
         where: { conversationId, profileId: { not: viewer.id } },
@@ -663,7 +678,7 @@ export const blockConversation = async (viewer, conversationId) => {
  * actually reach. Minors are absent, not greyed out: the list must not know they
  * exist. */
 export const listContacts = async (viewer, { query }) => {
-    requireAdult(viewer)
+    await requireMessaging(viewer)
 
     const orgIds = readableOrgIds(viewer)
     if (orgIds.length === 0) return { items: [], nextCursor: null }

@@ -80,13 +80,19 @@ import { cn, dayKey, formatDayHeading, formatTimeRange, signupIdFor, signupPath,
  * nothing of its own to be read against the way the nav rail's row teaches itself by
  * repetition. It is not a second control — the word is `aria-hidden` and the `aria-label` is the
  * accessible name — and the two words share one grid cell so the column cannot change width as
- * they cross-fade. */
+ * they cross-fade.
+ *
+ * **The caption is out of flow**, hung under the button rather than stacked below it, so this
+ * control is exactly as tall as its button. It sits in a row of a fixed height that the tabs
+ * beneath are positioned against, and a caption counted into that height would push them down
+ * for an admin and not for anybody else — so the page would step every time somebody switched
+ * between a group they administer and one they only belong to. */
 export const ModeSwitch = ({ className }) => {
     const { editing, canEdit, setMode } = useEventsView()
     if (!canEdit) return null
 
     return (
-        <div className={cn("flex shrink-0 flex-col items-center gap-1", className)}>
+        <div className={cn("relative flex shrink-0 flex-col items-center", className)}>
             <Button
                 type="button"
                 variant={editing ? "default" : "outline"}
@@ -117,7 +123,10 @@ export const ModeSwitch = ({ className }) => {
                 </span>
             </Button>
 
-            <span aria-hidden="true" className="grid text-xxs font-medium text-muted-foreground">
+            <span
+                aria-hidden="true"
+                className="absolute top-full left-1/2 mt-1 grid -translate-x-1/2 text-xxs font-medium whitespace-nowrap text-muted-foreground"
+            >
                 <span
                     className={cn(
                         "col-start-1 row-start-1 transition-opacity duration-300 ease-in-out",

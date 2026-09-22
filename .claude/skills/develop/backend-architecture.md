@@ -123,8 +123,17 @@ opaque string — never parse it.
 | `429` | Rate limited | `RATE_LIMITED` |
 | `500` | Unhandled server fault | `INTERNAL` |
 | `503` | Dependency unavailable | `UNAVAILABLE` |
+| `503` | Feature switched off for this deployment | `FEATURE_DISABLED` |
 
 Prefer `404` over `403` where revealing existence would itself leak information.
+
+`FEATURE_DISABLED` shares 503 with `UNAVAILABLE` and is separate for one reason: **the client
+must say nothing about it.** `toErrorList` maps it to `false` — the same value every store's
+`ERROR_INIT` uses for "nothing is wrong" — so it raises no toast and leaves no error state for
+a surface to render, where a genuine `UNAVAILABLE` still does both. Switching a feature off
+takes its entrance and its surface away, so the only callers that can reach it are one that
+raced the flag on boot and a crafted request, and neither warrants a sentence on a
+parishioner's screen. Use it only for a flag, never for a dependency that is merely down.
 
 ---
 
@@ -169,7 +178,8 @@ Codes are hardcoded in exactly **two** places, and they are two halves of one co
 Add, rename, or remove a code in **both**, plus §3 above, in the same change — otherwise
 the client branches on a string the server never sends. The client copy additionally
 carries `NETWORK`, which no server sends: `lib/api.js` throws it when the request never
-completed (offline, DNS, CORS, aborted connection).
+completed (offline, DNS, CORS, aborted connection), and `SILENT_ERROR_CODES`, the set
+`toErrorList` refuses to turn into anything a reader sees.
 
 ---
 
@@ -177,6 +187,7 @@ completed (offline, DNS, CORS, aborted connection).
 
 | Method | Path | Auth | Returns |
 |---|---|---|---|
+| `GET` | `/api/config` | **nobody** | `{ messagingEnabled, minimumVersion }` — the deployment's feature flags, read from Firebase Remote Config. The one unauthenticated route; see below |
 | `GET` | `/api/me` | viewer | the viewer: profile, vocation, role, groups |
 | `PATCH` | `/api/me` | viewer | the updated viewer — picture, name, display name, @handle, birthday, patron saint, name day, ordination date |
 | `POST` | `/api/me/onboarding` | viewer | the updated viewer — first-run orientation, all fields at once |
@@ -229,9 +240,17 @@ completed (offline, DNS, CORS, aborted connection).
 | `POST` | `/api/messages/conversations/:id/block` | participant | `204` — refuses the other party for good and discards the thread |
 | `GET` | `/api/messages/contacts?query=` | **adult** viewer | `{ items }` — adults who share an APPROVED group with the viewer and have a registered device |
 
-**Every endpoint is authenticated.** There is no anonymous read anywhere, and there must
-not be one — the app is invite-only and its content is a parish's private life. See
-`auth-architecture.md`.
+**Every endpoint that touches a parish is authenticated.** There is no anonymous read of
+anybody's content anywhere, and there must not be one — the app is invite-only and its
+content is a parish's private life. See `auth-architecture.md`.
+
+`GET /api/config` is the single exception, and it is one because of what it carries rather
+than in spite of it. `minimumVersion` is the version floor that puts the update wall in front
+of a native build too old to run, and a kill switch readable only by a client still healthy
+enough to authenticate is unreachable in exactly the case it was written for. What is on it is
+a boolean and a version number: nothing names a person, a parish, or anything a stranger could
+not infer by opening the app. **Nothing viewer-scoped may be added to it** — a flag that varies
+by who is asking belongs on `/api/me`, which has a viewer to vary by.
 
 `POST /api/signups/reminders` is the one endpoint with no *viewer*, because a clock is not a
 person — and it is still authenticated, by a shared secret compared with `timingSafeEqual`. It

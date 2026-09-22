@@ -3,7 +3,8 @@ import { preflight, route } from "@/lib/server/handler"
 import { sendResource } from "@/lib/server/respond"
 import { getDailyReading } from "@/lib/server/prologue.service"
 
-/* GET /api/prologue?date=YYYY-MM-DD — the Daily Read, defaulting to today.
+/* GET /api/prologue?date=YYYY-MM-DD&translation=<version> — the Daily Read, defaulting to
+ * today in the default translation.
  *
  * The one endpoint here with no group in it. A day's reading is the same text for every
  * parish, so there is nothing to scope and no `orgId` to filter on — but it still asks for
@@ -15,8 +16,10 @@ export const dynamic = "force-dynamic"
 
 export const GET = route(async (request) => {
     await requireViewer(request)
-    const date = new URL(request.url).searchParams.get("date")
-    return sendResource(await getDailyReading(date))
+    const params = new URL(request.url).searchParams
+    return sendResource(
+        await getDailyReading(params.get("date"), params.get("translation")),
+    )
 })
 
 export const OPTIONS = preflight

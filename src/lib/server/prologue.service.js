@@ -1,5 +1,6 @@
 import "server-only"
 
+import { DEFAULT_TRANSLATION, READING_TRANSLATIONS } from "@/lib/constants"
 import { AppError, ERROR_CODES, notFound } from "@/lib/server/errors"
 import { parsePrologue } from "@/lib/server/prologue/parse"
 
@@ -38,11 +39,17 @@ const SOURCE_BASE_URL =
 const ORTHOCAL_BASE_URL =
     process.env.ORTHOCAL_BASE_URL ?? "https://orthocal.info/api"
 
-/* orthocal serves three translations and defaults to a modern one. The King James is the
- * version the Prologue's own English was translated beside, so it is the only one that does
- * not change voice halfway down the page. Named in the query rather than left to the default,
- * because the default is upstream's to change. */
-const TRANSLATION = "kjv"
+/* The translation is the reader's, set on `/settings/general` and sent per request. It is
+ * always named in the query rather than left to upstream's own default, because that default
+ * is upstream's to change.
+ *
+ * Validated against the same list the setting is drawn from: orthocal answers 422 to anything
+ * outside it, and a 422 from a third party is not what a reader should be shown for having a
+ * stale preference in a store. An unrecognised value reads as none at all. */
+const TRANSLATIONS = new Set(READING_TRANSLATIONS.map(({ value }) => value))
+
+const resolveTranslation = (value) =>
+    TRANSLATIONS.has(value) ? value : DEFAULT_TRANSLATION
 
 /* Upstream is a static file host and an almanac, so a slow response is a failure rather
  * than something to wait out — the reader is looking at a skeleton the whole time. */
@@ -82,9 +89,19 @@ const bounded = (limit) => {
     }
 }
 
-/* Keyed by month/day, because the reading for September 2nd is the same text every year. */
+/* Keyed by month/day, because the Prologue's entry for September 2nd is the same text every
+ * year. */
 const readings = bounded(40)
-/* Keyed by the full date, because Pascha moves and so does everything reckoned from it. */
+
+/* The day from orthocal, keyed by the full date because Pascha moves and so does everything
+ * reckoned from it. One entry holds `{ fasting, scripture }`, where `scripture` is keyed by
+ * translation.
+ *
+ * **The nesting is what keeps the two readers from paying for each other.** The fasting rule is
+ * a fact about the date and is identical in every translation, so a sign-up sheet showing it
+ * must not miss the cache because the reader of the Daily Read happens to be on the Douay. Only
+ * the scripture is per-translation, and only a translation nobody has asked for yet costs a
+ * fetch. */
 const observances = bounded(40)
 
 /* Validates a `YYYY-MM-DD` param and falls back to the server's own date.
@@ -220,23 +237,27 @@ const projectReadings = (appointed = []) => {
  * on and what the sentence lists, so no second "is it a fast" flag is derived here for the
  * two of them to disagree over.
  *
- * Both halves are cached together because they arrive together — one request answers the
- * Daily Read and `/api/fasting`, and each reader takes the half it draws. */
-const loadObservance = async ({ year, month, day }) => {
-    const key = `${year}-${month}-${day}`
+ * Both halves arrive in one response, so both are kept — `{ fasting, scripture }`, the second
+ * keyed by translation. A day already held in another translation is re-fetched for the
+ * scripture and keeps the rule it already had. */
+const observanceKey = ({ year, month, day }) => `${year}-${month}-${day}`
+
+const loadObservance = async (resolved, translation) => {
+    const { year, month, day } = resolved
+    const key = observanceKey(resolved)
 
     const cached = observances.get(key)
-    if (cached !== undefined) return cached
+    if (cached?.scripture[translation]) return cached
 
     try {
         const response = await fetch(
-            `${ORTHOCAL_BASE_URL}/gregorian/${year}/${month}/${day}/?translation=${TRANSLATION}`,
+            `${ORTHOCAL_BASE_URL}/gregorian/${year}/${month}/${day}/?translation=${translation}`,
             {
                 signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
                 headers: { Accept: "application/json" },
             },
         )
-        if (!response.ok) return null
+        if (!response.ok) return cached ?? null
 
         const data = await response.json()
         const observance = {
@@ -246,16 +267,19 @@ const loadObservance = async ({ year, month, day }) => {
                 level: data.fast_level_desc ?? null,
                 abstain: data.fast_abstentions ?? [],
             },
-            readings: projectReadings(data.readings),
+            scripture: {
+                ...cached?.scripture,
+                [translation]: projectReadings(data.readings),
+            },
         }
 
         observances.set(key, observance)
         return observance
     } catch {
-        /* Deliberately swallowed, and not cached: a timeout is a bad minute rather than a
-         * fact about the day, and caching the null would keep the strip missing until the
-         * process restarted. */
-        return null
+        /* Deliberately swallowed, and nothing new is cached: a timeout is a bad minute rather
+         * than a fact about the day, and remembering the failure would keep the strip missing
+         * until the process restarted. Whatever was already held still stands. */
+        return cached ?? null
     }
 }
 
@@ -267,11 +291,18 @@ const loadObservance = async ({ year, month, day }) => {
  * licensed corpus to read a five-word sentence. So the almanac half is reachable on its own, and
  * both callers share `observances` above — a date warmed by one is free for the other.
  *
+ * **Any translation satisfies this**, which is why the cache is consulted before the loader
+ * rather than through it: the rule is a fact about the date, so a date already read in any
+ * English answers here without a request. Only a date nobody has opened at all costs one, and
+ * it is spent on the default translation because this caller has no reader to ask.
+ *
  * Null `fasting` is the ordinary answer when orthocal cannot be reached, exactly as it is on the
  * reading: the surface omits the strip rather than failing. */
 export const getFastingRule = async (date) => {
     const resolved = resolveDate(date)
-    const observance = await loadObservance(resolved)
+    const observance =
+        observances.get(observanceKey(resolved)) ??
+        (await loadObservance(resolved, DEFAULT_TRANSLATION))
 
     return {
         on: isoDate(resolved),
@@ -281,14 +312,19 @@ export const getFastingRule = async (date) => {
 
 /* One day of the Daily Read.
  *
- * `date` is an optional `YYYY-MM-DD`; absent means today. Both upstreams are asked at once,
- * because they are independent and the reading should not wait on the almanac. */
-export const getDailyReading = async (date) => {
+ * `date` is an optional `YYYY-MM-DD`; absent means today. `translation` is the reader's
+ * preference and falls back to the default when absent or unrecognised. Both upstreams are
+ * asked at once, because they are independent and the Prologue should not wait on the almanac.
+ *
+ * A day whose scripture could not be fetched in this translation still renders: `readings` is
+ * empty and the Prologue below it is untouched. */
+export const getDailyReading = async (date, translation) => {
     const resolved = resolveDate(date)
+    const version = resolveTranslation(translation)
 
     const [reading, observance] = await Promise.all([
         loadReading(resolved),
-        loadObservance(resolved),
+        loadObservance(resolved, version),
     ])
 
     if (!reading) throw notFound("There is no reading for that day.")
@@ -299,6 +335,6 @@ export const getDailyReading = async (date) => {
         on: isoDate(resolved),
         ...reading,
         fasting: observance?.fasting ?? null,
-        readings: observance?.readings ?? [],
+        readings: observance?.scripture[version] ?? [],
     }
 }

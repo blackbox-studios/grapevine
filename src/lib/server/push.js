@@ -1,6 +1,11 @@
 import "server-only"
 
-import { SignJWT, importPKCS8 } from "jose"
+import {
+    SCOPES,
+    firebaseConfigured,
+    firebaseProject,
+    googleAccessToken,
+} from "@/lib/server/google"
 
 /* The FCM transport: how a notification row becomes a buzz in somebody's pocket.
  *
@@ -18,9 +23,9 @@ import { SignJWT, importPKCS8 } from "jose"
  * outweigh it in a codebase that counts statements (see "Round trips are the cost" in
  * backend-architecture.md).
  *
- * What is left is an OAuth2 access token, and this app already mints and verifies JWTs with
- * `jose` — `requireViewer` verifies Supabase's against its JWKS in-process rather than paying
- * a round trip to ask. Signing one for Google is the same tool pointed the other way.
+ * What is left is an OAuth2 access token, which is `google.js`'s job rather than this file's
+ * — the same service account also reads the feature flags, so the credential and the token
+ * cache are shared.
  *
  * ── Why not topics ──────────────────────────────────────────────────────────
  *
@@ -37,79 +42,11 @@ import { SignJWT, importPKCS8 } from "jose"
  * Per-token sends also let the payload be per-recipient, which a topic cannot, and a parish
  * or a diocese is hundreds of devices — the fan-out already writes a row per member. */
 
-const PROJECT_ID = process.env.FCM_PROJECT_ID
-const CLIENT_EMAIL = process.env.FCM_CLIENT_EMAIL
-/* The service account's private key. Newlines are escaped when it travels through an
- * environment variable, and `importPKCS8` rejects the key outright if they are left that way
- * — so unescape here rather than asking every deploy target to preserve real newlines. */
-const PRIVATE_KEY = process.env.FCM_PRIVATE_KEY?.replace(/\\n/g, "\n")
-
 /* Whether push is wired up at all. False in local development and on any deploy that has not
  * been given the service account, and every entry point below turns into a no-op — the
  * notification row is still written, the panel still shows it, and only the delivery is
  * missing. Push must never be a reason a like fails. */
-export const pushConfigured = () => Boolean(PROJECT_ID && CLIENT_EMAIL && PRIVATE_KEY)
-
-const TOKEN_URL = "https://oauth2.googleapis.com/token"
-const SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
-
-/* ---------------------------------------------------------------------------
- * Access token
- * ------------------------------------------------------------------------- */
-
-/* Google's access tokens last an hour, so minting one per send would add two round trips to
- * every like — one to sign nothing (that part is local) and one to exchange. Cached at module
- * scope, which is per process: the web target is one long-lived Node server, the same fact
- * that makes the session pooler the right choice for `DATABASE_URL`.
- *
- * `expiresAt` is set a minute short of the real expiry so a token cannot be handed out and
- * then rejected while the request carrying it is still in flight. `inflight` collapses a
- * concurrent stampede — a parish publishing to 200 devices asks 200 times at once otherwise
- * — into one exchange that every caller awaits. */
-let cached = { token: null, expiresAt: 0 }
-let inflight = null
-
-const SKEW_MS = 60_000
-
-const mintAccessToken = async () => {
-    const key = await importPKCS8(PRIVATE_KEY, "RS256")
-
-    const assertion = await new SignJWT({ scope: SCOPE })
-        .setProtectedHeader({ alg: "RS256" })
-        .setIssuer(CLIENT_EMAIL)
-        .setSubject(CLIENT_EMAIL)
-        .setAudience(TOKEN_URL)
-        .setIssuedAt()
-        .setExpirationTime("1h")
-        .sign(key)
-
-    const res = await fetch(TOKEN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion,
-        }),
-    })
-
-    if (!res.ok) {
-        throw new Error(`FCM auth failed (${res.status}): ${await res.text()}`)
-    }
-
-    const { access_token: token, expires_in: expiresIn } = await res.json()
-    cached = { token, expiresAt: Date.now() + expiresIn * 1000 - SKEW_MS }
-    return token
-}
-
-const accessToken = async () => {
-    if (cached.token && Date.now() < cached.expiresAt) return cached.token
-
-    inflight ??= mintAccessToken().finally(() => {
-        inflight = null
-    })
-
-    return inflight
-}
+export const pushConfigured = firebaseConfigured
 
 /* ---------------------------------------------------------------------------
  * Send
@@ -164,7 +101,7 @@ const isUnregistered = (status, error) => {
 const sendOne = async (token, message, auth) => {
     try {
         const res = await fetch(
-            `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`,
+            `https://fcm.googleapis.com/v1/projects/${firebaseProject()}/messages:send`,
             {
                 method: "POST",
                 headers: {
@@ -219,7 +156,7 @@ export const sendPush = async (tokens, message) => {
 
     let auth
     try {
-        auth = await accessToken()
+        auth = await googleAccessToken(SCOPES.MESSAGING)
     } catch (error) {
         console.error("[push] could not obtain an access token", error)
         return []
